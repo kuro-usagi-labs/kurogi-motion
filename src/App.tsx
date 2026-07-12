@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Dashboard } from "./app/Dashboard";
+import { DashboardV2 } from "./app/DashboardV2";
 import { Editor } from "./app/Editor";
 import type { CreateProjectOptions } from "./core/project";
 import {
@@ -10,7 +10,7 @@ import {
   saveProject,
   type ProjectSummary,
 } from "./core/persistence";
-import { createTemplateProject } from "./core/templates";
+import { createCatalogTemplateProject } from "./core/templateCatalog";
 import type { KurogiProject } from "./types";
 
 export default function App() {
@@ -47,7 +47,7 @@ export default function App() {
   }
 
   async function createNewProject(options: CreateProjectOptions, templateId?: string) {
-    const project = createTemplateProject(options, templateId);
+    const project = createCatalogTemplateProject(options, templateId);
     await saveProject(project);
     setCurrentProject(project);
   }
@@ -74,7 +74,7 @@ export default function App() {
   }
 
   return (
-    <Dashboard
+    <DashboardV2
       projects={projects}
       loading={loading}
       onOpen={(projectId) => void openProject(projectId)}

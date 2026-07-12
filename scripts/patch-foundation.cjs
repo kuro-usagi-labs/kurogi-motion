@@ -1,5 +1,6 @@
 const fs = require("fs");
 
+// One-time source patch for the PRD foundation branch.
 function replaceRequired(source, before, after, label) {
   if (!source.includes(before)) {
     throw new Error(`Could not find ${label}`);

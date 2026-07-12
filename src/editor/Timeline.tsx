@@ -73,8 +73,8 @@ export function Timeline({
   }, [playerRef, project.id]);
 
   useEffect(() => {
-    const activeGesture = gesture;
-    if (!activeGesture) return;
+    if (!gesture) return;
+    const activeGesture: ActionGesture = gesture;
 
     function move(event: PointerEvent) {
       const delta = ((event.clientX - activeGesture.clientX) / activeGesture.laneWidth) * scene.duration;

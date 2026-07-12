@@ -1,3 +1,4 @@
+// Switches the editor to the stable SVG timeline once.
 const fs = require("fs");
 const path = "src/app/Editor.tsx";
 let source = fs.readFileSync(path, "utf8");

@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles.css";
 import "./overrides.css";
 import "./product.css";
+import "./polish.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Kurogi Motion could not find the application root.");

@@ -6,6 +6,7 @@ on:
       - feature/prd-foundation-remotion
     paths:
       - scripts/patch-electron-v3.cjs
+      - .github/workflows/patch-electron-v3.yml
 
 permissions:
   contents: write

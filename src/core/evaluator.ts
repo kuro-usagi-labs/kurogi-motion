@@ -364,8 +364,8 @@ function seededOrder(count: number, seed: number): number[] {
 function directionVector(direction: string, distance: number): { x: number; y: number } {
   if (direction === "left") return { x: -distance, y: 0 };
   if (direction === "right") return { x: distance, y: 0 };
-  if (direction === "down") return { x: 0, y: -distance };
-  return { x: 0, y: distance };
+  if (direction === "down") return { x: 0, y: distance };
+  return { x: 0, y: -distance };
 }
 
 function maskClip(direction: string, amount: number): string {

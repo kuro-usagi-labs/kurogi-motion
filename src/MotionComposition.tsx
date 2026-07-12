@@ -199,7 +199,7 @@ export const MotionComposition: React.FC<Props> = ({
             : scene.background.color ?? "#ffffff",
       }}
     >
-      {scene.background.type === "transparent" ? <TransparencyGrid /> : null}
+      {editable && scene.background.type === "transparent" ? <TransparencyGrid /> : null}
       {showSafeArea ? <SafeArea /> : null}
       {renderedLayers.map((layer) => {
         if (!layer.visible || layer.type === "group") return null;

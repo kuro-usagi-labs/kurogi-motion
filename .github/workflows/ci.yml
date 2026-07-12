@@ -21,12 +21,14 @@ jobs:
         id: build
         continue-on-error: true
         run: npm run build 2>&1 | tee build.log
-      - name: Upload build diagnostics
+      - name: Upload validation outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: build.log
+          name: validation-outputs
+          path: |
+            build.log
+            package-lock.json
       - name: Enforce build result
         if: steps.build.outcome != 'success'
         run: exit 1

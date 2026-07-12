@@ -53,5 +53,8 @@ export const easingRegistry: Record<EasingName, EasingFunction> = {
   elastic,
 };
 
-export const applyEasing = (name: EasingName, progress: number): number =>
-  easingRegistry[name](clamp01(progress));
+export const applyEasing = (name: EasingName, progress: number): number => {
+  const clamped = clamp01(progress);
+  if (clamped === 0 || clamped === 1) return clamped;
+  return easingRegistry[name](clamped);
+};

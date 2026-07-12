@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Player, type PlayerRef } from "@remotion/player";
+import type { PlayerRef } from "@remotion/player";
 import { MotionComposition } from "../MotionComposition";
 import {
   addLayers,
@@ -20,7 +20,9 @@ import {
 } from "../core/project";
 import { saveProject } from "../core/persistence";
 import { useProjectHistory } from "../core/useProjectHistory";
-import { Inspector, type InspectorTab } from "../editor/Inspector";
+import { Inspector, type InspectorTab } from "../editor/InspectorV2";
+import { CanvasStage } from "../editor/CanvasStage";
+import { Icon, type IconName } from "../ui/Icon";
 import { Timeline } from "../editor/Timeline";
 import type {
   AnimationAction,
@@ -41,12 +43,12 @@ interface EditorProps {
 
 type SidebarTab = "layers" | "assets" | "text" | "shapes" | "templates";
 
-const SIDEBAR_TABS: Array<{ id: SidebarTab; icon: string; label: string }> = [
-  { id: "layers", icon: "▱", label: "Layers" },
-  { id: "assets", icon: "◈", label: "Assets" },
-  { id: "text", icon: "T", label: "Text" },
-  { id: "shapes", icon: "◇", label: "Shapes" },
-  { id: "templates", icon: "✦", label: "Templates" },
+const SIDEBAR_TABS: Array<{ id: SidebarTab; icon: IconName; label: string }> = [
+  { id: "layers", icon: "layers", label: "Layers" },
+  { id: "assets", icon: "assets", label: "Assets" },
+  { id: "text", icon: "text", label: "Text" },
+  { id: "shapes", icon: "shapes", label: "Shapes" },
+  { id: "templates", icon: "templates", label: "Templates" },
 ];
 
 export function Editor({ initialProject, onExit }: EditorProps) {
@@ -477,16 +479,16 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           <span className={`save-dot status-${saveStatus.toLowerCase().replace(/\W/g, "-")}`}>● {saveStatus}</span>
         </div>
         <div className="toolbar-actions">
-          <button type="button" className="icon-btn" disabled={!history.canUndo} onClick={history.undo} title="Undo">↶</button>
-          <button type="button" className="icon-btn" disabled={!history.canRedo} onClick={history.redo} title="Redo">↷</button>
+          <button type="button" className="icon-btn" disabled={!history.canUndo} onClick={history.undo} title="Undo"><Icon name="undo" size={16} /></button>
+          <button type="button" className="icon-btn" disabled={!history.canRedo} onClick={history.redo} title="Redo"><Icon name="redo" size={16} /></button>
           <span className="toolbar-divider" />
-          <button type="button" className="icon-btn" onClick={() => setZoom((value) => Math.max(25, value - 10))}>−</button>
+          <button type="button" className="icon-btn" onClick={() => setZoom((value) => Math.max(25, value - 10))} title="Zoom out"><Icon name="minus" size={15} /></button>
           <span className="zoom">{zoom}%</span>
-          <button type="button" className="icon-btn" onClick={() => setZoom((value) => Math.min(150, value + 10))}>+</button>
-          <button type="button" className={showSafeArea ? "icon-btn active" : "icon-btn"} onClick={() => setShowSafeArea((value) => !value)} title="Toggle safe area">▣</button>
-          <button type="button" className="preview" onClick={togglePlay}>{playing ? "❚❚ Pause" : "▶ Preview"}</button>
-          <button type="button" className="share-button" onClick={() => void copyProjectSnapshot()}>Share</button>
-          <button type="button" className="export" onClick={() => setInspectorTab("Export")}>Export <span>↗</span></button>
+          <button type="button" className="icon-btn" onClick={() => setZoom((value) => Math.min(150, value + 10))} title="Zoom in"><Icon name="plus" size={15} /></button>
+          <button type="button" className={showSafeArea ? "icon-btn active" : "icon-btn"} onClick={() => setShowSafeArea((value) => !value)} title="Toggle safe area"><Icon name="frame" size={16} /></button>
+          <button type="button" className="preview" onClick={togglePlay}>{playing ? <><Icon name="pause" size={15} />Pause</> : <><Icon name="play" size={15} />Preview</>}</button>
+          <button type="button" className="share-button" onClick={() => void copyProjectSnapshot()}><Icon name="share" size={15} />Share</button>
+          <button type="button" className="export" onClick={() => setInspectorTab("Export")}>Export <Icon name="export" size={15} /></button>
         </div>
       </header>
 
@@ -494,21 +496,21 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         <aside className="rail">
           {SIDEBAR_TABS.map((item) => (
             <button type="button" key={item.id} className={sidebarTab === item.id ? "rail-active" : ""} onClick={() => setSidebarTab(item.id)}>
-              <b>{item.icon}</b><span>{item.label}</span>
+              <b><Icon name={item.icon} size={18} /></b><span>{item.label}</span>
             </button>
           ))}
-          <div className="rail-bottom"><button type="button"><b>?</b><span>Help</span></button><div className="avatar">KM</div></div>
+          <div className="rail-bottom"><button type="button"><b><Icon name="help" size={18} /></b><span>Help</span></button><div className="avatar">KM</div></div>
         </aside>
 
         <aside className="sidebar editor-sidebar">
-          <div className="panel-title"><span>{SIDEBAR_TABS.find((item) => item.id === sidebarTab)?.label}</span>{sidebarTab === "assets" ? <button type="button" onClick={() => assetInputRef.current?.click()}>＋</button> : null}</div>
+          <div className="panel-title"><span>{SIDEBAR_TABS.find((item) => item.id === sidebarTab)?.label}</span>{sidebarTab === "assets" ? <button type="button" onClick={() => assetInputRef.current?.click()} aria-label="Import asset"><Icon name="plus" size={16} /></button> : null}</div>
           {sidebarTab === "layers" ? (
             <div className="sidebar-scroll">
               <div className="scene-row"><span>⌄</span><b>{scene.name}</b><small>{scene.width} × {scene.height}</small></div>
               <div className="layer-list">
                 {[...layers].reverse().map((layer) => (
                   <div key={layer.id} className={`layer-row ${selectedLayerId === layer.id ? "selected" : ""}`} onClick={() => selectLayer(layer.id)}>
-                    <span className={`layer-thumb ${layer.type}`}>{layer.type === "text" ? "T" : layer.type === "shape" ? "●" : "◇"}</span>
+                    <span className={`layer-thumb ${layer.type}`}><Icon name={layer.type === "text" ? "text" : layer.type === "shape" ? "shapes" : "assets"} size={13} /></span>
                     <input
                       className="layer-name-editor"
                       value={layer.name}
@@ -538,11 +540,11 @@ export function Editor({ initialProject, onExit }: EditorProps) {
                         }
                       }}
                     />
-                    <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, visible: !candidate.visible })); }} title={layer.visible ? "Hide" : "Show"}>{layer.visible ? "◉" : "◌"}</button>
-                    <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, locked: !candidate.locked })); }} title={layer.locked ? "Unlock" : "Lock"}>{layer.locked ? "▣" : "▢"}</button>
+                    <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, visible: !candidate.visible })); }} title={layer.visible ? "Hide" : "Show"}>{layer.visible ? <Icon name="eye" size={14} /> : <Icon name="eyeOff" size={14} />}</button>
+                    <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, locked: !candidate.locked })); }} title={layer.locked ? "Unlock" : "Lock"}>{layer.locked ? <Icon name="lock" size={13} /> : <Icon name="unlock" size={13} />}</button>
                     <div className="layer-order-actions">
-                      <button type="button" onClick={(event) => { event.stopPropagation(); commitProject((current) => reorderLayer(current, layer.id, "up")); }} title="Move up">↑</button>
-                      <button type="button" onClick={(event) => { event.stopPropagation(); commitProject((current) => reorderLayer(current, layer.id, "down")); }} title="Move down">↓</button>
+                      <button type="button" onClick={(event) => { event.stopPropagation(); commitProject((current) => reorderLayer(current, layer.id, "up")); }} title="Move up"><Icon name="chevronUp" size={14} /></button>
+                      <button type="button" onClick={(event) => { event.stopPropagation(); commitProject((current) => reorderLayer(current, layer.id, "down")); }} title="Move down"><Icon name="chevronDown" size={14} /></button>
                     </div>
                   </div>
                 ))}
@@ -565,13 +567,13 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           {sidebarTab === "shapes" ? (
             <div className="add-grid shape-presets">
               {(["rectangle", "circle", "line", "polygon", "arrow"] as const).map((shape) => (
-                <button type="button" key={shape} onClick={() => addShape(shape)}><strong>{shape === "rectangle" ? "■" : shape === "circle" ? "●" : shape === "line" ? "━" : shape === "polygon" ? "⬟" : "➜"}</strong><span>{shape.charAt(0).toUpperCase() + shape.slice(1)}</span></button>
+                <button type="button" key={shape} onClick={() => addShape(shape)}><strong><Icon name={shape} size={25} /></strong><span>{shape.charAt(0).toUpperCase() + shape.slice(1)}</span></button>
               ))}
             </div>
           ) : null}
           {sidebarTab === "assets" ? (
             <div className="assets-panel sidebar-scroll">
-              <button type="button" className="asset-dropzone" onClick={() => assetInputRef.current?.click()}><span>↑</span><strong>Import an asset</strong><small>PNG, JPG, WebP, or sanitized SVG</small></button>
+              <button type="button" className="asset-dropzone" onClick={() => assetInputRef.current?.click()}><span><Icon name="upload" size={24} /></span><strong>Import an asset</strong><small>PNG, JPG, WebP, or sanitized SVG</small></button>
               <div className="asset-grid">
                 {Object.values(project.assets).map((asset) => (
                   <button type="button" key={asset.id} onClick={() => addExistingAsset(asset.id)}><img src={asset.thumbnailUrl ?? asset.sourceUrl} alt="" /><span>{asset.name}</span></button>
@@ -586,34 +588,17 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           ) : null}
         </aside>
 
-        <section className="stage editor-stage">
-          <div className="stage-top"><span>{scene.name}</span><span>{scene.width} × {scene.height} · {scene.fps} FPS</span></div>
-          <div className="canvas-wrap" style={{ width: `${zoom}%`, aspectRatio: `${scene.width}/${scene.height}` }}>
-            <Player
-              ref={playerRef}
-              component={MotionComposition}
-              inputProps={{
-                project,
-                selectedId: selectedLayerId,
-                onSelect: selectLayer,
-                onTransformCommit: commitTransform,
-                onTextCommit: commitText,
-                editable: true,
-                showSelection: !playing,
-                showSafeArea,
-              }}
-              durationInFrames={Math.max(1, Math.round(scene.duration * scene.fps))}
-              compositionWidth={scene.width}
-              compositionHeight={scene.height}
-              fps={scene.fps}
-              controls={false}
-              autoPlay={false}
-              loop
-              style={{ width: "100%", height: "100%" }}
-            />
-          </div>
-          <div className="stage-hint">Double-click text to edit · Drag handles to resize or rotate · <kbd>Space</kbd> to play</div>
-        </section>
+        <CanvasStage
+          project={project}
+          playerRef={playerRef}
+          selectedLayerId={selectedLayerId}
+          zoom={zoom}
+          playing={playing}
+          showSafeArea={showSafeArea}
+          onSelect={selectLayer}
+          onTransformCommit={commitTransform}
+          onTextCommit={commitText}
+        />
 
         <Inspector
           project={project}

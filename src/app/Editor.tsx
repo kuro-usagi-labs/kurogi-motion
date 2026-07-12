@@ -23,7 +23,7 @@ import { useProjectHistory } from "../core/useProjectHistory";
 import { Inspector, type InspectorTab } from "../editor/InspectorV2";
 import { CanvasStage } from "../editor/CanvasStage";
 import { Icon, type IconName } from "../ui/Icon";
-import { Timeline } from "../editor/Timeline";
+import { Timeline } from "../editor/TimelineV2";
 import type {
   AnimationAction,
   AnimationCategory,

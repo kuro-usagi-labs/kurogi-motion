@@ -130,6 +130,7 @@ ipcMain.handle("export-video", async (event, project, rawOptions = {}) => {
       ...(media.crf === null ? {} : { crf: media.crf }),
       ...(media.imageFormat ? { imageFormat: media.imageFormat } : {}),
       ...(media.pixelFormat ? { pixelFormat: media.pixelFormat } : {}),
+      ...(media.proResProfile ? { proResProfile: media.proResProfile } : {}),
       ...(options.format === "gif" ? { numberOfGifLoops: options.gifLoops } : {}),
       onStart: ({ frameCount: count }) => {
         frameCount = count;
@@ -177,6 +178,37 @@ ipcMain.handle("export-video", async (event, project, rawOptions = {}) => {
   }
 });
 
+ipcMain.handle("save-kuromotion-file", async (_event, envelope, defaultName) => {
+  validateKuroMotionEnvelope(envelope);
+  const target = await dialog.showSaveDialog({
+    title: "Save Kurogi Motion project",
+    defaultPath: String(defaultName || "kurogi-motion.kuromotion"),
+    filters: [{ name: "Kurogi Motion project", extensions: ["kuromotion"] }],
+  });
+  if (target.canceled || !target.filePath) return { canceled: true };
+  await fs.promises.writeFile(target.filePath, JSON.stringify(envelope, null, 2), "utf8");
+  return { path: target.filePath };
+});
+
+ipcMain.handle("open-kuromotion-file", async () => {
+  const target = await dialog.showOpenDialog({
+    title: "Open Kurogi Motion project",
+    properties: ["openFile"],
+    filters: [{ name: "Kurogi Motion project", extensions: ["kuromotion"] }],
+  });
+  if (target.canceled || !target.filePaths[0]) return { canceled: true };
+  const filePath = target.filePaths[0];
+  const content = await fs.promises.readFile(filePath, "utf8");
+  return { path: filePath, content };
+});
+
+function validateKuroMotionEnvelope(envelope) {
+  if (!envelope || typeof envelope !== "object") throw new Error("Invalid .kuromotion document.");
+  if (envelope.application !== "Kurogi Motion" || !envelope.project) {
+    throw new Error("The file is not a valid Kurogi Motion project.");
+  }
+}
+
 async function getServeUrl() {
   const build = async () => {
     const { bundle } = await import("@remotion/bundler");
@@ -202,6 +234,7 @@ async function chooseExportTarget(projectName, format) {
   const formats = {
     webm: { extension: "webm", label: "WebM video" },
     mp4: { extension: "mp4", label: "MP4 video" },
+    mov: { extension: "mov", label: "MOV ProRes 4444 video" },
     gif: { extension: "gif", label: "Animated GIF" },
   };
   const formatConfig = formats[format] || formats.mp4;
@@ -216,6 +249,15 @@ async function chooseExportTarget(projectName, format) {
 function mediaSettings(options) {
   const crf = options.quality === "high" ? 18 : options.quality === "low" ? 28 : 23;
   if (options.format === "gif") return { codec: "gif", crf: null };
+  if (options.format === "mov") {
+    return {
+      codec: "prores",
+      crf: null,
+      imageFormat: "png",
+      pixelFormat: "yuva444p10le",
+      proResProfile: "4444",
+    };
+  }
   if (options.format === "webm") {
     return {
       codec: "vp8",
@@ -228,7 +270,7 @@ function mediaSettings(options) {
 }
 
 function normalizeExportOptions(raw) {
-  const allowedFormats = new Set(["mp4", "webm", "gif", "png-sequence"]);
+  const allowedFormats = new Set(["mp4", "webm", "mov", "gif", "png-sequence"]);
   const allowedFps = new Set([24, 30, 60]);
   const allowedQuality = new Set(["low", "medium", "high"]);
   return {

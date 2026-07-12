@@ -1,3 +1,4 @@
+// Applies the editor v2 layout migration once.
 const fs = require("fs");
 const path = "src/app/Editor.tsx";
 let source = fs.readFileSync(path, "utf8");

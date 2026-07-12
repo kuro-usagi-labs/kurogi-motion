@@ -513,9 +513,30 @@ export function Editor({ initialProject, onExit }: EditorProps) {
                       className="layer-name-editor"
                       value={layer.name}
                       onClick={(event) => event.stopPropagation()}
-                      onFocus={() => selectLayer(layer.id)}
+                      onFocus={() => {
+                        selectLayer(layer.id);
+                        history.beginGesture();
+                      }}
                       onChange={(event) => history.preview((current) => updateLayer(current, layer.id, (candidate) => ({ ...candidate, name: event.currentTarget.value })))}
-                      onBlur={(event) => renameLayer(layer.id, event.currentTarget.value)}
+                      onBlur={(event) => {
+                        const cleanName = event.currentTarget.value.trim();
+                        if (!cleanName) {
+                          history.cancelGesture();
+                          return;
+                        }
+                        if (cleanName !== event.currentTarget.value) {
+                          history.preview((current) => updateLayer(current, layer.id, (candidate) => ({ ...candidate, name: cleanName })));
+                        }
+                        history.finishGesture();
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          history.cancelGesture();
+                          event.currentTarget.blur();
+                        }
+                      }}
                     />
                     <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, visible: !candidate.visible })); }} title={layer.visible ? "Hide" : "Show"}>{layer.visible ? "◉" : "◌"}</button>
                     <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, locked: !candidate.locked })); }} title={layer.locked ? "Unlock" : "Lock"}>{layer.locked ? "▣" : "▢"}</button>

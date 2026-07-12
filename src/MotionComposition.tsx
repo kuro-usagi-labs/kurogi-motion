@@ -59,6 +59,7 @@ export const MotionComposition: React.FC<Props> = ({
   const canvasRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<Gesture | null>(null);
   const [draftLayer, setDraftLayer] = useState<Layer | null>(null);
+  const draftLayerRef = useRef<Layer | null>(null);
   const [textEdit, setTextEdit] = useState<TextEdit | null>(null);
 
   const renderedLayers = useMemo(
@@ -113,7 +114,9 @@ export const MotionComposition: React.FC<Props> = ({
             )
           : undefined,
     };
-    setDraftLayer(cloneLayer(layer));
+    const initialDraft = cloneLayer(layer);
+    draftLayerRef.current = initialDraft;
+    setDraftLayer(initialDraft);
   }
 
   function moveGesture(event: React.PointerEvent<HTMLDivElement>) {
@@ -139,6 +142,7 @@ export const MotionComposition: React.FC<Props> = ({
       const delta = ((angle - (gesture.startAngle ?? 0)) * 180) / Math.PI;
       next.rotation = gesture.initial.rotation + delta;
     }
+    draftLayerRef.current = next;
     setDraftLayer(next);
   }
 
@@ -147,7 +151,8 @@ export const MotionComposition: React.FC<Props> = ({
     if (!gesture) return;
     if (event && gesture.pointerId !== event.pointerId) return;
     gestureRef.current = null;
-    const finalLayer = draftLayer;
+    const finalLayer = draftLayerRef.current;
+    draftLayerRef.current = null;
     setDraftLayer(null);
     if (!finalLayer || finalLayer.id !== gesture.id) return;
     onTransformCommit?.(finalLayer.id, {

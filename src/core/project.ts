@@ -331,7 +331,7 @@ export function createShapeLayer(
 
 export function createAssetLayer(scene: Scene, asset: ProjectAsset): ImageLayer | SvgLayer {
   const size = fitInside(scene, asset.width ?? 600, asset.height ?? 400, 0.55);
-  const base = {
+  const base: Omit<ImageLayer, "type" | "fit"> = {
     id: createId("layer"),
     sceneId: scene.id,
     name: asset.name,
@@ -345,7 +345,7 @@ export function createAssetLayer(scene: Scene, asset: ProjectAsset): ImageLayer 
     anchor: { x: 0.5, y: 0.5 },
     animationActions: [],
     assetId: asset.id,
-  } as const;
+  };
   return asset.type === "svg"
     ? { ...base, type: "svg" }
     : { ...base, type: "image", fit: "contain" };

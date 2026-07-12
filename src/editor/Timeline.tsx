@@ -73,38 +73,39 @@ export function Timeline({
   }, [playerRef, project.id]);
 
   useEffect(() => {
-    if (!gesture) return;
+    const activeGesture = gesture;
+    if (!activeGesture) return;
 
     function move(event: PointerEvent) {
-      const delta = ((event.clientX - gesture.clientX) / gesture.laneWidth) * scene.duration;
-      if (gesture.mode === "move") {
-        const rawEffectiveStart = gesture.initialStart + gesture.delay + delta;
+      const delta = ((event.clientX - activeGesture.clientX) / activeGesture.laneWidth) * scene.duration;
+      if (activeGesture.mode === "move") {
+        const rawEffectiveStart = activeGesture.initialStart + activeGesture.delay + delta;
         const effectiveStart = event.altKey
           ? rawEffectiveStart
-          : snapTime(rawEffectiveStart, project, frame / scene.fps, gesture.actionId, gesture.laneWidth);
+          : snapTime(rawEffectiveStart, project, frame / scene.fps, activeGesture.actionId, activeGesture.laneWidth);
         const startTime = clamp(
-          effectiveStart - gesture.delay,
+          effectiveStart - activeGesture.delay,
           0,
-          Math.max(0, scene.duration - gesture.initialDuration - gesture.delay),
+          Math.max(0, scene.duration - activeGesture.initialDuration - activeGesture.delay),
         );
-        setPreview({ startTime, duration: gesture.initialDuration });
+        setPreview({ startTime, duration: activeGesture.initialDuration });
       } else {
-        const rawDuration = gesture.initialDuration + delta;
-        const rawEnd = gesture.initialStart + gesture.delay + rawDuration;
+        const rawDuration = activeGesture.initialDuration + delta;
+        const rawEnd = activeGesture.initialStart + activeGesture.delay + rawDuration;
         const snappedEnd = event.altKey
           ? rawEnd
-          : snapTime(rawEnd, project, frame / scene.fps, gesture.actionId, gesture.laneWidth);
+          : snapTime(rawEnd, project, frame / scene.fps, activeGesture.actionId, activeGesture.laneWidth);
         const duration = clamp(
-          snappedEnd - gesture.initialStart - gesture.delay,
+          snappedEnd - activeGesture.initialStart - activeGesture.delay,
           0.05,
-          Math.max(0.05, scene.duration - gesture.initialStart - gesture.delay),
+          Math.max(0.05, scene.duration - activeGesture.initialStart - activeGesture.delay),
         );
-        setPreview({ startTime: gesture.initialStart, duration });
+        setPreview({ startTime: activeGesture.initialStart, duration });
       }
     }
 
     function finish() {
-      if (preview) onCommitAction(gesture.layerId, gesture.actionId, preview);
+      if (preview) onCommitAction(activeGesture.layerId, activeGesture.actionId, preview);
       setGesture(null);
       setPreview(null);
     }

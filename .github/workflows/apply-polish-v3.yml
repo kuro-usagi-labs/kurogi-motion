@@ -6,6 +6,7 @@ on:
       - feature/prd-foundation-remotion
     paths:
       - scripts/apply-polish-v3.cjs
+      - .github/workflows/apply-polish-v3.yml
 
 permissions:
   contents: write

@@ -1,0 +1,28 @@
+name: Switch timeline v2
+
+on:
+  push:
+    branches:
+      - feature/prd-foundation-remotion
+    paths:
+      - scripts/switch-timeline-v2.cjs
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/prd-foundation-remotion
+      - run: node scripts/switch-timeline-v2.cjs
+      - shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/Editor.tsx
+          git commit -m "Use stable SVG timeline"
+          git push origin HEAD:feature/prd-foundation-remotion

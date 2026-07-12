@@ -35,6 +35,6 @@
     "appId": "com.kurogi.motion",
     "productName": "Kurogi Motion",
     "files": ["dist/**/*", "electron/**/*", "package.json"],
-    "win": { "target": "nsis" }
+    "win": { "target": "nsis", "signAndEditExecutable": false }
   }
 }

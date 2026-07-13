@@ -34,3 +34,7 @@ jobs:
       - name: Enforce build result
         if: steps.build.outcome != 'success'
         run: exit 1
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run browser smoke tests
+        run: npm run test:e2e

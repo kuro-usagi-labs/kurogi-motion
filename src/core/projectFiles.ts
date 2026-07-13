@@ -201,6 +201,15 @@ function isRecognizedProjectDocument(value: unknown): boolean {
     if (!isRecord(layerValue.size) || !isFiniteNumber(layerValue.size.width) || !isFiniteNumber(layerValue.size.height)) return false;
   }
 
+  for (const [sceneId, sceneValue] of Object.entries(value.scenes)) {
+    if (!isRecord(sceneValue) || !Array.isArray(sceneValue.layerIds)) return false;
+    for (const layerId of sceneValue.layerIds) {
+      if (typeof layerId !== "string") return false;
+      const layerValue = value.layers[layerId];
+      if (!isRecord(layerValue) || layerValue.sceneId !== sceneId) return false;
+    }
+  }
+
   return true;
 }
 

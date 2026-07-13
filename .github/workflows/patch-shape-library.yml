@@ -6,12 +6,14 @@ on:
       - main
     paths:
       - scripts/patch-shape-library.py
+      - scripts/fix-shape-audit.py
       - .github/workflows/patch-shape-library.yml
   push:
     branches:
       - feature/prd-foundation-remotion
     paths:
       - scripts/patch-shape-library.py
+      - scripts/fix-shape-audit.py
 
 permissions:
   contents: write
@@ -33,7 +35,9 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply shape and template patch
-        run: python scripts/patch-shape-library.py
+        run: |
+          python scripts/patch-shape-library.py
+          python scripts/fix-shape-audit.py
       - name: Install dependencies
         run: npm ci
       - name: Validate shape and template foundations

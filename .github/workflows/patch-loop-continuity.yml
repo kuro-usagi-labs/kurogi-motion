@@ -1,0 +1,33 @@
+name: Patch loop continuity
+
+on:
+  push:
+    branches:
+      - feature/prd-foundation-remotion
+    paths:
+      - scripts/patch-loop-continuity.mjs
+      - .github/workflows/patch-loop-continuity.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/prd-foundation-remotion
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply patch
+        run: node scripts/patch-loop-continuity.mjs
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/core/evaluator.ts src/editor/InspectorV2.tsx scripts/audit-loops.mjs package.json .github/workflows/ci.yml
+          git commit -m "Make loop animations enter from the base pose smoothly"
+          git push origin HEAD:feature/prd-foundation-remotion

@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   frontend:
-    name: Typecheck and build
+    name: Typecheck, template audit, and build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -33,6 +33,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit template layouts
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:templates 2>&1 | tee template-audit.log
+
       - name: Typecheck and build
         shell: bash
         run: |
@@ -44,6 +50,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-diagnostics-${{ github.run_id }}
-          path: build.log
+          path: |
+            template-audit.log
+            build.log
           if-no-files-found: ignore
           retention-days: 3

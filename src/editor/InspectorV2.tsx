@@ -139,9 +139,10 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
             <NumberField label="Letter spacing" value={layer.style.letterSpacing} step={.1} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, letterSpacing: value } } : current)} />
           </div>
           <div className="property-grid two">
-            <label>Alignment<select value={layer.style.align} onChange={(event) => commit((current) => current.type === "text" ? { ...current, style: { ...current.style, align: event.currentTarget.value as "left" | "center" | "right" } } : current)}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
-            <ColorField label="Color" value={layer.style.color} onBegin={onBegin} onFinish={onFinish} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, color: value } } : current)} />
+            <label>Horizontal<select value={layer.style.align} onChange={(event) => commit((current) => current.type === "text" ? { ...current, style: { ...current.style, align: event.currentTarget.value as "left" | "center" | "right" } } : current)}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+            <label>Vertical<select value={layer.style.verticalAlign ?? "middle"} onChange={(event) => commit((current) => current.type === "text" ? { ...current, style: { ...current.style, verticalAlign: event.currentTarget.value as "top" | "middle" | "bottom" } } : current)}><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select></label>
           </div>
+          <ColorField label="Color" value={layer.style.color} onBegin={onBegin} onFinish={onFinish} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, color: value } } : current)} />
         </section>
       ) : null}
 

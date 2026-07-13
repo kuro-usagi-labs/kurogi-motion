@@ -1,9 +1,10 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { MotionComposition } from "../MotionComposition";
 import { getActiveScene } from "../core/project";
 import type { KurogiProject, Layer } from "../types";
 import { Icon } from "../ui/Icon";
+import { normalizeWheelDelta, panForZoomAnchor, zoomFromWheel } from "./canvasMath";
 
 interface CanvasStageProps {
   project: KurogiProject;
@@ -47,14 +48,20 @@ export function CanvasStage({
   const scene = getActiveScene(project);
   const selectedLayer = selectedLayerId ? project.layers[selectedLayerId] ?? null : null;
   const stageRef = useRef<HTMLElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const panGestureRef = useRef<PanGesture | null>(null);
   const callbacksRef = useRef({ onSelect, onTransformCommit, onTextCommit });
+  const zoomRef = useRef(zoom);
+  const panRef = useRef({ x: 0, y: 0 });
   callbacksRef.current = { onSelect, onTransformCommit, onTextCommit };
   const [available, setAvailable] = useState({ width: 900, height: 600 });
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+  useEffect(() => { panRef.current = pan; }, [pan]);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
@@ -70,9 +77,9 @@ export function CanvasStage({
   }, []);
 
   const fitScale = Math.min(available.width / scene.width, available.height / scene.height);
-  const scale = Math.max(fitScale * .2, Math.min(fitScale * 4, fitScale * (zoom / 100)));
-  const width = Math.max(1, Math.round(scene.width * scale));
-  const height = Math.max(1, Math.round(scene.height * scale));
+  const baseWidth = Math.max(1, scene.width * fitScale);
+  const baseHeight = Math.max(1, scene.height * fitScale);
+  const viewScale = Math.max(.2, Math.min(4, zoom / 100));
 
   const stableSelect = useCallback((id: string) => callbacksRef.current.onSelect(id), []);
   const stableTransformCommit = useCallback(
@@ -98,17 +105,23 @@ export function CanvasStage({
     [project, selectedLayerId, showSafeArea, stableSelect, stableTextCommit, stableTransformCommit],
   );
 
+  function updatePan(next: { x: number; y: number }) {
+    panRef.current = next;
+    setPan(next);
+  }
+
   function beginPan(event: React.PointerEvent<HTMLElement>) {
     if (event.button !== 1) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
+    const currentPan = panRef.current;
     panGestureRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      originX: pan.x,
-      originY: pan.y,
+      originX: currentPan.x,
+      originY: currentPan.y,
     };
     setPanning(true);
     setContextMenu(null);
@@ -117,7 +130,7 @@ export function CanvasStage({
   function movePan(event: React.PointerEvent<HTMLElement>) {
     const gesture = panGestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
-    setPan({
+    updatePan({
       x: gesture.originX + event.clientX - gesture.startX,
       y: gesture.originY + event.clientY - gesture.startY,
     });
@@ -133,18 +146,30 @@ export function CanvasStage({
 
   function handleWheel(event: React.WheelEvent<HTMLElement>) {
     setContextMenu(null);
+    event.preventDefault();
     if (event.ctrlKey || event.metaKey) {
-      event.preventDefault();
-      const direction = event.deltaY > 0 ? -1 : 1;
-      onZoomChange?.(Math.max(20, Math.min(400, zoom + direction * Math.max(4, Math.round(Math.abs(event.deltaY) / 18)))));
+      const viewport = viewportRef.current?.getBoundingClientRect();
+      if (!viewport) return;
+      const currentZoom = zoomRef.current;
+      const delta = normalizeWheelDelta(event.deltaY, event.deltaMode);
+      const nextZoom = zoomFromWheel(currentZoom, delta);
+      if (Math.abs(nextZoom - currentZoom) < .01) return;
+      const pointerFromViewportCenter = {
+        x: event.clientX - (viewport.left + viewport.width / 2),
+        y: event.clientY - (viewport.top + viewport.height / 2),
+      };
+      const nextPan = panForZoomAnchor(panRef.current, pointerFromViewportCenter, currentZoom, nextZoom);
+      zoomRef.current = nextZoom;
+      updatePan(nextPan);
+      onZoomChange?.(nextZoom);
       return;
     }
-    event.preventDefault();
-    setPan((current) => ({ x: current.x - event.deltaX, y: current.y - event.deltaY }));
+    updatePan({ x: panRef.current.x - event.deltaX, y: panRef.current.y - event.deltaY });
   }
 
   function fitView() {
-    setPan({ x: 0, y: 0 });
+    updatePan({ x: 0, y: 0 });
+    zoomRef.current = 100;
     onZoomChange?.(100);
   }
 
@@ -187,33 +212,48 @@ export function CanvasStage({
         }}
       />
       <div className="stage-top"><span>{scene.name}</span><span>{scene.width} × {scene.height} · {scene.fps} FPS</span></div>
-      <div className="canvas-viewport">
+      <div className="canvas-viewport" ref={viewportRef}>
         <div
-          className="canvas-wrap stable-canvas-wrap"
+          aria-hidden="true"
           style={{
-            width,
-            height,
-            transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px))`,
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            width: baseWidth,
+            height: baseHeight,
+            transform: `translate(-50%, -50%) translate3d(${pan.x}px, ${pan.y}px, 0)`,
+            willChange: panning ? "transform" : undefined,
           }}
         >
-          <Player
-            ref={playerRef}
-            component={MotionComposition}
-            inputProps={playerInputProps}
-            durationInFrames={Math.max(1, Math.round(scene.duration * scene.fps))}
-            compositionWidth={scene.width}
-            compositionHeight={scene.height}
-            fps={scene.fps}
-            controls={false}
-            autoPlay={false}
-            loop
-            style={{ width, height }}
-          />
+          <div
+            className="canvas-wrap stable-canvas-wrap"
+            style={{
+              width: baseWidth,
+              height: baseHeight,
+              transform: `scale(${viewScale})`,
+              transformOrigin: "center center",
+              willChange: "transform",
+            }}
+          >
+            <Player
+              ref={playerRef}
+              component={MotionComposition}
+              inputProps={playerInputProps}
+              durationInFrames={Math.max(1, Math.round(scene.duration * scene.fps))}
+              compositionWidth={scene.width}
+              compositionHeight={scene.height}
+              fps={scene.fps}
+              controls={false}
+              autoPlay={false}
+              loop
+              style={{ width: baseWidth, height: baseHeight }}
+            />
+          </div>
         </div>
       </div>
       <div className="canvas-view-controls">
         <button type="button" title="Fit canvas" onClick={fitView}><Icon name="frame" size={15} /></button>
-        <span>{zoom}%</span>
+        <span>{Math.round(zoom)}%</span>
       </div>
       {contextMenu ? (
         <div className="asset-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onMouseDown={(event) => event.stopPropagation()}>

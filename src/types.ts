@@ -1,10 +1,11 @@
-export const PROJECT_VERSION = 2;
+export const PROJECT_VERSION = 3;
 
 export type LayerType = "text" | "shape" | "image" | "svg" | "group";
 export type ShapeType = "rectangle" | "circle" | "line" | "polygon" | "arrow";
 export type AnimationCategory = "in" | "loop" | "out";
 export type TextAnimationUnit = "layer" | "line" | "word" | "character";
 export type StaggerOrder = "normal" | "reverse" | "center" | "edges" | "random";
+export type TextVerticalAlign = "top" | "middle" | "bottom";
 
 export type EasingName =
   | "linear"
@@ -150,6 +151,7 @@ export interface TextLayer extends BaseLayer {
     lineHeight: number;
     letterSpacing: number;
     align: "left" | "center" | "right";
+    verticalAlign: TextVerticalAlign;
     color: string;
   };
 }

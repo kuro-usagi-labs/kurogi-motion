@@ -13,6 +13,7 @@ import {
   type SvgLayer,
   type TextLayer,
 } from "../types";
+import { normalizeTextVerticalAlign } from "./textLayout";
 
 export type ProjectFormat = "square" | "vertical" | "landscape" | "portrait" | "custom";
 
@@ -303,6 +304,7 @@ export function createTextLayer(
       lineHeight: 0.95,
       letterSpacing: -1,
       align: "left",
+      verticalAlign: "middle",
       color: options.color ?? "#1b173a",
     },
   };
@@ -528,6 +530,9 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
       delay: Math.max(0, action.delay),
       parameters: action.parameters ?? {},
     }));
+    if (layer.type === "text") {
+      layer.style.verticalAlign = normalizeTextVerticalAlign(layer.style.verticalAlign);
+    }
   }
   return next;
 }

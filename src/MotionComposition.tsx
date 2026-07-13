@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useCurrentFrame, useVideoConfig } from "remotion";
 import {
   evaluateLayer,
@@ -7,6 +7,7 @@ import {
   splitTextUnits,
 } from "./core/evaluator";
 import { getActiveScene, getSceneLayers } from "./core/project";
+import { textVerticalJustification } from "./core/textLayout";
 import { LayerEffects } from "./renderer/LayerEffects";
 import type { KurogiProject, Layer, TextLayer } from "./types";
 
@@ -58,10 +59,19 @@ export const MotionComposition: React.FC<Props> = ({
   const scene = getActiveScene(project);
   const layers = getSceneLayers(project);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const textEditorRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<Gesture | null>(null);
   const [draftLayer, setDraftLayer] = useState<Layer | null>(null);
   const draftLayerRef = useRef<Layer | null>(null);
   const [textEdit, setTextEdit] = useState<TextEdit | null>(null);
+
+  useLayoutEffect(() => {
+    const editor = textEditorRef.current;
+    if (!editor || !textEdit) return;
+    editor.innerText = textEdit.value;
+    editor.focus();
+    moveCaretToEnd(editor);
+  }, [textEdit?.layerId]);
 
   const renderedLayers = useMemo(
     () => layers.map((layer) => (draftLayer?.id === layer.id ? draftLayer : layer)),
@@ -252,40 +262,43 @@ export const MotionComposition: React.FC<Props> = ({
               <div style={{ width: "100%", height: "100%", filter: animatedFilter || undefined }}>
                 {layer.type === "text" ? (
                   isEditing && textEdit ? (
-                    <textarea
-                      autoFocus
-                      value={textEdit.value}
-                      spellCheck={false}
-                      onChange={(event) =>
-                        setTextEdit((current) =>
-                          current ? { ...current, value: event.currentTarget.value } : current,
-                        )
-                      }
-                      onBlur={commitTextEdit}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          setTextEdit(null);
-                        }
-                        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                          event.preventDefault();
-                          commitTextEdit();
-                        }
-                      }}
-                      style={{
-                        ...textStyle(layer),
-                        width: "100%",
-                        height: "100%",
-                        margin: 0,
-                        padding: 0,
-                        border: 0,
-                        outline: `${Math.max(1, scene.width / 540)}px solid #7c5cff`,
-                        resize: "none",
-                        overflow: "hidden",
-                        background: "transparent",
-                      }}
-                    />
+                    <TextFrame layer={layer}>
+                      <div
+                        ref={textEditorRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        spellCheck={false}
+                        onInput={(event) => {
+                          const value = event.currentTarget.innerText.replace(/\r/g, "");
+                          setTextEdit((current) => current ? { ...current, value } : current);
+                        }}
+                        onBlur={commitTextEdit}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setTextEdit(null);
+                          }
+                          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                            event.preventDefault();
+                            commitTextEdit();
+                          }
+                        }}
+                        style={{
+                          ...textStyle(layer),
+                          width: "100%",
+                          minHeight: layer.style.fontSize * layer.style.lineHeight,
+                          maxHeight: "100%",
+                          padding: 0,
+                          border: 0,
+                          outline: `${Math.max(1, scene.width / 540)}px solid #7c5cff`,
+                          overflow: "hidden",
+                          background: "transparent",
+                          cursor: "text",
+                          userSelect: "text",
+                        }}
+                      />
+                    </TextFrame>
                   ) : (
                     <AnimatedText layer={layer} scene={scene} time={time} />
                   )
@@ -314,30 +327,50 @@ function AnimatedText({ layer, scene, time }: { layer: TextLayer; scene: ReturnT
   const unit = getTextAnimationUnit(layer);
   const units = splitTextUnits(layer.text, unit);
   if (unit === "layer") {
-    return <div style={{ ...textStyle(layer), width: "100%", height: "100%" }}>{layer.text}</div>;
+    return <TextFrame layer={layer}><div style={{ ...textStyle(layer), width: "100%" }}>{layer.text}</div></TextFrame>;
   }
 
   return (
-    <div style={{ ...textStyle(layer), width: "100%", height: "100%" }}>
-      {units.map((part, index) => {
-        if (part.text === "\n") return <br key={part.key} />;
-        const visual = evaluateTextUnit(layer, scene, time, index, units.length);
-        return (
-          <span
-            key={part.key}
-            style={{
-              display: "inline-block",
-              whiteSpace: "pre",
-              opacity: visual.opacity,
-              transform: `perspective(${scene.width}px) translate(${visual.translateX}px, ${visual.translateY}px) rotate(${visual.rotation}deg) rotateX(${visual.rotateX}deg) rotateY(${visual.rotateY}deg) scale(${visual.scale})`,
-              transformOrigin: "center",
-              filter: visual.blur > 0 ? `blur(${visual.blur}px)` : undefined,
-            }}
-          >
-            {part.text}
-          </span>
-        );
-      })}
+    <TextFrame layer={layer}>
+      <div style={{ ...textStyle(layer), width: "100%" }}>
+        {units.map((part, index) => {
+          if (part.text === "\n") return <br key={part.key} />;
+          const visual = evaluateTextUnit(layer, scene, time, index, units.length);
+          return (
+            <span
+              key={part.key}
+              style={{
+                display: "inline-block",
+                whiteSpace: "pre",
+                opacity: visual.opacity,
+                transform: `perspective(${scene.width}px) translate(${visual.translateX}px, ${visual.translateY}px) rotate(${visual.rotation}deg) rotateX(${visual.rotateX}deg) rotateY(${visual.rotateY}deg) scale(${visual.scale})`,
+                transformOrigin: "center",
+                filter: visual.blur > 0 ? `blur(${visual.blur}px)` : undefined,
+              }}
+            >
+              {part.text}
+            </span>
+          );
+        })}
+      </div>
+    </TextFrame>
+  );
+}
+
+function TextFrame({ layer, children }: { layer: TextLayer; children: React.ReactNode }) {
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: textVerticalJustification(layer.style.verticalAlign),
+      width: "100%",
+      height: "100%",
+      minWidth: 0,
+      minHeight: 0,
+      overflow: "hidden",
+      boxSizing: "border-box",
+    }}>
+      {children}
     </div>
   );
 }
@@ -355,7 +388,18 @@ function textStyle(layer: TextLayer): React.CSSProperties {
     color: layer.style.color,
     WebkitTextFillColor: layer.style.color,
     boxSizing: "border-box",
+    minWidth: 0,
   };
+}
+
+function moveCaretToEnd(element: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 function ShapeVisual({ layer }: { layer: Extract<Layer, { type: "shape" }> }) {

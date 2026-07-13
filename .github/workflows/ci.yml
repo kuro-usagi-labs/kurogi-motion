@@ -39,6 +39,12 @@ jobs:
           set -o pipefail
           npm run audit:templates 2>&1 | tee template-audit.log
 
+      - name: Audit vector shape library
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:shapes 2>&1 | tee shape-audit.log
+
       - name: Audit effect renderer
         shell: bash
         run: |
@@ -70,6 +76,7 @@ jobs:
           name: build-diagnostics-${{ github.run_id }}
           path: |
             template-audit.log
+            shape-audit.log
             effect-audit.log
             loop-audit.log
             text-canvas-audit.log

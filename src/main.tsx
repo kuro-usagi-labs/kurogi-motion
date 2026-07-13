@@ -9,6 +9,7 @@ import "./polishV3.css";
 import "./finalUx.css";
 import "./motionLibrary.css";
 import "./multiscene.css";
+import "./designTools.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Kurogi Motion could not find the application root.");

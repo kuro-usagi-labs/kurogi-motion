@@ -8,8 +8,11 @@ import {
 } from "./core/evaluator";
 import { getActiveScene, getSceneLayers } from "./core/project";
 import { textVerticalJustification } from "./core/textLayout";
+import { snapLayerPosition, type AlignmentGuide } from "./core/designTools";
 import { getShapeDefinition, getShapeMaskStyle, isBoxShape } from "./core/shapeLibrary";
 import { LayerEffects } from "./renderer/LayerEffects";
+import { StaticLayerTree } from "./renderer/StaticLayerTree";
+import { gradientToCss, layerCompositingStyle, projectFontFaceCss, textPaintStyle } from "./renderer/designStyles";
 import type { KurogiProject, Layer, TextLayer } from "./types";
 
 type TransformPatch = Partial<
@@ -19,7 +22,8 @@ type TransformPatch = Partial<
 type Props = {
   project: KurogiProject;
   selectedId?: string;
-  onSelect?: (id: string) => void;
+  selectedIds?: string[];
+  onSelect?: (id: string, additive?: boolean) => void;
   onTransformCommit?: (id: string, patch: TransformPatch) => void;
   onTextCommit?: (id: string, text: string) => void;
   editable?: boolean;
@@ -47,6 +51,7 @@ type TextEdit = {
 export const MotionComposition: React.FC<Props> = ({
   project,
   selectedId,
+  selectedIds,
   onSelect,
   onTransformCommit,
   onTextCommit,
@@ -65,6 +70,7 @@ export const MotionComposition: React.FC<Props> = ({
   const [draftLayer, setDraftLayer] = useState<Layer | null>(null);
   const draftLayerRef = useRef<Layer | null>(null);
   const [textEdit, setTextEdit] = useState<TextEdit | null>(null);
+  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
 
   useLayoutEffect(() => {
     const editor = textEditorRef.current;
@@ -98,7 +104,7 @@ export const MotionComposition: React.FC<Props> = ({
     if (!point) return;
     event.preventDefault();
     event.stopPropagation();
-    onSelect?.(layer.id);
+    onSelect?.(layer.id, event.shiftKey);
     event.currentTarget.setPointerCapture?.(event.pointerId);
 
     gestureRef.current = {
@@ -139,11 +145,20 @@ export const MotionComposition: React.FC<Props> = ({
 
     const next = cloneLayer(gesture.initial);
     if (gesture.mode === "move") {
-      next.position = {
+      const candidate = {
         x: clamp(point.x - (gesture.offset?.x ?? 0), -next.size.width, scene.width),
         y: clamp(point.y - (gesture.offset?.y ?? 0), -next.size.height, scene.height),
       };
+      if (project.settings.snapEnabled && !event.altKey) {
+        const snapped = snapLayerPosition(next, candidate, scene, layers);
+        next.position = snapped.position;
+        setAlignmentGuides(snapped.guides);
+      } else {
+        next.position = candidate;
+        setAlignmentGuides([]);
+      }
     } else if (gesture.mode === "resize") {
+      setAlignmentGuides([]);
       next.size = {
         width: Math.max(24, gesture.initial.size.width + point.x - gesture.start.x),
         height: Math.max(24, gesture.initial.size.height + point.y - gesture.start.y),
@@ -163,6 +178,7 @@ export const MotionComposition: React.FC<Props> = ({
     if (!gesture) return;
     if (event && gesture.pointerId !== event.pointerId) return;
     gestureRef.current = null;
+    setAlignmentGuides([]);
     const finalLayer = draftLayerRef.current;
     draftLayerRef.current = null;
     setDraftLayer(null);
@@ -180,7 +196,7 @@ export const MotionComposition: React.FC<Props> = ({
     if (!editable || layer.locked) return;
     event.preventDefault();
     event.stopPropagation();
-    onSelect?.(layer.id);
+    onSelect?.(layer.id, event.shiftKey);
     setTextEdit({ layerId: layer.id, value: layer.text, original: layer.text });
   }
 
@@ -197,7 +213,7 @@ export const MotionComposition: React.FC<Props> = ({
       onPointerUp={finishGesture}
       onPointerCancel={finishGesture}
       onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onSelect?.("");
+        if (event.target === event.currentTarget) onSelect?.("", false);
       }}
       style={{
         width: "100%",
@@ -210,12 +226,13 @@ export const MotionComposition: React.FC<Props> = ({
             : scene.background.color ?? "#ffffff",
       }}
     >
+      <style>{projectFontFaceCss(project)}</style>
       {editable && scene.background.type === "transparent" ? <TransparencyGrid /> : null}
       {showSafeArea ? <SafeArea /> : null}
       {renderedLayers.map((layer) => {
-        if (!layer.visible || layer.type === "group") return null;
+        if (!layer.visible || layer.maskSource || layer.parentId) return null;
         const visual = evaluateLayer(layer, scene, time);
-        const selected = editable && showSelection && selectedId === layer.id;
+        const selected = editable && showSelection && (selectedIds?.includes(layer.id) ?? selectedId === layer.id);
         const isEditing = textEdit?.layerId === layer.id;
         const transformOrigin = `${layer.anchor.x * 100}% ${layer.anchor.y * 100}%`;
         const wrapperStyle: React.CSSProperties = {
@@ -234,6 +251,7 @@ export const MotionComposition: React.FC<Props> = ({
           boxSizing: "border-box",
           userSelect: "none",
           transformStyle: "preserve-3d",
+          ...layerCompositingStyle(project, layer),
         };
         const animatedFilter = [
           visual.blur > 0 ? `blur(${visual.blur}px)` : "",
@@ -261,7 +279,12 @@ export const MotionComposition: React.FC<Props> = ({
           >
             <LayerEffects layer={layer} time={time}>
               <div style={{ width: "100%", height: "100%", filter: animatedFilter || undefined }}>
-                {layer.type === "text" ? (
+                {layer.type === "group" ? (
+                  layer.childIds.map((childId) => {
+                    const child = project.layers[childId];
+                    return child ? <StaticLayerTree key={childId} project={project} layer={child} scene={scene} time={time} parentSize={layer.size} /> : null;
+                  })
+                ) : layer.type === "text" ? (
                   isEditing && textEdit ? (
                     <TextFrame layer={layer}>
                       <div
@@ -310,7 +333,7 @@ export const MotionComposition: React.FC<Props> = ({
                 )}
               </div>
             </LayerEffects>
-            {selected && !isEditing && !layer.locked ? (
+            {selected && selectedId === layer.id && !isEditing && !layer.locked ? (
               <SelectionHandles
                 sceneWidth={scene.width}
                 onResize={(event) => startGesture(event, layer, "resize")}
@@ -320,6 +343,9 @@ export const MotionComposition: React.FC<Props> = ({
           </div>
         );
       })}
+      {alignmentGuides.map((guide, index) => (
+        <div key={`${guide.axis}-${guide.position}-${index}`} className={`alignment-guide alignment-guide-${guide.axis}`} style={guide.axis === "x" ? { left: `${(guide.position / scene.width) * 100}%` } : { top: `${(guide.position / scene.height) * 100}%` }} />
+      ))}
     </div>
   );
 };
@@ -386,8 +412,7 @@ function textStyle(layer: TextLayer): React.CSSProperties {
     lineHeight: layer.style.lineHeight,
     letterSpacing: layer.style.letterSpacing,
     textAlign: layer.style.align,
-    color: layer.style.color,
-    WebkitTextFillColor: layer.style.color,
+    ...textPaintStyle(layer),
     boxSizing: "border-box",
     minWidth: 0,
   };
@@ -413,7 +438,7 @@ function ShapeVisual({ layer }: { layer: Extract<Layer, { type: "shape" }> }) {
       <div style={{
         width: "100%",
         height: "100%",
-        background: layer.style.fill,
+        background: gradientToCss(layer.style.gradient) ?? layer.style.fill,
         border: layer.style.strokeWidth > 0 ? `${layer.style.strokeWidth}px solid ${layer.style.stroke}` : undefined,
         borderRadius: layer.shape === "circle" ? "50%" : layer.shape === "line" ? 999 : layer.style.borderRadius,
         filter: shadowFilter,
@@ -426,7 +451,7 @@ function ShapeVisual({ layer }: { layer: Extract<Layer, { type: "shape" }> }) {
   const maskStyle = getShapeMaskStyle(layer.shape);
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", filter: shadowFilter }}>
-      <div style={{ position: "absolute", inset: 0, background: layer.style.fill, ...maskStyle }} />
+      <div style={{ position: "absolute", inset: 0, background: gradientToCss(layer.style.gradient) ?? layer.style.fill, ...maskStyle }} />
       {layer.style.strokeWidth > 0 ? (
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "visible" }}>
           <path d={definition.path} fill="none" fillRule={definition.fillRule ?? "nonzero"} stroke={layer.style.stroke} strokeWidth={Math.max(.5, layer.style.strokeWidth / 2)} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />

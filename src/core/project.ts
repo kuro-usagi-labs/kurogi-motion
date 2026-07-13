@@ -296,6 +296,8 @@ export function createTextLayer(
     opacity: 1,
     scale: { x: 1, y: 1 },
     anchor: { x: 0.5, y: 0.5 },
+    blendMode: "normal",
+    backgroundBlur: 0,
     animationActions: [],
     text: options.text ?? "YOUR IDEA",
     style: {
@@ -336,6 +338,8 @@ export function createShapeLayer(
     opacity: 1,
     scale: { x: 1, y: 1 },
     anchor: { x: 0.5, y: 0.5 },
+    blendMode: "normal",
+    backgroundBlur: 0,
     animationActions: [],
     shape: normalizedShape,
     style: {
@@ -350,6 +354,7 @@ export function createShapeLayer(
 }
 
 export function createAssetLayer(scene: Scene, asset: ProjectAsset): ImageLayer | SvgLayer {
+  if (asset.type === "font") throw new Error("Font assets cannot be placed as visual layers.");
   const size = fitInside(scene, asset.width ?? 600, asset.height ?? 400, 0.55);
   const base: Omit<ImageLayer, "type" | "fit"> = {
     id: createId("layer"),
@@ -363,6 +368,8 @@ export function createAssetLayer(scene: Scene, asset: ProjectAsset): ImageLayer 
     opacity: 1,
     scale: { x: 1, y: 1 },
     anchor: { x: 0.5, y: 0.5 },
+    blendMode: "normal",
+    backgroundBlur: 0,
     animationActions: [],
     assetId: asset.id,
   };
@@ -524,6 +531,10 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     layer.opacity = clampNumber(layer.opacity, 0, 1);
     layer.size.width = Math.max(1, layer.size.width);
     layer.size.height = Math.max(1, layer.size.height);
+    layer.blendMode = normalizeBlendMode(layer.blendMode);
+    layer.backgroundBlur = clampNumber(layer.backgroundBlur ?? 0, 0, 80);
+    layer.maskSource = Boolean(layer.maskSource);
+    if (layer.mask && !next.layers[layer.mask.sourceLayerId]) layer.mask = undefined;
     layer.animationActions = (layer.animationActions ?? []).map((action) => ({
       ...action,
       layerId: layer.id,
@@ -615,6 +626,11 @@ type SizeLike = { width: number; height: number };
 
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function normalizeBlendMode(value: Layer["blendMode"]): NonNullable<Layer["blendMode"]> {
+  const supported = new Set(["normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion","hue","saturation","color","luminosity"]);
+  return value && supported.has(value) ? value : "normal";
 }
 
 function normalizeFps(value: number): number {

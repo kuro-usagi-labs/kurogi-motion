@@ -15,10 +15,11 @@ interface MultiSceneCanvasStageProps {
   project: KurogiProject;
   playerRef: React.RefObject<PlayerRef>;
   selectedLayerId: string;
+  selectedLayerIds: string[];
   zoom: number;
   playing: boolean;
   showSafeArea: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, additive?: boolean) => void;
   onTransformCommit: (id: string, patch: Partial<Layer>) => void;
   onTextCommit: (id: string, text: string) => void;
   onZoomChange?: (zoom: number) => void;
@@ -65,6 +66,7 @@ export function MultiSceneCanvasStage({
   project,
   playerRef,
   selectedLayerId,
+  selectedLayerIds,
   zoom,
   playing: _playing,
   showSafeArea,
@@ -211,7 +213,7 @@ export function MultiSceneCanvasStage({
     return () => window.cancelAnimationFrame(frame);
   }, [available.height, available.width, project.id, scenes.length]);
 
-  const stableSelect = useCallback((id: string) => callbacksRef.current.onSelect(id), []);
+  const stableSelect = useCallback((id: string, additive = false) => callbacksRef.current.onSelect(id, additive), []);
   const stableTransformCommit = useCallback(
     (id: string, patch: Partial<Layer>) => callbacksRef.current.onTransformCommit(id, patch),
     [],
@@ -225,6 +227,7 @@ export function MultiSceneCanvasStage({
     () => ({
       project,
       selectedId: selectedLayerId,
+      selectedIds: selectedLayerIds,
       onSelect: stableSelect,
       onTransformCommit: stableTransformCommit,
       onTextCommit: stableTextCommit,
@@ -232,7 +235,7 @@ export function MultiSceneCanvasStage({
       showSelection: true,
       showSafeArea,
     }),
-    [project, selectedLayerId, showSafeArea, stableSelect, stableTextCommit, stableTransformCommit],
+    [project, selectedLayerId, selectedLayerIds, showSafeArea, stableSelect, stableTextCommit, stableTransformCommit],
   );
 
   if (!activeScene) return null;

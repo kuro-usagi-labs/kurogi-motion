@@ -1,16 +1,16 @@
 import { useCallback, useRef, useState } from "react";
 import type { KurogiProject } from "../types";
-import { cloneProject } from "./project";
+import { applyProjectPatch, createProjectPatch, isProjectPatchEmpty, type ProjectPatch } from "./historyPatch";
 
 const HISTORY_LIMIT = 100;
-
 type ProjectUpdater = (project: KurogiProject) => KurogiProject;
+type HistoryEntry = { patch: ProjectPatch };
 
 export function useProjectHistory(initialProject: KurogiProject) {
   const [project, setProjectState] = useState(initialProject);
   const projectRef = useRef(initialProject);
-  const undoStack = useRef<KurogiProject[]>([]);
-  const redoStack = useRef<KurogiProject[]>([]);
+  const undoStack = useRef<HistoryEntry[]>([]);
+  const redoStack = useRef<HistoryEntry[]>([]);
   const gestureBaseline = useRef<KurogiProject | null>(null);
   const [, forceHistoryRevision] = useState(0);
 
@@ -26,8 +26,9 @@ export function useProjectHistory(initialProject: KurogiProject) {
   const commit = useCallback((updater: ProjectUpdater) => {
     const current = projectRef.current;
     const next = updater(current);
-    if (next === current || projectEquals(current, next)) return current;
-    pushLimited(undoStack.current, cloneProject(current));
+    const patch = createProjectPatch(current, next);
+    if (next === current || isProjectPatchEmpty(patch)) return current;
+    pushLimited(undoStack.current, { patch });
     redoStack.current = [];
     projectRef.current = next;
     setProjectState(next);
@@ -36,7 +37,7 @@ export function useProjectHistory(initialProject: KurogiProject) {
   }, []);
 
   const beginGesture = useCallback(() => {
-    if (!gestureBaseline.current) gestureBaseline.current = cloneProject(projectRef.current);
+    if (!gestureBaseline.current) gestureBaseline.current = projectRef.current;
   }, []);
 
   const preview = useCallback((updater: ProjectUpdater) => {
@@ -51,8 +52,10 @@ export function useProjectHistory(initialProject: KurogiProject) {
   const finishGesture = useCallback(() => {
     const baseline = gestureBaseline.current;
     gestureBaseline.current = null;
-    if (!baseline || projectEquals(baseline, projectRef.current)) return false;
-    pushLimited(undoStack.current, baseline);
+    if (!baseline) return false;
+    const patch = createProjectPatch(baseline, projectRef.current);
+    if (isProjectPatchEmpty(patch)) return false;
+    pushLimited(undoStack.current, { patch });
     redoStack.current = [];
     forceHistoryRevision((revision) => revision + 1);
     return true;
@@ -68,9 +71,10 @@ export function useProjectHistory(initialProject: KurogiProject) {
   }, []);
 
   const undo = useCallback(() => {
-    const previous = undoStack.current.pop();
-    if (!previous) return false;
-    pushLimited(redoStack.current, cloneProject(projectRef.current));
+    const entry = undoStack.current.pop();
+    if (!entry) return false;
+    const previous = applyProjectPatch(projectRef.current, entry.patch, "before");
+    pushLimited(redoStack.current, entry);
     projectRef.current = previous;
     setProjectState(previous);
     gestureBaseline.current = null;
@@ -79,9 +83,10 @@ export function useProjectHistory(initialProject: KurogiProject) {
   }, []);
 
   const redo = useCallback(() => {
-    const next = redoStack.current.pop();
-    if (!next) return false;
-    pushLimited(undoStack.current, cloneProject(projectRef.current));
+    const entry = redoStack.current.pop();
+    if (!entry) return false;
+    const next = applyProjectPatch(projectRef.current, entry.patch, "after");
+    pushLimited(undoStack.current, entry);
     projectRef.current = next;
     setProjectState(next);
     gestureBaseline.current = null;
@@ -90,27 +95,14 @@ export function useProjectHistory(initialProject: KurogiProject) {
   }, []);
 
   return {
-    project,
-    projectRef,
-    replaceProject,
-    commit,
-    beginGesture,
-    preview,
-    finishGesture,
-    cancelGesture,
-    undo,
-    redo,
+    project, projectRef, replaceProject, commit, beginGesture, preview, finishGesture, cancelGesture, undo, redo,
     canUndo: undoStack.current.length > 0,
     canRedo: redoStack.current.length > 0,
     isGestureActive: gestureBaseline.current !== null,
   };
 }
 
-function pushLimited(stack: KurogiProject[], project: KurogiProject) {
-  stack.push(project);
+function pushLimited<T>(stack: T[], entry: T) {
+  stack.push(entry);
   if (stack.length > HISTORY_LIMIT) stack.splice(0, stack.length - HISTORY_LIMIT);
-}
-
-function projectEquals(left: KurogiProject, right: KurogiProject): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
 }

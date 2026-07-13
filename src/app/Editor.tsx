@@ -19,7 +19,7 @@ import {
   updateAction,
   updateLayer,
 } from "../core/project";
-import { saveProject } from "../core/persistence";
+import { clearDraft, prepareProjectForExport, saveDraft, saveProject, storeAssetBlob } from "../core/persistence";
 import { useProjectHistory } from "../core/useProjectHistory";
 import { Inspector, type InspectorTab } from "../editor/InspectorV2";
 import { CanvasStage } from "../editor/CanvasStage";
@@ -69,7 +69,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [showSafeArea, setShowSafeArea] = useState(false);
   const [draggedLayerId, setDraggedLayerId] = useState("");
   const [dragOverLayerId, setDragOverLayerId] = useState("");
-  const [saveStatus, setSaveStatus] = useState<"Saving…" | "Saved" | "Offline" | "Save failed" | "Copied">("Saved");
+  const [saveStatus, setSaveStatus] = useState<"Saving draft…" | "Draft saved" | "Saving…" | "Saved" | "Save failed" | "Copied">("Saved");
   const [exporting, setExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null);
@@ -112,29 +112,27 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   }, [project.id]);
 
   useEffect(() => {
-    if (!project.settings.autoSave) return;
-    setSaveStatus("Saving…");
+    if (!project.settings.autoSave || project.updatedAt === initialProject.updatedAt) return;
+    setSaveStatus("Saving draft…");
     const timer = window.setTimeout(async () => {
       try {
-        await saveProject(project);
-        setSaveStatus(navigator.onLine ? "Saved" : "Offline");
+        await saveDraft(history.projectRef.current);
+        setSaveStatus("Draft saved");
       } catch {
         setSaveStatus("Save failed");
       }
-    }, 1200);
+    }, 1800);
     return () => window.clearTimeout(timer);
-  }, [project]);
+  }, [history.projectRef, initialProject.updatedAt, project, project.settings.autoSave]);
 
   useEffect(() => {
-    const handleOnline = () => setSaveStatus("Saved");
-    const handleOffline = () => setSaveStatus("Offline");
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
+    const flushRecovery = () => {
+      const current = history.projectRef.current;
+      if (document.visibilityState === "hidden" && current.updatedAt !== initialProject.updatedAt) void saveDraft(current);
     };
-  }, []);
+    document.addEventListener("visibilitychange", flushRecovery);
+    return () => document.removeEventListener("visibilitychange", flushRecovery);
+  }, [history.projectRef, initialProject.updatedAt]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -283,28 +281,32 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       return;
     }
 
+    let temporaryUrl = "";
     try {
-      const sourceUrl = file.type === "image/svg+xml"
-        ? svgToDataUrl(sanitizeSvg(await file.text()))
-        : await readFileAsDataUrl(file);
-      const dimensions = await readImageDimensions(sourceUrl);
+      const blob = file.type === "image/svg+xml"
+        ? new Blob([sanitizeSvg(await file.text())], { type: "image/svg+xml" })
+        : file;
+      temporaryUrl = URL.createObjectURL(blob);
+      const dimensions = await readImageDimensions(temporaryUrl);
+      URL.revokeObjectURL(temporaryUrl);
+      temporaryUrl = "";
+      const assetId = createId("asset");
+      const stored = await storeAssetBlob(project.id, assetId, blob);
       const asset: ProjectAsset = {
-        id: createId("asset"),
+        id: assetId,
         projectId: project.id,
         name: file.name.replace(/\.[^.]+$/, ""),
         type: file.type === "image/svg+xml" ? "svg" : "image",
         mimeType: file.type,
         width: dimensions.width,
         height: dimensions.height,
-        sourceUrl,
+        sourceUrl: stored.sourceUrl,
+        storage: "blob",
+        blobId: stored.blobId,
+        byteSize: stored.byteSize,
       };
       const layer = createAssetLayer(getActiveScene(project), asset);
-      layer.animationActions.push(
-        createAnimationAction(layer.id, "in", "scaleIn", {
-          duration: 0.65,
-          easing: "backOut",
-        }),
-      );
+      layer.animationActions.push(createAnimationAction(layer.id, "in", "scaleIn", { duration: 0.65, easing: "backOut" }));
       commitProject((current) => {
         const next = cloneProject(current);
         next.assets[asset.id] = asset;
@@ -314,6 +316,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       setSelectedActionId(layer.animationActions[0]?.id ?? "");
       setSidebarTab("layers");
     } catch {
+      if (temporaryUrl) URL.revokeObjectURL(temporaryUrl);
       window.alert("The asset could not be imported.");
     }
   }
@@ -442,11 +445,15 @@ export function Editor({ initialProject, onExit }: EditorProps) {
 
   async function saveNow() {
     setSaveStatus("Saving…");
+    const current = history.projectRef.current;
     try {
-      await saveProject(project);
-      setSaveStatus(navigator.onLine ? "Saved" : "Offline");
+      await saveProject(current);
+      await clearDraft(current.id);
+      setSaveStatus("Saved");
+      return true;
     } catch {
       setSaveStatus("Save failed");
+      return false;
     }
   }
 
@@ -467,42 +474,27 @@ export function Editor({ initialProject, onExit }: EditorProps) {
 
   async function exportVideo() {
     if (!window.kurogi) {
-      setExportNotice({
-        tone: "error",
-        title: "Desktop export unavailable",
-        message: "Open Kurogi Motion in Electron to render files.",
-      });
+      setExportNotice({ tone: "error", title: "Desktop export unavailable", message: "Open Kurogi Motion in Electron to render files." });
       return;
     }
     const alphaSupported = exportOptions.format === "webm" || exportOptions.format === "mov" || exportOptions.format === "png-sequence";
-    const effectiveOptions: ExportOptions = {
-      ...exportOptions,
-      transparent: alphaSupported && exportOptions.transparent,
-    };
-    const snapshot = cloneProject(project);
-    const snapshotScene = getActiveScene(snapshot);
-    snapshotScene.fps = effectiveOptions.fps;
-    snapshotScene.background = effectiveOptions.transparent
-      ? { type: "transparent" }
-      : cloneProject(scene.background.type === "transparent" ? { type: "solid", color: "#000000" } : scene.background);
+    const effectiveOptions: ExportOptions = { ...exportOptions, transparent: alphaSupported && exportOptions.transparent };
     setExportNotice(null);
     setExporting(true);
     setExportProgress({ phase: "preparing", progress: 0, message: "Preparing export" });
     try {
+      const snapshot = await prepareProjectForExport(cloneProject(project));
+      const snapshotScene = getActiveScene(snapshot);
+      snapshotScene.fps = effectiveOptions.fps;
+      snapshotScene.background = effectiveOptions.transparent
+        ? { type: "transparent" }
+        : cloneProject(scene.background.type === "transparent" ? { type: "solid", color: "#000000" } : scene.background);
       const result = await window.kurogi.exportVideo(snapshot, effectiveOptions);
       if (!result.canceled && result.path) {
         setExportProgress({ phase: "completed", progress: 1, message: result.path });
-        setExportNotice({
-          tone: "success",
-          title: "Export complete",
-          message: `${exportOptions.format.toUpperCase()} saved successfully.`,
-          detail: result.path,
-          path: result.path,
-        });
+        setExportNotice({ tone: "success", title: "Export complete", message: `${exportOptions.format.toUpperCase()} saved successfully.`, detail: result.path, path: result.path });
         setExportDialogOpen(false);
-      } else {
-        setExportProgress(null);
-      }
+      } else setExportProgress(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Export failed";
       setExportProgress({ phase: "failed", progress: 0, message });

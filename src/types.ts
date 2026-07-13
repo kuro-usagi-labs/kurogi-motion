@@ -215,6 +215,9 @@ export interface ProjectAsset {
   height?: number;
   sourceUrl: string;
   thumbnailUrl?: string;
+  storage?: "inline" | "blob";
+  blobId?: string;
+  byteSize?: number;
 }
 
 export interface KurogiProject {

@@ -12,6 +12,8 @@ import {
   listUserTemplates,
   loadLatestDraft,
   loadProject,
+  migrateProjectAssets,
+  prepareProjectForExport,
   saveProject,
   saveUserTemplate,
   type DraftRecord,
@@ -112,7 +114,7 @@ export default function App() {
   async function exportProjectFile(projectId: string) {
     const project = await loadProject(projectId);
     if (!project) return;
-    await exportKuroMotionFile(project, "project");
+    await exportKuroMotionFile(await prepareProjectForExport(project), "project");
   }
 
   async function importProjectFile(file: File) {
@@ -120,11 +122,11 @@ export default function App() {
       const imported = await readKuroMotionFile(file);
       if (imported.kind === "template") {
         const templateName = imported.project.name || file.name.replace(/\.kuromotion$/i, "");
-        await saveUserTemplate(imported.project, templateName);
+        await saveUserTemplate(await migrateProjectAssets(imported.project), templateName);
         await refreshLibrary();
         return;
       }
-      const project = instantiateProject(imported.project, imported.project.name);
+      const project = await migrateProjectAssets(instantiateProject(imported.project, imported.project.name));
       await saveProject(project);
       setCurrentProject(project);
     } catch (error) {

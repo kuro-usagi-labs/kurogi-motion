@@ -1,6 +1,12 @@
 name: Patch export experience
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/patch-export-experience.py
+      - .github/workflows/patch-export-experience.yml
   push:
     branches:
       - feature/prd-foundation-remotion

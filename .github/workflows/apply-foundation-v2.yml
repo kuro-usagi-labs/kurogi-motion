@@ -6,12 +6,14 @@ on:
       - main
     paths:
       - scripts/apply-foundation-v2.py
+      - scripts/fix-foundation-v2-await.py
       - .github/workflows/apply-foundation-v2.yml
   push:
     branches:
       - feature/prd-foundation-remotion
     paths:
       - scripts/apply-foundation-v2.py
+      - scripts/fix-foundation-v2-await.py
       - .github/workflows/apply-foundation-v2.yml
 
 permissions:
@@ -34,7 +36,9 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply foundation migration
-        run: python scripts/apply-foundation-v2.py
+        run: |
+          python scripts/apply-foundation-v2.py
+          python scripts/fix-foundation-v2-await.py
       - name: Install dependencies
         run: npm ci
       - name: Validate foundations

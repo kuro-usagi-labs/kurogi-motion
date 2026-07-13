@@ -2,6 +2,12 @@ name: Patch loop continuity
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/patch-loop-continuity.mjs
+      - .github/workflows/patch-loop-continuity.yml
   push:
     branches:
       - feature/prd-foundation-remotion

@@ -59,6 +59,7 @@ export function EffectsPanel({ layer, onBegin, onFinish, onCancel, onPreview, on
         <div className="effect-stack">
           {effects.map((effect) => {
             const definition = effectDefinition(effect.type);
+            const hasSecondaryControls = Boolean(definition.radiusLabel || definition.speedLabel);
             return (
               <article className={`effect-card ${effect.enabled ? "is-enabled" : ""}`} key={effect.id}>
                 <header>
@@ -75,8 +76,9 @@ export function EffectsPanel({ layer, onBegin, onFinish, onCancel, onPreview, on
                     <button type="button" className="svg-button danger-text" title="Remove effect" onClick={() => removeEffect(effect.id)}><Icon name="trash" size={13} /></button>
                   </span>
                 </header>
+                <p className="effect-description">{definition.description}</p>
                 <label className="effect-range">
-                  <span>Intensity <b>{Math.round(effect.intensity)}</b></span>
+                  <span>{definition.intensityLabel} <b>{Math.round(effect.intensity)}</b></span>
                   <input
                     type="range"
                     min="0"
@@ -89,19 +91,25 @@ export function EffectsPanel({ layer, onBegin, onFinish, onCancel, onPreview, on
                     onPointerCancel={onCancel}
                   />
                 </label>
-                <div className="property-grid two">
-                  <label className="number-field">Radius<span><input type="number" min="0" max="180" step="1" value={Number(effect.radius.toFixed(2))} onFocus={onBegin} onChange={(event) => updateEffect(effect.id, (current) => ({ ...current, radius: Math.max(0, Number(event.currentTarget.value)) }))} onBlur={onFinish} /></span></label>
-                  <label className="number-field">Speed<span><input type="number" min="0" max="10" step=".05" value={Number(effect.speed.toFixed(2))} onFocus={onBegin} onChange={(event) => updateEffect(effect.id, (current) => ({ ...current, speed: Math.max(0, Number(event.currentTarget.value)) }))} onBlur={onFinish} /></span></label>
-                </div>
-                {definition.defaultColor ? (
-                  <label className="effect-color">Color<input type="color" value={normalizeColor(effect.color ?? definition.defaultColor)} onFocus={onBegin} onChange={(event) => updateEffect(effect.id, (current) => ({ ...current, color: event.currentTarget.value }))} onBlur={onFinish} /></label>
+                {hasSecondaryControls ? (
+                  <div className="property-grid two effect-secondary-controls">
+                    {definition.radiusLabel ? (
+                      <label className="number-field">{definition.radiusLabel}<span><input type="number" min="0" max="180" step="1" value={Number(effect.radius.toFixed(2))} onFocus={onBegin} onChange={(event) => updateEffect(effect.id, (current) => ({ ...current, radius: Math.max(0, Number(event.currentTarget.value)) }))} onBlur={onFinish} onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }} /></span></label>
+                    ) : <span />}
+                    {definition.speedLabel ? (
+                      <label className="number-field">{definition.speedLabel}<span><input type="number" min="0" max="10" step=".05" value={Number(effect.speed.toFixed(2))} onFocus={onBegin} onChange={(event) => updateEffect(effect.id, (current) => ({ ...current, speed: Math.max(0, Number(event.currentTarget.value)) }))} onBlur={onFinish} onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }} /></span></label>
+                    ) : null}
+                  </div>
+                ) : null}
+                {definition.colorLabel && definition.defaultColor ? (
+                  <label className="effect-color">{definition.colorLabel}<input type="color" value={normalizeColor(effect.color ?? definition.defaultColor)} onFocus={onBegin} onChange={(event) => updateEffect(effect.id, (current) => ({ ...current, color: event.currentTarget.value }))} onBlur={onFinish} /></label>
                 ) : null}
               </article>
             );
           })}
         </div>
       ) : (
-        <p className="effect-empty">Add blur, glow, liquid distortion, grain, or other effects. They remain editable and render in preview and export.</p>
+        <p className="effect-empty">Add blur, glow, full-surface glass, liquid displacement, grain, or another non-destructive effect. Preview and export use the same renderer.</p>
       )}
     </section>
   );

@@ -29,6 +29,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Repair generated audit script quoting
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/patch-loop-continuity.mjs')
+          text = path.read_text(encoding='utf-8')
+          marker = 'const auditScript = `'
+          start = text.index(marker) + len(marker)
+          end_marker = '`;\nawait writeFile("scripts/audit-loops.mjs"'
+          end = text.rindex(end_marker)
+          segment = text[start:end]
+          segment = segment.replace('`', '\\`').replace('${', '\\${')
+          path.write_text(text[:start] + segment + text[end:], encoding='utf-8')
+          PY
       - name: Apply patch
         shell: bash
         run: |

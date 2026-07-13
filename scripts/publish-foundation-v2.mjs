@@ -14,7 +14,6 @@ const files = [
   "src/App.tsx",
   "scripts/audit-foundation-v2.mjs",
   "package.json",
-  ".github/workflows/ci.yml",
 ];
 
 async function api(path, options = {}) {
@@ -48,7 +47,7 @@ const treeEntries = await Promise.all(files.map(async (path) => {
 
 for (let attempt = 1; attempt <= 3; attempt += 1) {
   try {
-    const ref = await api(`/git/ref/heads/${encodeURIComponent(branch)}`);
+    const ref = await api(`/git/ref/heads/${branch}`);
     const parentSha = ref.object.sha;
     const parent = await api(`/git/commits/${parentSha}`);
     const tree = await api("/git/trees", {
@@ -63,7 +62,7 @@ for (let attempt = 1; attempt <= 3; attempt += 1) {
         parents: [parentSha],
       }),
     });
-    await api(`/git/refs/heads/${encodeURIComponent(branch)}`, {
+    await api(`/git/refs/heads/${branch}`, {
       method: "PATCH",
       body: JSON.stringify({ sha: commit.sha, force: false }),
     });

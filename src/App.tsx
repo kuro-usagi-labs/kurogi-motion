@@ -22,6 +22,7 @@ import {
 } from "./core/persistence";
 import { exportKuroMotionFile, instantiateProject, readKuroMotionFile } from "./core/projectFiles";
 import { persistProjectBeforeExit } from "./core/saveBeforeExit";
+import { ensureSceneWorkspace } from "./core/sceneWorkspace";
 import { createCatalogTemplateProject } from "./core/templateCatalog";
 import type { KurogiProject } from "./types";
 
@@ -72,7 +73,9 @@ export default function App() {
         await refreshLibrary();
         return;
       }
-      setCurrentProject(project);
+      const workspaceProject = ensureSceneWorkspace(project);
+      if (workspaceProject !== project) await saveProject(workspaceProject);
+      setCurrentProject(workspaceProject);
     } catch (error) {
       console.error(`Unable to open project ${projectId}`, error);
       window.alert(error instanceof Error ? error.message : "This project could not be opened.");
@@ -87,7 +90,9 @@ export default function App() {
         setDraft(null);
         return;
       }
-      setCurrentProject(latest.project);
+      const workspaceProject = ensureSceneWorkspace(latest.project);
+      if (workspaceProject !== latest.project) await saveProject(workspaceProject);
+      setCurrentProject(workspaceProject);
     } catch (error) {
       console.error("Unable to open recovery draft", error);
       window.alert("The recovery draft could not be opened.");
@@ -96,7 +101,7 @@ export default function App() {
   }
 
   async function createNewProject(options: CreateProjectOptions, templateId?: string) {
-    const project = createCatalogTemplateProject(options, templateId);
+    const project = ensureSceneWorkspace(createCatalogTemplateProject(options, templateId));
     await saveProject(project);
     setDraft(null);
     setCurrentProject(project);
@@ -105,7 +110,7 @@ export default function App() {
   async function useCustomTemplate(templateId: string) {
     const template = templates.find((candidate) => candidate.id === templateId);
     if (!template) return;
-    const project = instantiateProject(template.project, template.name);
+    const project = ensureSceneWorkspace(instantiateProject(template.project, template.name));
     await saveProject(project);
     setCurrentProject(project);
   }
@@ -139,11 +144,11 @@ export default function App() {
       const imported = await readKuroMotionFile(file);
       if (imported.kind === "template") {
         const templateName = imported.project.name || file.name.replace(/\.kuromotion$/i, "");
-        await saveUserTemplate(await migrateProjectAssets(imported.project), templateName);
+        await saveUserTemplate(ensureSceneWorkspace(await migrateProjectAssets(imported.project)), templateName);
         await refreshLibrary();
         return;
       }
-      const project = await migrateProjectAssets(instantiateProject(imported.project, imported.project.name));
+      const project = ensureSceneWorkspace(await migrateProjectAssets(instantiateProject(imported.project, imported.project.name)));
       await saveProject(project);
       setCurrentProject(project);
     } catch (error) {

@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/**
+      - feat/**
       - fix/**
   pull_request:
     branches:
@@ -64,6 +65,12 @@ jobs:
           set -o pipefail
           npm run audit:recovery 2>&1 | tee recovery-audit.log
 
+      - name: Audit infinite canvas and multi-scene workspace
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:multiscene 2>&1 | tee multiscene-audit.log
+
       - name: Audit effect renderer
         shell: bash
         run: |
@@ -99,6 +106,7 @@ jobs:
             export-audit.log
             foundation-v2-audit.log
             recovery-audit.log
+            multiscene-audit.log
             effect-audit.log
             loop-audit.log
             text-canvas-audit.log

@@ -2,8 +2,18 @@ import { createServer } from "vite";
 
 const server = await createServer({
   appType: "custom",
-  logLevel: "error",
-  server: { middlewareMode: true },
+  configFile: false,
+  envFile: false,
+  logLevel: "silent",
+  optimizeDeps: {
+    noDiscovery: true,
+    include: [],
+  },
+  server: {
+    middlewareMode: true,
+    hmr: false,
+    watch: null,
+  },
 });
 
 try {

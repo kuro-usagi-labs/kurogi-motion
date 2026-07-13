@@ -27,6 +27,7 @@ import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
 import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
 import { Timeline } from "../editor/TimelineV3";
+import { ExportDialog, ExportToast, type ExportNotice } from "../editor/ExportDialog";
 import type {
   AnimationAction,
   AnimationCategory,
@@ -70,6 +71,8 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [dragOverLayerId, setDragOverLayerId] = useState("");
   const [saveStatus, setSaveStatus] = useState<"Saving…" | "Saved" | "Offline" | "Save failed" | "Copied">("Saved");
   const [exporting, setExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
     format: "mp4",
@@ -183,6 +186,12 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     const unsubscribe = window.kurogi?.onExportProgress?.((progress) => setExportProgress(progress));
     return () => unsubscribe?.();
   }, []);
+
+  useEffect(() => {
+    if (!exportNotice) return;
+    const timer = window.setTimeout(() => setExportNotice(null), exportNotice.tone === "success" ? 6500 : 9000);
+    return () => window.clearTimeout(timer);
+  }, [exportNotice]);
 
   function selectLayer(layerId: string) {
     setSelectedLayerId(layerId);
@@ -458,35 +467,71 @@ export function Editor({ initialProject, onExit }: EditorProps) {
 
   async function exportVideo() {
     if (!window.kurogi) {
-      window.alert("Open the Electron app to export video files.");
+      setExportNotice({
+        tone: "error",
+        title: "Desktop export unavailable",
+        message: "Open Kurogi Motion in Electron to render files.",
+      });
       return;
     }
     const snapshot = cloneProject(project);
     const snapshotScene = getActiveScene(snapshot);
     snapshotScene.fps = exportOptions.fps;
-    if (exportOptions.transparent) snapshotScene.background = { type: "transparent" };
+    snapshotScene.background = exportOptions.transparent
+      ? { type: "transparent" }
+      : cloneProject(scene.background);
+    setExportNotice(null);
     setExporting(true);
     setExportProgress({ phase: "preparing", progress: 0, message: "Preparing export" });
     try {
       const result = await window.kurogi.exportVideo(snapshot, exportOptions);
       if (!result.canceled && result.path) {
         setExportProgress({ phase: "completed", progress: 1, message: result.path });
+        setExportNotice({
+          tone: "success",
+          title: "Export complete",
+          message: `${exportOptions.format.toUpperCase()} saved successfully.`,
+          detail: result.path,
+          path: result.path,
+        });
+        setExportDialogOpen(false);
       } else {
         setExportProgress(null);
       }
     } catch (error) {
-      setExportProgress({
-        phase: "failed",
-        progress: 0,
-        message: error instanceof Error ? error.message : "Export failed",
-      });
+      const message = error instanceof Error ? error.message : "Export failed";
+      setExportProgress({ phase: "failed", progress: 0, message });
+      setExportNotice({ tone: "error", title: "Export failed", message });
     } finally {
       setExporting(false);
     }
   }
 
+  async function revealExport(targetPath: string) {
+    try {
+      await window.kurogi?.showItemInFolder(targetPath);
+    } catch (error) {
+      setExportNotice({
+        tone: "error",
+        title: "Could not open export folder",
+        message: error instanceof Error ? error.message : "The destination is no longer available.",
+      });
+    }
+  }
+
   return (
     <main className="app editor-app">
+      <ExportDialog
+        open={exportDialogOpen}
+        project={project}
+        options={exportOptions}
+        exporting={exporting}
+        progress={exportProgress}
+        onChange={setExportOptions}
+        onClose={() => { if (!exporting) { setExportDialogOpen(false); setExportProgress(null); } }}
+        onExport={() => void exportVideo()}
+      />
+      <ExportToast notice={exportNotice} onClose={() => setExportNotice(null)} onReveal={(targetPath) => void revealExport(targetPath)} />
       <input
         ref={assetInputRef}
         hidden
@@ -515,7 +560,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           <button type="button" className={showSafeArea ? "icon-btn active" : "icon-btn"} onClick={() => setShowSafeArea((value) => !value)} title="Toggle safe area"><Icon name="frame" size={16} /></button>
           <button type="button" className="preview" onClick={togglePlay}>{playing ? <><Icon name="pause" size={15} />Pause</> : <><Icon name="play" size={15} />Preview</>}</button>
           <button type="button" className="share-button" onClick={() => void copyProjectSnapshot()}><Icon name="share" size={15} />Share</button>
-          <button type="button" className="export" onClick={() => setInspectorTab("Export")}>Export <Icon name="export" size={15} /></button>
+          <button type="button" className="export" onClick={() => { setExportProgress(null); setExportDialogOpen(true); }}>Export <Icon name="export" size={15} /></button>
         </div>
       </header>
 

@@ -236,7 +236,7 @@ export interface KurogiProject {
 
 export type Project = KurogiProject;
 
-export type ExportFormat = "webm" | "mp4" | "gif" | "png-sequence";
+export type ExportFormat = "webm" | "mp4" | "mov" | "gif" | "png-sequence";
 export type ExportQuality = "low" | "medium" | "high";
 
 export interface ExportOptions {

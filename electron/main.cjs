@@ -178,6 +178,21 @@ ipcMain.handle("export-video", async (event, project, rawOptions = {}) => {
   }
 });
 
+ipcMain.handle("show-item-in-folder", async (_event, targetPath) => {
+  if (typeof targetPath !== "string" || !targetPath.trim() || !path.isAbsolute(targetPath)) {
+    throw new Error("Invalid export destination.");
+  }
+  if (!fs.existsSync(targetPath)) throw new Error("The exported file no longer exists.");
+  const stats = await fs.promises.stat(targetPath);
+  if (stats.isDirectory()) {
+    const error = await shell.openPath(targetPath);
+    if (error) throw new Error(error);
+  } else {
+    shell.showItemInFolder(targetPath);
+  }
+  return { opened: true };
+});
+
 ipcMain.handle("save-kuromotion-file", async (_event, envelope, defaultName) => {
   validateKuroMotionEnvelope(envelope);
   const target = await dialog.showSaveDialog({
@@ -271,14 +286,16 @@ function mediaSettings(options) {
 
 function normalizeExportOptions(raw) {
   const allowedFormats = new Set(["mp4", "webm", "mov", "gif", "png-sequence"]);
+  const alphaFormats = new Set(["webm", "mov", "png-sequence"]);
   const allowedFps = new Set([24, 30, 60]);
   const allowedQuality = new Set(["low", "medium", "high"]);
+  const format = allowedFormats.has(raw.format) ? raw.format : "mp4";
   return {
-    format: allowedFormats.has(raw.format) ? raw.format : "mp4",
+    format,
     fps: allowedFps.has(Number(raw.fps)) ? Number(raw.fps) : 30,
     scale: Math.min(2, Math.max(0.1, Number(raw.scale) || 1)),
     quality: allowedQuality.has(raw.quality) ? raw.quality : "high",
-    transparent: Boolean(raw.transparent),
+    transparent: alphaFormats.has(format) && Boolean(raw.transparent),
     gifLoops: raw.gifLoops === null ? null : Math.max(0, Number(raw.gifLoops) || 0),
   };
 }

@@ -44,7 +44,7 @@ export function Inspector(props: InspectorProps) {
   return (
     <aside className="inspector inspector-v2">
       <div className="inspector-tabs">
-        {(["Design", "Animation", "Export"] as const).map((candidate) => (
+        {(["Design", "Animation"] as const).map((candidate) => (
           <button type="button" key={candidate} className={props.tab === candidate ? "active" : ""} onClick={() => props.onTabChange(candidate)}>{candidate}</button>
         ))}
       </div>

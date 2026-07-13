@@ -12,6 +12,7 @@ interface Window {
       defaultName: string,
     ) => Promise<{ canceled?: boolean; path?: string }>;
     openKuroMotionFile: () => Promise<{ canceled?: boolean; path?: string; content?: string }>;
+    showItemInFolder: (targetPath: string) => Promise<{ opened: boolean }>;
     onExportProgress: (
       listener: (progress: import("./types").ExportProgress) => void,
     ) => () => void;

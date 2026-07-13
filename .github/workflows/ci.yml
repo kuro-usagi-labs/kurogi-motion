@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/**
+      - fix/**
   pull_request:
     branches:
       - main
@@ -57,6 +58,12 @@ jobs:
           set -o pipefail
           npm run audit:foundation-v2 2>&1 | tee foundation-v2-audit.log
 
+      - name: Audit project recovery and safe exit
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:recovery 2>&1 | tee recovery-audit.log
+
       - name: Audit effect renderer
         shell: bash
         run: |
@@ -91,6 +98,7 @@ jobs:
             shape-audit.log
             export-audit.log
             foundation-v2-audit.log
+            recovery-audit.log
             effect-audit.log
             loop-audit.log
             text-canvas-audit.log

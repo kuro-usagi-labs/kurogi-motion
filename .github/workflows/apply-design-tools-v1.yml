@@ -7,12 +7,19 @@ on:
     paths:
       - scripts/apply-design-tools-v1.cjs
       - .github/workflows/apply-design-tools-v1.yml
+  pull_request:
+    branches:
+      - feat/infinite-canvas-multiscene-v1
+    paths:
+      - scripts/apply-design-tools-v1.cjs
+      - .github/workflows/apply-design-tools-v1.yml
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.head_ref == '' || github.head_ref == 'feat/design-tools-v1'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

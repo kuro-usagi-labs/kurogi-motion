@@ -1,0 +1,28 @@
+name: Fix Timeline effect cleanup
+
+on:
+  push:
+    branches:
+      - feature/prd-foundation-remotion
+    paths:
+      - scripts/fix-timeline-effect.cjs
+      - .github/workflows/fix-timeline-effect.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/prd-foundation-remotion
+      - run: node scripts/fix-timeline-effect.cjs
+      - shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/editor/TimelineV3.tsx
+          git commit -m "Fix Timeline height effect cleanup"
+          git push origin HEAD:feature/prd-foundation-remotion

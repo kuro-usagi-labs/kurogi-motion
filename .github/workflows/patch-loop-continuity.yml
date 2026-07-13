@@ -58,10 +58,12 @@ jobs:
         with:
           name: loop-patch-diagnostics
           path: patch-loop.log
-      - name: Commit patch
+      - name: Commit source patch
         run: |
+          git restore .github/workflows/ci.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/core/evaluator.ts src/editor/InspectorV2.tsx scripts/audit-loops.mjs package.json .github/workflows/ci.yml
+          git add src/core/evaluator.ts src/editor/InspectorV2.tsx scripts/audit-loops.mjs package.json
           git commit -m "Make loop animations enter from the base pose smoothly"
+          git pull --rebase origin feature/prd-foundation-remotion
           git push origin HEAD:feature/prd-foundation-remotion

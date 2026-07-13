@@ -1,6 +1,12 @@
 name: Patch shape library and templates
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/patch-shape-library.py
+      - .github/workflows/patch-shape-library.yml
   push:
     branches:
       - feature/prd-foundation-remotion
@@ -9,6 +15,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: patch-shape-library
+  cancel-in-progress: true
 
 jobs:
   patch:
@@ -33,8 +43,9 @@ jobs:
           npm run typecheck
       - name: Commit source patch
         run: |
+          git restore .github/workflows/ci.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/types.ts src/core/project.ts src/core/shapeLibrary.ts src/ui/ShapeIcon.tsx src/MotionComposition.tsx src/renderer/LayerEffects.tsx src/app/Editor.tsx src/core/templateLayout.ts src/core/templateCatalog.ts src/finalUx.css scripts/audit-shapes.mjs package.json .github/workflows/ci.yml
+          git add src/types.ts src/core/project.ts src/core/shapeLibrary.ts src/ui/ShapeIcon.tsx src/MotionComposition.tsx src/renderer/LayerEffects.tsx src/app/Editor.tsx src/core/templateLayout.ts src/core/templateCatalog.ts src/finalUx.css scripts/audit-shapes.mjs package.json
           git commit -m "Expand vector shapes and refine template accents"
           git push origin HEAD:feature/prd-foundation-remotion

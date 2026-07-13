@@ -1,6 +1,6 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { normalizeEffects } from "../core/effects";
-import type { Layer, LayerEffect } from "../types";
+import type { Layer, LayerEffect, LayerEffectType } from "../types";
 
 interface LayerEffectsProps {
   layer: Layer;
@@ -8,94 +8,210 @@ interface LayerEffectsProps {
   children: React.ReactNode;
 }
 
+export const RENDERED_EFFECT_TYPES = [
+  "blur",
+  "dropShadow",
+  "glow",
+  "glass",
+  "waterDrop",
+  "ripple",
+  "chromatic",
+  "grain",
+  "hueShift",
+  "vignette",
+] as const satisfies readonly LayerEffectType[];
+
 export function LayerEffects({ layer, time, children }: LayerEffectsProps) {
   const effects = normalizeEffects(layer.effects).filter((effect) => effect.enabled);
-  const filterId = `kuro-effect-${sanitizeId(layer.id)}`;
-  const displacement = strongestDisplacement(effects);
-  const filters = buildCssFilters(effects, time);
-  const glass = effects.find((effect) => effect.type === "glass");
-  const grain = effects.find((effect) => effect.type === "grain");
-  const vignette = effects.find((effect) => effect.type === "vignette");
+  const displacementEffects = effects.filter((effect) => effect.type === "waterDrop" || effect.type === "ripple");
+  const glassEffects = effects.filter((effect) => effect.type === "glass");
+  const grainEffects = effects.filter((effect) => effect.type === "grain");
+  const vignetteEffects = effects.filter((effect) => effect.type === "vignette");
+  const filterIds = displacementEffects.map((effect, index) => `kuro-effect-${sanitizeId(layer.id)}-${sanitizeId(effect.id)}-${index}`);
+  const outerFilter = buildOuterFilters(effects);
+  const innerFilter = [
+    ...filterIds.map((id) => `url(#${id})`),
+    buildInnerFilters(effects, time),
+  ].filter(Boolean).join(" ");
+  const clipRadius = resolveClipRadius(layer, glassEffects.at(-1));
+  const shouldClip = Boolean(glassEffects.length || grainEffects.length || vignetteEffects.length || displacementEffects.length);
+  const strongestGlass = glassEffects.reduce((strongest, effect) => Math.max(strongest, effect.intensity), 0);
+  const glassContentOpacity = layer.type === "shape"
+    ? clamp(1 - strongestGlass / 170, 0.38, 0.86)
+    : 1;
 
-  const wrapperStyle = useMemo<React.CSSProperties>(() => ({
+  const outerStyle: React.CSSProperties = {
     position: "relative",
     width: "100%",
     height: "100%",
-    filter: [displacement ? `url(#${filterId})` : "", filters].filter(Boolean).join(" ") || undefined,
-    borderRadius: glass ? Math.max(10, glass.radius) : undefined,
-    overflow: glass || displacement || grain || vignette ? "hidden" : "visible",
-    background: glass
-      ? `linear-gradient(145deg, rgba(255,255,255,${clamp(glass.intensity / 180, .08, .48)}), rgba(255,255,255,${clamp(glass.intensity / 520, .025, .18)}))`
-      : undefined,
-    border: glass ? "1px solid rgba(255,255,255,.34)" : undefined,
-    boxShadow: glass ? "inset 0 1px rgba(255,255,255,.36), 0 18px 44px rgba(15,12,28,.16)" : undefined,
-    backdropFilter: glass ? `blur(${Math.max(4, glass.radius)}px) saturate(${1 + glass.intensity / 100})` : undefined,
-  }), [displacement, filterId, filters, glass]);
+    overflow: "visible",
+    filter: outerFilter || undefined,
+  };
+  const innerStyle: React.CSSProperties = {
+    position: "relative",
+    width: "100%",
+    height: "100%",
+    overflow: shouldClip ? "hidden" : "visible",
+    borderRadius: clipRadius,
+    filter: innerFilter || undefined,
+    isolation: "isolate",
+  };
+  const contentStyle: React.CSSProperties = {
+    position: "relative",
+    zIndex: 1,
+    width: "100%",
+    height: "100%",
+    opacity: glassContentOpacity,
+  };
 
   return (
-    <div style={wrapperStyle}>
-      {displacement ? <DisplacementFilter id={filterId} effect={displacement} time={time} /> : null}
-      {children}
-      {grain ? <GrainOverlay effect={grain} time={time} /> : null}
-      {vignette ? <VignetteOverlay effect={vignette} /> : null}
-      {glass ? <GlassHighlight /> : null}
+    <div style={outerStyle}>
+      {displacementEffects.length ? (
+        <DisplacementDefinitions effects={displacementEffects} ids={filterIds} time={time} />
+      ) : null}
+      <div style={innerStyle}>
+        <div style={contentStyle}>{children}</div>
+        {glassEffects.map((effect, index) => (
+          <GlassSurface key={effect.id} effect={effect} layer={layer} index={index} />
+        ))}
+        {grainEffects.map((effect, index) => (
+          <GrainOverlay key={effect.id} effect={effect} time={time} index={index} />
+        ))}
+        {vignetteEffects.map((effect, index) => (
+          <VignetteOverlay key={effect.id} effect={effect} index={index} />
+        ))}
+      </div>
     </div>
   );
 }
 
-function DisplacementFilter({ id, effect, time }: { id: string; effect: LayerEffect; time: number }) {
-  const animated = effect.type === "ripple";
-  const base = effect.type === "waterDrop" ? .009 : .018;
-  const frequency = base + (animated ? Math.sin(time * Math.max(.1, effect.speed) * Math.PI * 2) * .0035 : 0);
-  const scale = Math.max(0, effect.intensity) * (effect.type === "waterDrop" ? 1.4 : 1);
+function DisplacementDefinitions({ effects, ids, time }: { effects: LayerEffect[]; ids: string[]; time: number }) {
   return (
-    <svg width="0" height="0" aria-hidden="true" style={{ position: "absolute" }}>
+    <svg
+      width="0"
+      height="0"
+      aria-hidden="true"
+      focusable="false"
+      style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}
+    >
       <defs>
-        <filter id={id} x="-30%" y="-30%" width="160%" height="160%" colorInterpolationFilters="sRGB">
-          <feTurbulence
-            type={effect.type === "waterDrop" ? "fractalNoise" : "turbulence"}
-            baseFrequency={`${Math.max(.001, frequency)} ${Math.max(.001, frequency * .72)}`}
-            numOctaves={effect.type === "waterDrop" ? 2 : 1}
-            seed={effect.seed ?? 7}
-            result="noise"
-          />
-          <feGaussianBlur in="noise" stdDeviation={Math.max(.2, effect.radius / 18)} result="softNoise" />
-          <feDisplacementMap
-            in="SourceGraphic"
-            in2="softNoise"
-            scale={scale}
-            xChannelSelector="R"
-            yChannelSelector="B"
-          />
-        </filter>
+        {effects.map((effect, index) => {
+          const radius = clamp(effect.radius, 1, 180);
+          const wavelength = clamp(0.048 - radius / 5200, 0.006, 0.045);
+          const phase = time * Math.max(0.01, effect.speed) * Math.PI * 2;
+          const frequency = wavelength * (1 + Math.sin(phase) * (effect.type === "ripple" ? 0.12 : 0.055));
+          const distortion = Math.max(0, effect.intensity)
+            * (effect.type === "waterDrop" ? 1.55 : 1.15)
+            * (0.94 + Math.sin(phase * 0.7) * 0.06);
+          return (
+            <filter
+              key={effect.id}
+              id={ids[index]}
+              x="-35%"
+              y="-35%"
+              width="170%"
+              height="170%"
+              colorInterpolationFilters="sRGB"
+            >
+              <feTurbulence
+                type={effect.type === "waterDrop" ? "fractalNoise" : "turbulence"}
+                baseFrequency={`${Math.max(0.001, frequency)} ${Math.max(0.001, frequency * 0.72)}`}
+                numOctaves={effect.type === "waterDrop" ? 2 : 1}
+                seed={effect.seed ?? 7}
+                result="noise"
+              />
+              <feGaussianBlur
+                in="noise"
+                stdDeviation={Math.max(0.15, radius / 22)}
+                result="softNoise"
+              />
+              <feDisplacementMap
+                in="SourceGraphic"
+                in2="softNoise"
+                scale={distortion}
+                xChannelSelector="R"
+                yChannelSelector="B"
+              />
+            </filter>
+          );
+        })}
       </defs>
     </svg>
   );
 }
 
-function GrainOverlay({ effect, time }: { effect: LayerEffect; time: number }) {
-  const shift = Math.round((time * effect.speed * 37 + (effect.seed ?? 1)) % 31);
+function GlassSurface({ effect, layer, index }: { effect: LayerEffect; layer: Layer; index: number }) {
+  const strength = clamp(effect.intensity / 100, 0, 1);
+  const blur = clamp(effect.radius, 0, 180);
+  const tint = effect.color ?? "#ffffff";
+  const tintAlpha = 0.08 + strength * 0.24;
+  const highlightAlpha = 0.13 + strength * 0.3;
+  const borderAlpha = 0.2 + strength * 0.38;
+  const saturation = 1 + strength * 0.72;
+  const contrast = 1 + strength * 0.08;
+  const isShape = layer.type === "shape";
+
   return (
     <span
       aria-hidden="true"
       style={{
         position: "absolute",
-        inset: -12,
+        inset: 0,
+        zIndex: 20 + index,
         pointerEvents: "none",
-        opacity: clamp(effect.intensity / 100, .02, .38),
-        mixBlendMode: "overlay",
-        backgroundImage:
-          "radial-gradient(circle at 20% 20%,rgba(255,255,255,.9) 0 1px,transparent 1px),radial-gradient(circle at 80% 35%,rgba(0,0,0,.8) 0 1px,transparent 1px),radial-gradient(circle at 45% 78%,rgba(255,255,255,.7) 0 1px,transparent 1px)",
-        backgroundSize: `${13 + shift % 4}px ${11 + shift % 5}px, ${17 + shift % 3}px ${15 + shift % 4}px, ${19 + shift % 5}px ${18 + shift % 3}px`,
-        transform: `translate(${shift % 5}px, ${shift % 7}px)`,
+        borderRadius: "inherit",
+        boxSizing: "border-box",
+        overflow: "hidden",
+        background: [
+          `linear-gradient(145deg, ${rgba(tint, tintAlpha + 0.08)}, ${rgba(tint, tintAlpha * 0.46)})`,
+          `radial-gradient(circle at 18% 8%, rgba(255,255,255,${highlightAlpha}), transparent 42%)`,
+          `linear-gradient(125deg, rgba(255,255,255,${highlightAlpha * 0.78}), transparent 26%, transparent 72%, rgba(255,255,255,${highlightAlpha * 0.22}))`,
+        ].join(","),
+        border: `1px solid rgba(255,255,255,${borderAlpha})`,
+        boxShadow: [
+          `inset 0 1px 0 rgba(255,255,255,${highlightAlpha})`,
+          `inset 0 -1px 0 rgba(255,255,255,${highlightAlpha * 0.22})`,
+          isShape ? `0 ${Math.max(6, blur * 0.48)}px ${Math.max(18, blur * 1.65)}px rgba(15,12,28,${0.07 + strength * 0.11})` : "",
+        ].filter(Boolean).join(","),
+        backdropFilter: `blur(${blur}px) saturate(${saturation}) contrast(${contrast})`,
+        WebkitBackdropFilter: `blur(${blur}px) saturate(${saturation}) contrast(${contrast})`,
       }}
     />
   );
 }
 
-function VignetteOverlay({ effect }: { effect: LayerEffect }) {
-  const alpha = clamp(effect.intensity / 100, .05, .72);
-  const radius = clamp(effect.radius, 0, 100);
+function GrainOverlay({ effect, time, index }: { effect: LayerEffect; time: number; index: number }) {
+  const size = clamp(effect.radius, 3, 80);
+  const shift = Math.round((time * Math.max(0.01, effect.speed) * 47 + (effect.seed ?? 1)) % 37);
+  const opacity = clamp(effect.intensity / 100, 0, 1) * 0.34;
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        inset: -Math.max(6, size),
+        zIndex: 40 + index,
+        pointerEvents: "none",
+        opacity,
+        mixBlendMode: "overlay",
+        backgroundImage: [
+          "radial-gradient(circle,rgba(255,255,255,.95) 0 1px,transparent 1.2px)",
+          "radial-gradient(circle,rgba(0,0,0,.85) 0 1px,transparent 1.2px)",
+          "radial-gradient(circle,rgba(255,255,255,.65) 0 .8px,transparent 1px)",
+        ].join(","),
+        backgroundPosition: `${shift}px ${shift * 0.7}px, ${-shift * 0.8}px ${shift * 0.45}px, ${shift * 0.3}px ${-shift}px`,
+        backgroundSize: `${size}px ${size * 0.82}px, ${size * 1.3}px ${size * 1.18}px, ${size * 0.74}px ${size * 0.68}px`,
+        transform: `translate(${shift % 5}px, ${shift % 7}px)`,
+        filter: "contrast(145%)",
+      }}
+    />
+  );
+}
+
+function VignetteOverlay({ effect, index }: { effect: LayerEffect; index: number }) {
+  const alpha = clamp(effect.intensity / 100, 0, 1) * 0.82;
+  const feather = clamp(effect.radius, 0, 100);
+  const innerStop = clamp(78 - feather * 0.62, 8, 74);
   const color = rgba(effect.color ?? "#000000", alpha);
   return (
     <span
@@ -103,57 +219,66 @@ function VignetteOverlay({ effect }: { effect: LayerEffect }) {
       style={{
         position: "absolute",
         inset: 0,
+        zIndex: 60 + index,
         pointerEvents: "none",
-        background: `radial-gradient(circle at center, transparent ${Math.max(10, 70 - radius)}%, ${color} 100%)`,
+        borderRadius: "inherit",
+        background: `radial-gradient(ellipse at center, transparent ${innerStop}%, ${color} 100%)`,
       }}
     />
   );
 }
 
-function GlassHighlight() {
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        position: "absolute",
-        inset: 0,
-        pointerEvents: "none",
-        background: "linear-gradient(125deg,rgba(255,255,255,.28),transparent 28%,transparent 72%,rgba(255,255,255,.09))",
-      }}
-    />
-  );
-}
-
-function buildCssFilters(effects: LayerEffect[], time: number) {
+function buildOuterFilters(effects: LayerEffect[]) {
   const filters: string[] = [];
   for (const effect of effects) {
-    if (effect.type === "blur") filters.push(`blur(${Math.max(0, effect.intensity)}px)`);
     if (effect.type === "dropShadow") {
-      const y = Math.max(1, effect.radius * .45);
-      const blur = Math.max(1, effect.radius);
-      filters.push(`drop-shadow(0 ${y}px ${blur}px ${rgba(effect.color ?? "#15111f", clamp(effect.intensity / 100, .06, .75))})`);
+      const opacity = clamp(effect.intensity / 100, 0, 0.9);
+      const softness = clamp(effect.radius, 0, 180);
+      const y = Math.max(1, softness * 0.42);
+      filters.push(`drop-shadow(0 ${y}px ${Math.max(1, softness)}px ${rgba(effect.color ?? "#15111f", opacity)})`);
     }
     if (effect.type === "glow") {
-      const glow = Math.max(1, effect.radius);
-      const color = rgba(effect.color ?? "#8b5cf6", clamp(effect.intensity / 100, .08, .95));
-      filters.push(`drop-shadow(0 0 ${glow * .45}px ${color}) drop-shadow(0 0 ${glow}px ${color})`);
-    }
-    if (effect.type === "chromatic") {
-      const offset = Math.max(1, effect.intensity / 2);
-      filters.push(`drop-shadow(${offset}px 0 0 rgba(255,40,120,.38)) drop-shadow(${-offset}px 0 0 rgba(40,210,255,.38))`);
-    }
-    if (effect.type === "hueShift") {
-      const degrees = effect.intensity + time * effect.speed * 90;
-      filters.push(`hue-rotate(${degrees}deg) saturate(${1 + Math.max(0, effect.intensity) / 140})`);
+      const opacity = clamp(effect.intensity / 100, 0, 1);
+      const radius = clamp(effect.radius, 0, 180);
+      const color = effect.color ?? "#8b5cf6";
+      filters.push(`drop-shadow(0 0 ${Math.max(1, radius * 0.42)}px ${rgba(color, opacity * 0.82)})`);
+      filters.push(`drop-shadow(0 0 ${Math.max(1, radius)}px ${rgba(color, opacity * 0.46)})`);
     }
   }
   return filters.join(" ");
 }
 
-function strongestDisplacement(effects: LayerEffect[]) {
-  return effects
-    .filter((effect) => effect.type === "waterDrop" || effect.type === "ripple")
-    .sort((a, b) => b.intensity - a.intensity)[0];
+function buildInnerFilters(effects: LayerEffect[], time: number) {
+  const filters: string[] = [];
+  for (const effect of effects) {
+    if (effect.type === "blur") {
+      const amount = clamp(effect.intensity / 100, 0, 1);
+      const radius = clamp(effect.radius, 0, 180);
+      filters.push(`blur(${radius * amount}px)`);
+    }
+    if (effect.type === "chromatic") {
+      const offset = clamp(effect.intensity, 0, 100) * 0.45;
+      const softness = clamp(effect.radius, 0, 180) * 0.12;
+      filters.push(`drop-shadow(${offset}px 0 ${softness}px rgba(255,38,112,.48))`);
+      filters.push(`drop-shadow(${-offset}px 0 ${softness}px rgba(30,214,255,.48))`);
+    }
+    if (effect.type === "hueShift") {
+      const degrees = effect.intensity + time * effect.speed * 90;
+      filters.push(`hue-rotate(${degrees}deg)`);
+      filters.push(`saturate(${1 + Math.min(360, Math.max(0, effect.intensity)) / 220})`);
+    }
+  }
+  return filters.join(" ");
+}
+
+function resolveClipRadius(layer: Layer, glass?: LayerEffect): string | number | undefined {
+  if (layer.type === "shape") {
+    if (layer.shape === "circle") return "50%";
+    if (layer.shape === "line") return 999;
+    return Math.max(0, layer.style.borderRadius);
+  }
+  if (glass) return Math.max(8, Math.min(layer.size.width, layer.size.height) * 0.045);
+  return undefined;
 }
 
 function sanitizeId(value: string) {
@@ -162,11 +287,11 @@ function sanitizeId(value: string) {
 
 function rgba(hex: string, alpha: number) {
   const normalized = hex.replace("#", "");
-  if (!/^[0-9a-f]{6}$/i.test(normalized)) return `rgba(0,0,0,${alpha})`;
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) return `rgba(255,255,255,${clamp(alpha, 0, 1)})`;
   const red = parseInt(normalized.slice(0, 2), 16);
   const green = parseInt(normalized.slice(2, 4), 16);
   const blue = parseInt(normalized.slice(4, 6), 16);
-  return `rgba(${red},${green},${blue},${alpha})`;
+  return `rgba(${red},${green},${blue},${clamp(alpha, 0, 1)})`;
 }
 
 function clamp(value: number, min: number, max: number) {

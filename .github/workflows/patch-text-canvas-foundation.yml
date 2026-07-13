@@ -6,6 +6,7 @@ on:
       - feature/prd-foundation-remotion
     paths:
       - scripts/patch-text-canvas-foundation.py
+      - .github/workflows/patch-text-canvas-foundation.yml
 
 permissions:
   contents: write
@@ -32,6 +33,7 @@ jobs:
           npm run typecheck
       - name: Commit source patch
         run: |
+          git restore .github/workflows/patch-text-canvas-foundation.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/types.ts src/core/project.ts src/core/textLayout.ts src/editor/canvasMath.ts src/MotionComposition.tsx src/editor/CanvasStage.tsx src/editor/InspectorV2.tsx scripts/audit-text-canvas.mjs package.json .github/workflows/ci.yml

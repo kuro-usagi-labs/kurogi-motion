@@ -61,16 +61,16 @@ export function Icon({ name, size = 18, className, strokeWidth = 1.8 }: { name: 
 }
 
 export function animationIconName(type: string): IconName {
-  if (type.startsWith("fade")) return "fade";
-  if (type.startsWith("move")) return "move";
-  if (type.startsWith("scale")) return "scale";
-  if (type.startsWith("rotate")) return "rotate";
-  if (type.startsWith("blur")) return "blur";
-  if (type.startsWith("mask")) return "mask";
-  if (type === "pulse") return "pulse";
-  if (type === "float") return "float";
-  if (type === "shake") return "shake";
+  if (type.startsWith("fade") || type.startsWith("dissolve")) return "fade";
+  if (type.startsWith("move") || type.startsWith("slide") || type.startsWith("drop") || type === "drift" || type === "orbit") return "move";
+  if (type.startsWith("scale") || type.startsWith("pop") || type.startsWith("spring") || type.startsWith("stretch") || type.startsWith("elastic")) return "scale";
+  if (type.startsWith("rotate") || type.startsWith("flip") || type.startsWith("roll")) return "rotate";
+  if (type.startsWith("blur") || type.startsWith("zoomBlur") || type === "ripple") return "blur";
+  if (type.startsWith("mask") || type.startsWith("wipe")) return "mask";
+  if (type === "pulse" || type === "heartbeat" || type === "glowPulse") return "pulse";
+  if (type === "float" || type === "hover" || type === "wave") return "float";
+  if (type === "shake" || type === "jiggle") return "shake";
   if (type === "spin") return "spin";
-  if (type === "breathe") return "breathe";
+  if (type === "breathe" || type === "wobble" || type === "liquid") return "breathe";
   return "swing";
 }

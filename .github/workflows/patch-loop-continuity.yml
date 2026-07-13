@@ -1,6 +1,7 @@
 name: Patch loop continuity
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/prd-foundation-remotion

@@ -51,6 +51,12 @@ jobs:
           set -o pipefail
           npm run audit:loops 2>&1 | tee loop-audit.log
 
+      - name: Audit text and canvas foundations
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:text-canvas 2>&1 | tee text-canvas-audit.log
+
       - name: Typecheck and build
         shell: bash
         run: |
@@ -66,6 +72,7 @@ jobs:
             template-audit.log
             effect-audit.log
             loop-audit.log
+            text-canvas-audit.log
             build.log
           if-no-files-found: ignore
           retention-days: 3

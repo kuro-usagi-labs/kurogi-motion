@@ -260,6 +260,7 @@ function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish,
           {activeAction.category === "loop" ? (
             <div className="property-grid two">
               <label>Repeat<select value={String(activeAction.repeat?.count ?? "infinite")} onChange={(event) => commit((action) => ({ ...action, repeat: { count: event.currentTarget.value === "infinite" ? "infinite" : Number(event.currentTarget.value), delay: action.repeat?.delay ?? 0 } }))}><option value="infinite">Infinite</option><option value="1">1 time</option><option value="2">2 times</option><option value="3">3 times</option><option value="5">5 times</option></select></label>
+              <NumberField label="Blend in" value={Number(activeAction.parameters.blendIn ?? Math.min(.28, activeAction.duration * .2))} min={0} max={2} step={.05} suffix="s" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, blendIn: clamp(value, 0, 2) } }))} />
               <NumberField label="Repeat gap" value={activeAction.repeat?.delay ?? 0} min={0} max={5} step={.05} suffix="s" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, repeat: { count: action.repeat?.count ?? "infinite", delay: Math.max(0, value) } }))} />
             </div>
           ) : null}

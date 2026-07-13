@@ -175,7 +175,12 @@ function applyActionToLayer(visual: EvaluatedLayerVisual, action: AnimationActio
   if (action.category === "loop") {
     const progress = loopProgress(action, time);
     if (progress === null) return;
-    applyLoop(visual, action, applyEasing(action.easing, progress));
+    applyLoop(
+      visual,
+      action,
+      applyEasing(action.easing, progress),
+      loopEntranceWeight(action, time),
+    );
     return;
   }
 
@@ -189,7 +194,12 @@ function applyActionToUnit(visual: EvaluatedUnitVisual, action: AnimationAction,
   if (action.category === "loop") {
     const progress = loopProgress(action, time);
     if (progress === null) return;
-    applyUnitLoop(visual, action, applyEasing(action.easing, progress));
+    applyUnitLoop(
+      visual,
+      action,
+      applyEasing(action.easing, progress),
+      loopEntranceWeight(action, time),
+    );
     return;
   }
 
@@ -303,100 +313,129 @@ function applyOut(visual: EvaluatedLayerVisual, action: AnimationAction, progres
   }
 }
 
-function applyLoop(visual: EvaluatedLayerVisual, action: AnimationAction, progress: number) {
-  const wave = Math.sin(progress * Math.PI * 2);
-  const cosine = Math.cos(progress * Math.PI * 2);
+function applyLoop(
+  visual: EvaluatedLayerVisual,
+  action: AnimationAction,
+  progress: number,
+  weight: number,
+) {
+  const phase = progress * Math.PI * 2;
+  const wave = Math.sin(phase);
+  const cosine = Math.cos(phase);
+  const smoothPulse = (1 - cosine) / 2;
 
   if (action.type === "pulse") {
-    const intensity = numberParameter(action, "intensity", .06);
+    const intensity = numberParameter(action, "intensity", .06) * weight;
     visual.scaleX *= 1 + wave * intensity;
     visual.scaleY *= 1 + wave * intensity;
   }
-  if (action.type === "float") visual.y += wave * numberParameter(action, "intensity", 18);
+  if (action.type === "float") visual.y += wave * numberParameter(action, "intensity", 18) * weight;
   if (action.type === "hover") {
-    const intensity = numberParameter(action, "intensity", 12);
+    const intensity = numberParameter(action, "intensity", 12) * weight;
     visual.y += wave * intensity;
-    visual.rotation += cosine * intensity * .08;
+    visual.rotation += wave * intensity * .08;
   }
   if (action.type === "shake") {
     const frequency = numberParameter(action, "frequency", 5);
-    visual.x += Math.sin(progress * Math.PI * 2 * frequency) * numberParameter(action, "intensity", 10);
+    visual.x += Math.sin(phase * frequency) * numberParameter(action, "intensity", 10) * weight;
   }
   if (action.type === "spin") {
     const direction = stringParameter(action, "direction", "clockwise") === "counterclockwise" ? -1 : 1;
-    visual.rotation += progress * 360 * numberParameter(action, "turns", 1) * direction;
+    visual.rotation += progress * 360 * numberParameter(action, "turns", 1) * direction * weight;
   }
   if (action.type === "breathe") {
-    const intensity = numberParameter(action, "intensity", .06);
-    const breathe = (1 - cosine) / 2;
-    visual.scaleX *= 1 + breathe * intensity;
-    visual.scaleY *= 1 + breathe * intensity;
+    const intensity = numberParameter(action, "intensity", .06) * weight;
+    visual.scaleX *= 1 + smoothPulse * intensity;
+    visual.scaleY *= 1 + smoothPulse * intensity;
   }
-  if (action.type === "swing") visual.rotation += wave * numberParameter(action, "intensity", 8);
+  if (action.type === "swing") visual.rotation += wave * numberParameter(action, "intensity", 8) * weight;
   if (action.type === "wobble") {
-    const intensity = numberParameter(action, "intensity", .08);
+    const intensity = numberParameter(action, "intensity", .08) * weight;
     visual.scaleX *= 1 + wave * intensity;
     visual.scaleY *= 1 - wave * intensity * .7;
-    visual.rotation += cosine * intensity * 45;
+    visual.rotation += wave * intensity * 45;
   }
   if (action.type === "heartbeat") {
     const pulse = Math.pow(Math.max(0, Math.sin(progress * Math.PI * 4)), 8);
-    visual.scaleX *= 1 + pulse * numberParameter(action, "intensity", .12);
-    visual.scaleY *= 1 + pulse * numberParameter(action, "intensity", .12);
+    const intensity = numberParameter(action, "intensity", .12) * weight;
+    visual.scaleX *= 1 + pulse * intensity;
+    visual.scaleY *= 1 + pulse * intensity;
   }
   if (action.type === "drift") {
-    const intensity = numberParameter(action, "intensity", 16);
+    const intensity = numberParameter(action, "intensity", 16) * weight;
     visual.x += wave * intensity;
-    visual.y += Math.sin(progress * Math.PI * 2 + Math.PI / 2) * intensity * .65;
+    visual.y += Math.sin(phase * 2) * intensity * .65;
   }
   if (action.type === "orbit") {
-    const radius = numberParameter(action, "intensity", 22);
-    visual.x += cosine * radius;
+    const radius = numberParameter(action, "intensity", 22) * weight;
+    visual.x += (cosine - 1) * radius;
     visual.y += wave * radius;
   }
   if (action.type === "wave") {
-    const intensity = numberParameter(action, "intensity", 10);
+    const intensity = numberParameter(action, "intensity", 10) * weight;
     visual.y += wave * intensity;
     visual.rotation += wave * intensity * .45;
   }
   if (action.type === "jiggle") {
-    const intensity = numberParameter(action, "intensity", 7);
+    const intensity = numberParameter(action, "intensity", 7) * weight;
     visual.x += Math.sin(progress * Math.PI * 14) * intensity;
     visual.rotation += Math.sin(progress * Math.PI * 18) * intensity * .5;
   }
   if (action.type === "glowPulse") {
-    const intensity = numberParameter(action, "intensity", 18);
-    visual.glow += ((wave + 1) / 2) * intensity;
-    visual.brightness *= 1 + ((wave + 1) / 2) * .08;
+    const intensity = numberParameter(action, "intensity", 18) * weight;
+    visual.glow += smoothPulse * intensity;
+    visual.brightness *= 1 + smoothPulse * .08 * weight;
   }
   if (action.type === "ripple") {
-    const intensity = numberParameter(action, "intensity", .05);
+    const intensity = numberParameter(action, "intensity", .05) * weight;
     visual.scaleX *= 1 + wave * intensity;
     visual.scaleY *= 1 - wave * intensity;
   }
   if (action.type === "liquid") {
-    const intensity = numberParameter(action, "intensity", .08);
+    const intensity = numberParameter(action, "intensity", .08) * weight;
     visual.scaleX *= 1 + wave * intensity;
-    visual.scaleY *= 1 + cosine * intensity;
+    visual.scaleY *= 1 - wave * intensity * .72;
     visual.skewX += wave * intensity * 24;
   }
 }
 
-function applyUnitLoop(visual: EvaluatedUnitVisual, action: AnimationAction, progress: number) {
-  const wave = Math.sin(progress * Math.PI * 2);
-  if (action.type === "pulse" || action.type === "heartbeat") visual.scale *= 1 + wave * numberParameter(action, "intensity", .06);
-  if (action.type === "float" || action.type === "hover" || action.type === "wave") visual.translateY += wave * numberParameter(action, "intensity", 18);
+function applyUnitLoop(
+  visual: EvaluatedUnitVisual,
+  action: AnimationAction,
+  progress: number,
+  weight: number,
+) {
+  const phase = progress * Math.PI * 2;
+  const wave = Math.sin(phase);
+  const cosine = Math.cos(phase);
+  const smoothPulse = (1 - cosine) / 2;
+  const intensity = numberParameter(action, "intensity", .06) * weight;
+
+  if (action.type === "pulse") visual.scale *= 1 + wave * intensity;
+  if (action.type === "heartbeat") {
+    const pulse = Math.pow(Math.max(0, Math.sin(progress * Math.PI * 4)), 8);
+    visual.scale *= 1 + pulse * intensity;
+  }
+  if (action.type === "float" || action.type === "hover" || action.type === "wave") {
+    visual.translateY += wave * numberParameter(action, "intensity", 18) * weight;
+  }
   if (action.type === "shake" || action.type === "jiggle") {
     const frequency = action.type === "jiggle" ? 8 : numberParameter(action, "frequency", 5);
-    visual.translateX += Math.sin(progress * Math.PI * 2 * frequency) * numberParameter(action, "intensity", 10);
+    visual.translateX += Math.sin(phase * frequency) * numberParameter(action, "intensity", 10) * weight;
   }
-  if (action.type === "spin") visual.rotation += progress * 360;
-  if (action.type === "breathe" || action.type === "wobble" || action.type === "liquid") visual.scale *= 1 + wave * numberParameter(action, "intensity", .06);
-  if (action.type === "swing") visual.rotation += wave * numberParameter(action, "intensity", 8);
-  if (action.type === "orbit" || action.type === "drift") {
-    const radius = numberParameter(action, "intensity", 16);
-    visual.translateX += Math.cos(progress * Math.PI * 2) * radius;
+  if (action.type === "spin") visual.rotation += progress * 360 * weight;
+  if (action.type === "breathe") visual.scale *= 1 + smoothPulse * intensity;
+  if (action.type === "wobble" || action.type === "liquid") visual.scale *= 1 + wave * intensity;
+  if (action.type === "swing") visual.rotation += wave * numberParameter(action, "intensity", 8) * weight;
+  if (action.type === "orbit") {
+    const radius = numberParameter(action, "intensity", 16) * weight;
+    visual.translateX += (cosine - 1) * radius;
     visual.translateY += wave * radius;
+  }
+  if (action.type === "drift") {
+    const radius = numberParameter(action, "intensity", 16) * weight;
+    visual.translateX += wave * radius;
+    visual.translateY += Math.sin(phase * 2) * radius * .65;
   }
 }
 
@@ -424,6 +463,17 @@ function loopProgress(action: AnimationAction, time: number): number | null {
   const cycleTime = elapsed - cycleIndex * cycle;
   if (cycleTime > action.duration) return null;
   return clamp(cycleTime / action.duration, 0, 1);
+}
+
+function loopEntranceWeight(action: AnimationAction, time: number) {
+  const start = action.startTime + action.delay;
+  const elapsed = time - start;
+  if (elapsed <= 0) return 0;
+  const automaticBlend = Math.min(.28, action.duration * .2);
+  const blendIn = Math.max(0, numberParameter(action, "blendIn", automaticBlend));
+  if (blendIn <= 0) return 1;
+  const progress = clamp(elapsed / blendIn, 0, 1);
+  return progress * progress * (3 - 2 * progress);
 }
 
 function staggerRank(index: number, count: number, order: StaggerOrder, seed: number) {

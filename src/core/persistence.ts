@@ -40,7 +40,13 @@ export async function saveProject(project: KurogiProject): Promise<void> {
 export async function loadProject(projectId: string): Promise<KurogiProject | null> {
   const database = await openDatabase();
   const value = await getRecord<unknown>(database, PROJECT_STORE, projectId);
-  return value ? resolveProjectAssets(normalizeProject(value), database) : null;
+  if (!value) return null;
+  const normalized = normalizeProject(value);
+  const migrated = await migrateProjectAssets(normalized);
+  if (projectAssetSignature(normalized) !== projectAssetSignature(migrated)) {
+    await putRecord(database, PROJECT_STORE, prepareProjectForStorage(migrated));
+  }
+  return resolveProjectAssets(migrated, database);
 }
 
 export async function listProjects(): Promise<KurogiProject[]> {
@@ -63,6 +69,12 @@ export async function deleteProject(projectId: string): Promise<void> {
 
 export async function saveDraft(project: KurogiProject): Promise<void> {
   const database = await openDatabase();
+  const persisted = await getRecord<KurogiProject | undefined>(database, PROJECT_STORE, project.id);
+  if (persisted?.updatedAt === project.updatedAt) {
+    const existing = await getRecord<DraftRecord | undefined>(database, DRAFT_STORE, LATEST_DRAFT_ID);
+    if (existing?.projectId === project.id) await deleteRecord(database, DRAFT_STORE, LATEST_DRAFT_ID);
+    return;
+  }
   const detached = prepareProjectForStorage(project);
   const record: DraftRecord = {
     id: LATEST_DRAFT_ID, projectId: project.id, name: project.name, updatedAt: new Date().toISOString(), project: detached,
@@ -74,6 +86,11 @@ export async function loadLatestDraft(): Promise<DraftRecord | null> {
   const database = await openDatabase();
   const value = await getRecord<DraftRecord | undefined>(database, DRAFT_STORE, LATEST_DRAFT_ID);
   if (!value?.project) return null;
+  const persisted = await getRecord<KurogiProject | undefined>(database, PROJECT_STORE, value.projectId);
+  if (persisted?.updatedAt === value.project.updatedAt) {
+    await deleteRecord(database, DRAFT_STORE, LATEST_DRAFT_ID);
+    return null;
+  }
   return { ...value, project: await resolveProjectAssets(normalizeProject(value.project), database) };
 }
 
@@ -124,11 +141,20 @@ export async function storeAssetBlob(projectId: string, assetId: string, blob: B
 
 export async function migrateProjectAssets(project: KurogiProject): Promise<KurogiProject> {
   const next = cloneProject(project);
+  const database = await openDatabase();
   for (const asset of Object.values(next.assets)) {
-    if (asset.storage === "blob" && asset.blobId) continue;
+    if (asset.storage === "blob" && asset.blobId) {
+      const existing = await getRecord<AssetBlobRecord | undefined>(database, ASSET_BLOB_STORE, asset.blobId);
+      if (existing?.blob) {
+        asset.sourceUrl = runtimeUrl(asset.blobId, existing.blob);
+        asset.byteSize = existing.byteSize;
+        continue;
+      }
+    }
     if (!asset.sourceUrl || (!asset.sourceUrl.startsWith("data:") && !asset.sourceUrl.startsWith("blob:"))) continue;
     const blob = asset.sourceUrl.startsWith("data:") ? dataUrlToBlob(asset.sourceUrl) : await (await fetch(asset.sourceUrl)).blob();
     const stored = await storeAssetBlob(next.id, asset.id, blob);
+    asset.projectId = next.id;
     asset.storage = "blob";
     asset.blobId = stored.blobId;
     asset.byteSize = stored.byteSize;
@@ -145,6 +171,9 @@ export async function prepareProjectForExport(project: KurogiProject): Promise<K
     const record = await getRecord<AssetBlobRecord | undefined>(database, ASSET_BLOB_STORE, asset.blobId);
     if (!record?.blob) throw new Error(`Asset data is missing for ${asset.name}.`);
     asset.sourceUrl = await blobToDataUrl(record.blob);
+    asset.storage = "inline";
+    asset.blobId = undefined;
+    asset.byteSize = record.byteSize;
   }
   return next;
 }
@@ -208,6 +237,10 @@ async function garbageCollectAssetBlobs(database: IDBDatabase) {
     runtimeUrls.delete(record.id);
     await deleteRecord(database, ASSET_BLOB_STORE, record.id);
   }
+}
+
+function projectAssetSignature(project: KurogiProject) {
+  return Object.values(project.assets).map((asset) => `${asset.id}:${asset.storage ?? "inline"}:${asset.blobId ?? ""}`).sort().join("|");
 }
 
 function toProjectSummary(project: KurogiProject): ProjectSummary {

@@ -1,6 +1,6 @@
 {
   "name": "kurogi-motion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -9,17 +9,25 @@
     "web": "vite",
     "build": "tsc --noEmit && vite build",
     "desktop": "npm run build && electron .",
-    "package": "npm run build && electron-builder --win --x64"
+    "package": "npm run build && electron-builder --win --x64",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@remotion/bundler": "^4.0.365",
     "@remotion/player": "^4.0.365",
     "@remotion/renderer": "^4.0.365",
-    "remotion": "^4.0.365",
+    "idb": "^8.0.2",
+    "pixi.js": "^8.8.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.365",
+    "zod": "^3.24.2",
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.1",
     "@types/node": "^22.10.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -27,14 +35,23 @@
     "concurrently": "^9.1.0",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
+    "jsdom": "^26.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
+    "vitest": "^3.0.5",
     "wait-on": "^8.0.1"
   },
   "build": {
     "appId": "com.kurogi.motion",
     "productName": "Kurogi Motion",
-    "files": ["dist/**/*", "electron/**/*", "package.json"],
-    "win": { "target": "nsis", "signAndEditExecutable": false }
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    }
   }
 }

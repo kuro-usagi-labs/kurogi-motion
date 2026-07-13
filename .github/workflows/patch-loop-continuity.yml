@@ -37,6 +37,12 @@ jobs:
           status=$?
           cat patch-loop.log
           exit $status
+      - name: Upload patch diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loop-patch-diagnostics
+          path: patch-loop.log
       - name: Commit patch
         run: |
           git config user.name "github-actions[bot]"

@@ -1,0 +1,55 @@
+name: Apply scalable project foundations
+
+on:
+  push:
+    branches:
+      - feature/prd-foundation-remotion
+    paths:
+      - scripts/apply-foundation-v2.py
+      - .github/workflows/apply-foundation-v2.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-foundation-v2
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/prd-foundation-remotion
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply foundation migration
+        run: python scripts/apply-foundation-v2.py
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate foundations
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:foundation-v2 2>&1 | tee foundation-v2.log
+          npm run typecheck 2>&1 | tee -a foundation-v2.log
+          npm run build 2>&1 | tee -a foundation-v2.log
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: foundation-v2-diagnostics-${{ github.run_id }}
+          path: foundation-v2.log
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/types.ts src/core/historyPatch.ts src/core/useProjectHistory.ts src/core/persistence.ts src/app/Editor.tsx src/App.tsx scripts/audit-foundation-v2.mjs package.json .github/workflows/ci.yml
+          git commit -m "Build Asset Storage V2, patch history, and real recovery"
+          git push origin HEAD:feature/prd-foundation-remotion

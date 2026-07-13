@@ -19,6 +19,10 @@ interface DesignToolsPanelProps {
   onToggleSnap: () => void;
 }
 
+type PaintDraftPatch = Omit<Partial<GradientFill>, "type"> & {
+  type?: "solid" | GradientFill["type"];
+};
+
 const BLEND_MODES: BlendMode[] = [
   "normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge",
   "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue",
@@ -63,7 +67,7 @@ export function DesignToolsPanel({
     setAngle(gradient?.angle ?? 90);
   }, [primary?.id, gradient?.type, gradient?.startColor, gradient?.endColor, gradient?.angle, fallbackColor]);
 
-  function commitGradient(next: Partial<GradientFill> & { type?: "solid" | "linear" | "radial" }) {
+  function commitGradient(next: PaintDraftPatch) {
     const type = next.type ?? paintType;
     const nextStart = next.startColor ?? startColor;
     const nextEnd = next.endColor ?? endColor;

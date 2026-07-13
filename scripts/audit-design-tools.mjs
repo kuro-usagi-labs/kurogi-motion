@@ -62,9 +62,9 @@ try {
   assert.equal(project.layers[c.id].mask, undefined);
   assert.equal(project.layers[a.id].maskSource, false);
 
-  const snap = design.snapLayerPosition(project.layers[c.id], { x: 446, y: 454 }, scene, Object.values(project.layers), 8);
-  assert.equal(snap.position.x, 450);
-  assert.equal(snap.position.y, 450);
+  const snap = design.snapLayerPosition(project.layers[c.id], { x: 456, y: 454 }, scene, Object.values(project.layers), 8);
+  assert.equal(snap.position.x, 460);
+  assert.equal(snap.position.y, 460);
   assert.equal(snap.guides.length, 2);
 
   const types = await readFile(new URL("../src/types.ts", import.meta.url), "utf8");

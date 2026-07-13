@@ -24,18 +24,70 @@ export type AnimationType =
   | "rotateIn"
   | "blurIn"
   | "maskReveal"
+  | "popIn"
+  | "slideIn"
+  | "springIn"
+  | "flipIn"
+  | "stretchIn"
+  | "wipeIn"
+  | "zoomBlurIn"
+  | "dropIn"
+  | "rollIn"
+  | "elasticIn"
   | "pulse"
   | "float"
   | "shake"
   | "spin"
   | "breathe"
   | "swing"
+  | "hover"
+  | "wobble"
+  | "heartbeat"
+  | "drift"
+  | "orbit"
+  | "wave"
+  | "jiggle"
+  | "glowPulse"
+  | "ripple"
+  | "liquid"
   | "fadeOut"
   | "moveOut"
   | "scaleOut"
   | "rotateOut"
   | "blurOut"
-  | "maskHide";
+  | "maskHide"
+  | "popOut"
+  | "slideOut"
+  | "flipOut"
+  | "stretchOut"
+  | "wipeOut"
+  | "zoomBlurOut"
+  | "dropOut"
+  | "rollOut"
+  | "dissolveOut";
+
+export type LayerEffectType =
+  | "blur"
+  | "dropShadow"
+  | "glow"
+  | "glass"
+  | "waterDrop"
+  | "ripple"
+  | "chromatic"
+  | "grain"
+  | "hueShift"
+  | "vignette";
+
+export interface LayerEffect {
+  id: string;
+  type: LayerEffectType;
+  enabled: boolean;
+  intensity: number;
+  radius: number;
+  speed: number;
+  color?: string;
+  seed?: number;
+}
 
 export interface Point {
   x: number;
@@ -85,6 +137,7 @@ export interface BaseLayer {
   anchor: Point;
   parentId?: string;
   animationActions: AnimationAction[];
+  effects?: LayerEffect[];
 }
 
 export interface TextLayer extends BaseLayer {

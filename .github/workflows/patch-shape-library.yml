@@ -37,10 +37,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Validate shape and template foundations
+        shell: bash
         run: |
-          npm run audit:shapes
-          npm run audit:templates
-          npm run typecheck
+          set -o pipefail
+          npm run audit:shapes 2>&1 | tee shape-patch.log
+          npm run audit:templates 2>&1 | tee -a shape-patch.log
+          npm run typecheck 2>&1 | tee -a shape-patch.log
+      - name: Upload patch diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shape-patch-diagnostics-${{ github.run_id }}
+          path: shape-patch.log
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Commit source patch
         run: |
           git restore .github/workflows/ci.yml

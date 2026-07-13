@@ -91,3 +91,15 @@
   user-select: none;
   -webkit-user-drag: none;
 }
+
+
+/* Expanded vector shape library */
+.shape-library { padding: 8px 10px 24px; }
+.shape-library-section + .shape-library-section { margin-top: 17px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,.065); }
+.shape-library-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 3px 8px; color: #d8d4e0; font-size: 10px; font-weight: 760; letter-spacing: .2px; }
+.shape-library-heading small { color: #777282; font: 8px "DM Mono"; }
+.shape-presets-expanded { grid-template-columns: repeat(2,minmax(0,1fr)); padding: 0 !important; gap: 7px !important; overflow: visible !important; }
+.shape-presets-expanded button { display: grid; grid-template-columns: 36px minmax(0,1fr); align-items: center; min-height: 58px !important; padding: 9px 10px !important; border: 1px solid #343540; border-radius: 10px; color: #bcb6ca; background: #20212a; text-align: left; }
+.shape-presets-expanded button:hover { color: #f1ecff; border-color: #6b5a8c; background: #292733; transform: translateY(-1px); }
+.shape-presets-expanded button strong { display: grid; width: 34px; height: 34px; place-items: center; color: #b49afc; }
+.shape-presets-expanded button span { overflow: hidden; font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }

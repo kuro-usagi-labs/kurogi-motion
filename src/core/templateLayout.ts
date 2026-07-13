@@ -1,5 +1,5 @@
 import { createShapeLayer, createTextLayer } from "./project";
-import type { Layer, Scene, ShapeLayer, TextLayer } from "../types";
+import type { Layer, Scene, ShapeLayer, ShapeType, TextLayer } from "../types";
 
 export type TemplateTextRole = "display" | "headline" | "title" | "body" | "label" | "meta";
 export type TemplateRect = { x: number; y: number; width: number; height: number };
@@ -58,8 +58,10 @@ export interface TemplateFrame {
   text: (name: string, value: string, rect: TemplateRect, role: TemplateTextRole, color: string, options?: TemplateTextOptions) => TextLayer;
   card: (name: string, rect: TemplateRect, fill: string, options?: TemplateShapeOptions) => ShapeLayer;
   circle: (name: string, rect: TemplateRect, fill: string, options?: TemplateShapeOptions) => ShapeLayer;
+  shape: (shape: ShapeType, name: string, rect: TemplateRect, fill: string, options?: TemplateShapeOptions) => ShapeLayer;
   decorativeCard: (name: string, rect: TemplateRect, fill: string, options?: TemplateShapeOptions) => ShapeLayer;
   decorativeCircle: (name: string, rect: TemplateRect, fill: string, options?: TemplateShapeOptions) => ShapeLayer;
+  decorativeShape: (shape: ShapeType, name: string, rect: TemplateRect, fill: string, options?: TemplateShapeOptions) => ShapeLayer;
 }
 
 export function createTemplateFrame(scene: Scene): TemplateFrame {
@@ -103,14 +105,14 @@ export function createTemplateFrame(scene: Scene): TemplateFrame {
     return layer;
   };
 
-  const makeShape = (kind: "rectangle" | "circle", name: string, box: TemplateRect, fill: string, options: TemplateShapeOptions = {}) => {
+  const makeShape = (kind: ShapeType, name: string, box: TemplateRect, fill: string, options: TemplateShapeOptions = {}) => {
     const layer = createShapeLayer(scene, kind, {
       name,
       position: { x: box.x, y: box.y },
       size: { width: box.width, height: box.height },
       fill,
     });
-    layer.style.borderRadius = kind === "circle" ? 0 : options.radius ?? TEMPLATE_TOKENS.cardRadius * Math.min(scene.width, scene.height);
+    layer.style.borderRadius = kind === "circle" ? 0 : kind === "line" ? 999 : options.radius ?? TEMPLATE_TOKENS.cardRadius * Math.min(scene.width, scene.height);
     layer.style.shadow = options.shadow ?? 0;
     layer.style.stroke = options.stroke ?? "#00000000";
     layer.style.strokeWidth = options.strokeWidth ?? 0;
@@ -128,8 +130,10 @@ export function createTemplateFrame(scene: Scene): TemplateFrame {
     text: makeText,
     card: (name, box, fill, options) => makeShape("rectangle", name, box, fill, options),
     circle: (name, box, fill, options) => makeShape("circle", name, box, fill, options),
+    shape: (shape, name, box, fill, options) => makeShape(shape, name, box, fill, options),
     decorativeCard: (name, box, fill, options) => makeShape("rectangle", `Decorative · ${name}`, box, fill, options),
     decorativeCircle: (name, box, fill, options) => makeShape("circle", `Decorative · ${name}`, box, fill, options),
+    decorativeShape: (shape, name, box, fill, options) => makeShape(shape, `Decorative · ${name}`, box, fill, options),
   };
 }
 

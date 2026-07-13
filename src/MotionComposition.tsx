@@ -8,6 +8,7 @@ import {
 } from "./core/evaluator";
 import { getActiveScene, getSceneLayers } from "./core/project";
 import { textVerticalJustification } from "./core/textLayout";
+import { getShapeDefinition, getShapeMaskStyle, isBoxShape } from "./core/shapeLibrary";
 import { LayerEffects } from "./renderer/LayerEffects";
 import type { KurogiProject, Layer, TextLayer } from "./types";
 
@@ -403,23 +404,36 @@ function moveCaretToEnd(element: HTMLElement) {
 }
 
 function ShapeVisual({ layer }: { layer: Extract<Layer, { type: "shape" }> }) {
-  const base: React.CSSProperties = {
-    width: "100%",
-    height: "100%",
-    background: layer.style.fill,
-    border: layer.style.strokeWidth > 0
-      ? `${layer.style.strokeWidth}px solid ${layer.style.stroke}`
-      : undefined,
-    borderRadius: layer.shape === "circle" ? "50%" : layer.style.borderRadius,
-    boxShadow: layer.style.shadow > 0
-      ? `0 ${layer.style.shadow * .5}px ${layer.style.shadow * 1.8}px rgba(18,14,35,.28)`
-      : undefined,
-    boxSizing: "border-box",
-  };
-  if (layer.shape === "polygon") base.clipPath = "polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)";
-  if (layer.shape === "arrow") base.clipPath = "polygon(0 35%,66% 35%,66% 0,100% 50%,66% 100%,66% 65%,0 65%)";
-  if (layer.shape === "line") base.borderRadius = 999;
-  return <div style={base} />;
+  const shadowFilter = layer.style.shadow > 0
+    ? `drop-shadow(0 ${layer.style.shadow * .45}px ${layer.style.shadow * 1.25}px rgba(18,14,35,.28))`
+    : undefined;
+
+  if (isBoxShape(layer.shape)) {
+    return (
+      <div style={{
+        width: "100%",
+        height: "100%",
+        background: layer.style.fill,
+        border: layer.style.strokeWidth > 0 ? `${layer.style.strokeWidth}px solid ${layer.style.stroke}` : undefined,
+        borderRadius: layer.shape === "circle" ? "50%" : layer.shape === "line" ? 999 : layer.style.borderRadius,
+        filter: shadowFilter,
+        boxSizing: "border-box",
+      }} />
+    );
+  }
+
+  const definition = getShapeDefinition(layer.shape);
+  const maskStyle = getShapeMaskStyle(layer.shape);
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%", filter: shadowFilter }}>
+      <div style={{ position: "absolute", inset: 0, background: layer.style.fill, ...maskStyle }} />
+      {layer.style.strokeWidth > 0 ? (
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "visible" }}>
+          <path d={definition.path} fill="none" fillRule={definition.fillRule ?? "nonzero"} stroke={layer.style.stroke} strokeWidth={Math.max(.5, layer.style.strokeWidth / 2)} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        </svg>
+      ) : null}
+    </div>
+  );
 }
 
 function AssetVisual({ project, layer }: { project: KurogiProject; layer: Extract<Layer, { type: "image" | "svg" }> }) {

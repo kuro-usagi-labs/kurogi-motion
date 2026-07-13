@@ -14,6 +14,7 @@ import {
   type TextLayer,
 } from "../types";
 import { normalizeTextVerticalAlign } from "./textLayout";
+import { getShapeDefaultSize, normalizeShapeType } from "./shapeLibrary";
 
 export type ProjectFormat = "square" | "vertical" | "landscape" | "portrait" | "custom";
 
@@ -320,11 +321,12 @@ export function createShapeLayer(
     fill: string;
   }> = {},
 ): ShapeLayer {
-  const size = options.size ?? (shape === "line" ? { width: 280, height: 8 } : { width: 220, height: 220 });
+  const normalizedShape = normalizeShapeType(shape);
+  const size = options.size ?? getShapeDefaultSize(normalizedShape);
   return {
     id: createId("layer"),
     sceneId: scene.id,
-    name: options.name ?? titleCase(shape),
+    name: options.name ?? titleCase(normalizedShape),
     type: "shape",
     visible: true,
     locked: false,
@@ -335,12 +337,12 @@ export function createShapeLayer(
     scale: { x: 1, y: 1 },
     anchor: { x: 0.5, y: 0.5 },
     animationActions: [],
-    shape,
+    shape: normalizedShape,
     style: {
       fill: options.fill ?? "#8b5cf6",
       stroke: "#00000000",
       strokeWidth: 0,
-      borderRadius: shape === "rectangle" ? 24 : 0,
+      borderRadius: normalizedShape === "rectangle" ? 24 : normalizedShape === "line" ? 999 : 0,
       shadow: 0,
       blur: 0,
     },
@@ -532,6 +534,9 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     }));
     if (layer.type === "text") {
       layer.style.verticalAlign = normalizeTextVerticalAlign(layer.style.verticalAlign);
+    }
+    if (layer.type === "shape") {
+      layer.shape = normalizeShapeType(layer.shape);
     }
   }
   return next;

@@ -92,16 +92,19 @@ function buildChatbox(scene: Scene): Layer[] {
   const title = f.text("Conversation title", "IDEAS MOVE\nFASTER TOGETHER.", f.rect(0.02, 0.07, 0.86, 0.17), "headline", "#17192b");
   const bubbleA = f.card("Message from Alex", f.rect(0.02, 0.31, 0.76, 0.16), "#ffffff", { radius: 42 * f.unit, shadow: 22 });
   const avatarA = f.circle("Alex avatar", sq(f, 0.065, 0.345, 0.09), "linear-gradient(145deg,#ff9c70,#ff6b5e)");
-  const messageA = f.text("Message from Alex copy", "Alex · 09:42\nThe launch draft is ready ✨", f.rect(0.19, 0.335, 0.53, 0.105), "body", "#202235", { fontSize: 30 * f.unit });
+  const messageA = f.text("Message from Alex copy", "Alex · 09:42\nThe launch draft is ready.", f.rect(0.19, 0.335, 0.48, 0.105), "body", "#202235", { fontSize: 30 * f.unit });
+  const messageSpark = f.shape("star", "Message sparkle", f.rect(.69, .385, .045, .026), "#ffb84d");
   const bubbleB = f.card("Reply bubble", f.rect(0.2, 0.52, 0.78, 0.15), "linear-gradient(135deg,#8c68ff,#6e4fe2)", { radius: 42 * f.unit, shadow: 24 });
   const messageB = f.text("Reply copy", "Perfect. Let’s make it move.", f.rect(0.27, 0.565, 0.62, 0.06), "body", "#ffffff", { fontSize: 32 * f.unit, weight: 700 });
   const typing = f.card("Typing indicator", f.rect(0.03, 0.75, 0.25, 0.065), "rgba(255,255,255,.78)", { radius: 999 });
-  const dots = f.text("Typing dots", "●  ●  ●", f.rect(0.075, 0.765, 0.16, 0.03), "meta", "#7c5cff", { align: "center" });
+  const dotA = f.circle("Typing dot A", sq(f, .085, .77, .022), "#7c5cff");
+  const dotB = f.circle("Typing dot B", sq(f, .135, .77, .022), "#7c5cff");
+  const dotC = f.circle("Typing dot C", sq(f, .185, .77, .022), "#7c5cff");
   enter(eyebrow, "fadeIn", 0, .4); enter(title, "moveIn", .08, .7, { direction: "up", distance: 80 }, true, "line");
-  enter(bubbleA, "springIn", .42, .75); enter(avatarA, "popIn", .62, .45); enter(messageA, "fadeIn", .72, .42);
+  enter(bubbleA, "springIn", .42, .75); enter(avatarA, "popIn", .62, .45); enter(messageA, "fadeIn", .72, .42); enter(messageSpark, "popIn", .9, .35); loop(messageSpark, "spin", 1.25, 3.4, { turns: 1 });
   enter(bubbleB, "slideIn", 1.05, .65, { direction: "right", distance: 180 }); enter(messageB, "fadeIn", 1.28, .4);
-  enter(typing, "popIn", 1.72, .42); enter(dots, "fadeIn", 1.85, .3); loop(dots, "heartbeat", 2.1, 1.25, { intensity: .12 }); loop(bubbleB, "hover", 1.8, 2.8, { intensity: 8 });
-  return [eyebrow, title, bubbleA, avatarA, messageA, bubbleB, messageB, typing, dots];
+  enter(typing, "popIn", 1.72, .42); enter(dotA, "popIn", 1.82, .28); enter(dotB, "popIn", 1.92, .28); enter(dotC, "popIn", 2.02, .28); loop(dotA, "heartbeat", 2.15, 1.25, { intensity: .12 }); loop(dotB, "heartbeat", 2.3, 1.25, { intensity: .12 }); loop(dotC, "heartbeat", 2.45, 1.25, { intensity: .12 }); loop(bubbleB, "hover", 1.8, 2.8, { intensity: 8 });
+  return [eyebrow, title, bubbleA, avatarA, messageA, messageSpark, bubbleB, messageB, typing, dotA, dotB, dotC];
 }
 
 function buildComment(scene: Scene): Layer[] {
@@ -113,12 +116,13 @@ function buildComment(scene: Scene): Layer[] {
   const badge = f.card("Creator badge", f.rect(.73, .26, .14, .045), "#f1ecff", { radius: 999 });
   const badgeText = f.text("Badge text", "CREATOR", f.rect(.75, .27, .1, .025), "meta", "#6b4dc3", { align: "center", fontSize: 14 * f.unit });
   const comment = f.text("Comment", "“This animation made the whole post feel premium.”", f.rect(.12, .405, .76, .19), "title", "#24212c", { fontSize: 45 * f.unit, lineHeight: 1.08 });
-  const likes = f.text("Likes", "♥  1,284", f.rect(.12, .69, .25, .04), "label", "#ff5d78");
+  const likeHeart = f.shape("heart", "Like heart", f.rect(.12, .69, .04, .034), "#ff5d78");
+  const likes = f.text("Likes", "1,284", f.rect(.18, .69, .19, .04), "label", "#ff5d78");
   const reply = f.text("Reply", "Reply  ·  Share", f.rect(.58, .69, .3, .04), "meta", "#77717f", { align: "right" });
   enter(halo, "scaleIn", 0, .8); loop(halo, "breathe", .8, 2.2, { intensity: .1 }); enter(card, "springIn", .08, .8);
   enter(avatar, "popIn", .32, .45); enter(user, "slideIn", .4, .52, { direction: "left", distance: 90 }); enter(badge, "stretchIn", .55, .48, { axis: "x" }); enter(badgeText, "fadeIn", .68, .3);
-  enter(comment, "moveIn", .66, .68, { direction: "up", distance: 70 }, true, "word"); enter(likes, "popIn", 1.18, .42); enter(reply, "fadeIn", 1.28, .36); loop(avatar, "glowPulse", 1.25, 2.1, { intensity: 16 });
-  return [halo, card, avatar, user, badge, badgeText, comment, likes, reply];
+  enter(comment, "moveIn", .66, .68, { direction: "up", distance: 70 }, true, "word"); enter(likeHeart, "popIn", 1.12, .42); enter(likes, "fadeIn", 1.22, .32); enter(reply, "fadeIn", 1.28, .36); loop(likeHeart, "heartbeat", 1.6, 1.45, { intensity: .1 }); loop(avatar, "glowPulse", 1.25, 2.1, { intensity: 16 });
+  return [halo, card, avatar, user, badge, badgeText, comment, likeHeart, likes, reply];
 }
 
 function buildNotification(scene: Scene): Layer[] {
@@ -150,12 +154,12 @@ function buildTestimonial(scene: Scene): Layer[] {
   const role = f.text("Customer role", "Social Media Designer", f.rect(.24, .265, .53, .035), "meta", "#827895", { fontSize: 19 * f.unit });
   const quote = f.text("Review quote", "I made three polished ad variations before lunch — without touching a keyframe.", f.rect(.09, .39, .82, .22), "title", "#2d2442", { fontSize: 48 * f.unit, lineHeight: 1.08, weight: 750 });
   const divider = f.card("Quote divider", f.rect(.09, .655, .82, .006), "#e7def6", { radius: 999 });
-  const stars = f.text("Rating", "★★★★★", f.rect(.09, .7, .28, .035), "label", "#ffb84d", { letterSpacing: 2 * f.unit });
+  const ratingStars = Array.from({ length: 5 }, (_, index) => f.shape("star", `Rating star ${index + 1}`, f.rect(.09 + index * .047, .698, .035, .032), "#ffb84d"));
   const meta = f.text("Review meta", "VERIFIED CUSTOMER · 4.9/5", f.rect(.43, .705, .48, .03), "meta", "#8b8298", { align: "right", fontSize: 16 * f.unit });
   enter(blob, "zoomBlurIn", 0, .9); loop(blob, "liquid", .9, 2.8, { intensity: .07 }); enter(card, "springIn", .1, .85); enter(quoteMark, "popIn", .35, .48);
   enter(avatar, "popIn", .48, .46); enter(initials, "fadeIn", .62, .3); enter(name, "slideIn", .58, .5, { direction: "left", distance: 70 }); enter(role, "fadeIn", .76, .35);
-  enter(quote, "moveIn", .82, .7, { direction: "up", distance: 58 }, true, "word"); enter(divider, "wipeIn", 1.25, .4, { direction: "left" }); enter(stars, "stretchIn", 1.38, .45, { axis: "x" }); enter(meta, "fadeIn", 1.5, .35); loop(stars, "glowPulse", 1.9, 2.2, { intensity: 10 });
-  return [blob, card, quoteMark, avatar, initials, name, role, quote, divider, stars, meta];
+  enter(quote, "moveIn", .82, .7, { direction: "up", distance: 58 }, true, "word"); enter(divider, "wipeIn", 1.25, .4, { direction: "left" }); ratingStars.forEach((star, index) => enter(star, "popIn", 1.34 + index * .06, .34)); enter(meta, "fadeIn", 1.62, .35); ratingStars.forEach((star, index) => loop(star, "glowPulse", 1.95 + index * .04, 2.2, { intensity: 8 }));
+  return [blob, card, quoteMark, avatar, initials, name, role, quote, divider, ...ratingStars, meta];
 }
 
 function buildQuote(scene: Scene): Layer[] {
@@ -207,7 +211,7 @@ function buildAnnouncement(scene: Scene): Layer[] {
   const title = f.text("Announcement", "THE NEW\nCOLLECTION\nIS HERE.", f.rect(.02, .13, .8, .4), "display", "#163c31", { fontSize: 98 * f.unit });
   const pill = f.card("Announcement pill", f.rect(.03, .65, .5, .08), "linear-gradient(90deg,#62d4ad,#8ae6c6)", { radius: 999 });
   const label = f.text("Pill label", "EXPLORE THE DROP", f.rect(.08, .67, .4, .035), "label", "#163c31", { align: "center" });
-  const arrow = f.text("Arrow", "↗", f.rect(.65, .61, .16, .12), "display", "#163c31", { align: "center", fontSize: 86 * f.unit });
+  const arrow = f.shape("arrow", "Direction arrow", f.rect(.69, .63, .11, .075), "#163c31", { rotation: -45 });
   const blob = f.decorativeCircle("Liquid blob", sq(f, .66, .11, .27), "linear-gradient(145deg,#8ae6c6,#42b993)"); fx(blob, "waterDrop", 24, 18); fx(blob, "glow", 12, 16, "#62d4ad");
   enter(top, "fadeIn", 0, .4); enter(title, "wipeIn", .1, .85, { direction: "left" }, true, "line"); enter(blob, "springIn", .38, .8); loop(blob, "liquid", 1, 2.4, { intensity: .09 });
   enter(pill, "slideIn", .68, .6, { direction: "left", distance: 120 }); enter(label, "fadeIn", .9, .35); enter(arrow, "rollIn", .78, .7, { direction: "right", distance: 80, rotation: 150 }); loop(arrow, "jiggle", 1.5, 1.2, { intensity: 4 });
@@ -263,10 +267,11 @@ function buildStatCard(scene: Scene): Layer[] {
   const metric = f.text("Metric", "+42%", f.rect(.11, .38, .68, .2), "display", "#15342d", { fontSize: 145 * f.unit }); fx(metric, "grain", 8, 0);
   const detail = f.text("Metric detail", "More completed views after adding motion.", f.rect(.13, .66, .66, .075), "body", "#607b73", { fontSize: 26 * f.unit });
   const chip = f.card("Trend chip", f.rect(.65, .27, .2, .06), "#d9fff3", { radius: 999 });
-  const chipText = f.text("Trend text", "↗  12.8%", f.rect(.69, .29, .12, .025), "meta", "#19866c", { align: "center" });
+  const trendArrow = f.shape("arrow", "Trend arrow", f.rect(.67, .287, .032, .024), "#19866c", { rotation: -45 });
+  const chipText = f.text("Trend text", "12.8%", f.rect(.705, .29, .105, .025), "meta", "#19866c", { align: "center" });
   const dotA = f.circle("Data dot A", sq(f, .73, .69, .055), "#28b894"); const dotB = f.circle("Data dot B", sq(f, .81, .63, .035), "#9ce7d1");
-  enter(back, "rotateIn", 0, .72); enter(card, "springIn", .12, .8); enter(eyebrow, "fadeIn", .38, .35); enter(metric, "moveIn", .48, .72, { direction: "up", distance: 80 }, true, "character"); enter(detail, "fadeIn", 1.05, .42); enter(chip, "popIn", .82, .44); enter(chipText, "fadeIn", .95, .3); enter(dotA, "popIn", 1.15, .42); enter(dotB, "popIn", 1.3, .4); loop(metric, "breathe", 1.6, 2, { intensity: .025 }); loop(dotA, "orbit", 1.6, 2.6, { intensity: 10 });
-  return [back, card, eyebrow, metric, detail, chip, chipText, dotA, dotB];
+  enter(back, "rotateIn", 0, .72); enter(card, "springIn", .12, .8); enter(eyebrow, "fadeIn", .38, .35); enter(metric, "moveIn", .48, .72, { direction: "up", distance: 80 }, true, "character"); enter(detail, "fadeIn", 1.05, .42); enter(chip, "popIn", .82, .44); enter(trendArrow, "slideIn", .91, .32, { direction: "left", distance: 22 }); enter(chipText, "fadeIn", .98, .3); enter(dotA, "popIn", 1.15, .42); enter(dotB, "popIn", 1.3, .4); loop(metric, "breathe", 1.6, 2, { intensity: .025 }); loop(dotA, "orbit", 1.6, 2.6, { intensity: 10 });
+  return [back, card, eyebrow, metric, detail, chip, trendArrow, chipText, dotA, dotB];
 }
 
 function buildGradientOrbit(scene: Scene): Layer[] {
@@ -336,9 +341,10 @@ function buildSalePoster(scene: Scene): Layer[] {
   const discount = f.text("Discount", "50%", f.rect(.08, .54, .72, .19), "display", "#fff4a3", { fontSize: 162 * f.unit });
   const off = f.text("Off", "OFF", f.rect(.68, .64, .18, .07), "title", "#ff4d8d", { fontSize: 46 * f.unit });
   const cta = f.card("CTA", f.rect(.04, .83, .46, .075), "#ffffff", { radius: 999 });
-  const ctaText = f.text("CTA text", "SHOP THE DROP  ↗", f.rect(.09, .855, .36, .03), "label", "#1b1630", { align: "center" });
-  enter(burst, "zoomBlurIn", 0, .85); loop(burst, "heartbeat", .9, 1.3, { intensity: .08 }); enter(label, "fadeIn", .1, .4); enter(title, "stretchIn", .2, .72, { axis: "y" }, true, "line"); enter(discount, "popIn", .62, .72); enter(off, "rollIn", .86, .6, { direction: "right", distance: 90, rotation: 120 }); enter(cta, "slideIn", 1.12, .55, { direction: "left", distance: 120 }); enter(ctaText, "fadeIn", 1.32, .3); loop(discount, "glowPulse", 1.6, 2, { intensity: 22 });
-  return [burst, label, title, discount, off, cta, ctaText];
+  const ctaText = f.text("CTA text", "SHOP THE DROP", f.rect(.085, .855, .29, .03), "label", "#1b1630", { align: "center" });
+  const ctaArrow = f.shape("arrow", "CTA arrow", f.rect(.39, .853, .035, .028), "#1b1630", { rotation: -45 });
+  enter(burst, "zoomBlurIn", 0, .85); loop(burst, "heartbeat", .9, 1.3, { intensity: .08 }); enter(label, "fadeIn", .1, .4); enter(title, "stretchIn", .2, .72, { axis: "y" }, true, "line"); enter(discount, "popIn", .62, .72); enter(off, "rollIn", .86, .6, { direction: "right", distance: 90, rotation: 120 }); enter(cta, "slideIn", 1.12, .55, { direction: "left", distance: 120 }); enter(ctaText, "fadeIn", 1.32, .3); enter(ctaArrow, "slideIn", 1.38, .3, { direction: "left", distance: 18 }); loop(discount, "glowPulse", 1.6, 2, { intensity: 22 });
+  return [burst, label, title, discount, off, cta, ctaText, ctaArrow];
 }
 
 function buildButtonMicro(scene: Scene): Layer[] {
@@ -348,7 +354,7 @@ function buildButtonMicro(scene: Scene): Layer[] {
   const glow = f.decorativeCard("Button glow", f.rect(.58, .31, .31, .21), "rgba(114,84,214,.28)", { radius: 999 }); fx(glow, "blur", 24, 30);
   const button = f.card("Action button", f.rect(.57, .35, .32, .14), "linear-gradient(180deg,#8468e7,#674bc5)", { radius: 999, shadow: 28 }); fx(button, "glow", 16, 18, "#7254d6");
   const buttonText = f.text("Button label", "CREATE MOTION", f.rect(.62, .4, .22, .035), "label", "#ffffff", { align: "center" });
-  const cursor = f.text("Cursor", "↗", f.rect(.8, .55, .08, .075), "title", "#171821", { align: "center", fontSize: 50 * f.unit });
+  const cursor = f.shape("arrow", "Cursor arrow", f.rect(.81, .56, .055, .05), "#171821", { rotation: -45 });
   const hint = f.text("Hint", "HOVER · PRESS · RELEASE", f.rect(.59, .7, .31, .035), "meta", "#8b8593", { align: "center" });
   enter(title, "moveIn", 0, .72, { direction: "up", distance: 70 }, true, "line"); enter(subtitle, "fadeIn", .55, .4); enter(glow, "scaleIn", .35, .7); enter(button, "springIn", .5, .78); enter(buttonText, "fadeIn", .78, .3); enter(cursor, "slideIn", .95, .55, { direction: "down", distance: 80 }); enter(hint, "fadeIn", 1.2, .35); loop(button, "heartbeat", 1.5, 1.6, { intensity: .045 }); loop(cursor, "jiggle", 1.6, 1.2, { intensity: 3 });
   return [title, subtitle, glow, button, buttonText, cursor, hint];

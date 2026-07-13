@@ -1,7 +1,11 @@
-export const PROJECT_VERSION = 3;
+export const PROJECT_VERSION = 4;
 
 export type LayerType = "text" | "shape" | "image" | "svg" | "group";
-export type ShapeType = "rectangle" | "circle" | "line" | "polygon" | "arrow";
+export type ShapeType =
+  | "rectangle" | "circle" | "line" | "polygon" | "arrow"
+  | "triangle" | "diamond" | "star" | "heart" | "hexagon" | "octagon"
+  | "plus" | "cross" | "speechBubble" | "cloud" | "burst" | "chevron"
+  | "ring" | "droplet" | "lightning";
 export type AnimationCategory = "in" | "loop" | "out";
 export type TextAnimationUnit = "layer" | "line" | "word" | "character";
 export type StaggerOrder = "normal" | "reverse" | "center" | "edges" | "random";

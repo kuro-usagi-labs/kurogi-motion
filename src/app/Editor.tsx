@@ -24,6 +24,8 @@ import { useProjectHistory } from "../core/useProjectHistory";
 import { Inspector, type InspectorTab } from "../editor/InspectorV2";
 import { CanvasStage } from "../editor/CanvasStage";
 import { Icon, type IconName } from "../ui/Icon";
+import { ShapeIcon } from "../ui/ShapeIcon";
+import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
 import { Timeline } from "../editor/TimelineV3";
 import type {
   AnimationAction,
@@ -597,9 +599,19 @@ export function Editor({ initialProject, onExit }: EditorProps) {
             </div>
           ) : null}
           {sidebarTab === "shapes" ? (
-            <div className="add-grid shape-presets">
-              {(["rectangle", "circle", "line", "polygon", "arrow"] as const).map((shape) => (
-                <button type="button" key={shape} onClick={() => addShape(shape)}><strong><Icon name={shape} size={25} /></strong><span>{shape.charAt(0).toUpperCase() + shape.slice(1)}</span></button>
+            <div className="shape-library sidebar-scroll">
+              {(["Basic", "Geometric", "Symbols", "Decorative"] as ShapeGroup[]).map((group) => (
+                <section className="shape-library-section" key={group}>
+                  <div className="shape-library-heading"><span>{group}</span><small>{SHAPE_DEFINITIONS.filter((shape) => shape.group === group).length}</small></div>
+                  <div className="add-grid shape-presets shape-presets-expanded">
+                    {SHAPE_DEFINITIONS.filter((shape) => shape.group === group).map((definition) => (
+                      <button type="button" key={definition.type} onClick={() => addShape(definition.type)} title={`Add ${definition.label}`}>
+                        <strong><ShapeIcon shape={definition.type} size={28} /></strong>
+                        <span>{definition.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           ) : null}

@@ -1,5 +1,6 @@
 import React from "react";
 import { normalizeEffects } from "../core/effects";
+import { getShapeMaskStyle, isBoxShape } from "../core/shapeLibrary";
 import type { Layer, LayerEffect, LayerEffectType } from "../types";
 
 interface LayerEffectsProps {
@@ -47,6 +48,9 @@ export function LayerEffects({ layer, time, children }: LayerEffectsProps) {
     overflow: "visible",
     filter: outerFilter || undefined,
   };
+  const shapeMask = layer.type === "shape" && !isBoxShape(layer.shape)
+    ? getShapeMaskStyle(layer.shape)
+    : undefined;
   const innerStyle: React.CSSProperties = {
     position: "relative",
     width: "100%",
@@ -55,6 +59,7 @@ export function LayerEffects({ layer, time, children }: LayerEffectsProps) {
     borderRadius: clipRadius,
     filter: innerFilter || undefined,
     isolation: "isolate",
+    ...shapeMask,
   };
   const contentStyle: React.CSSProperties = {
     position: "relative",
@@ -275,6 +280,7 @@ function resolveClipRadius(layer: Layer, glass?: LayerEffect): string | number |
   if (layer.type === "shape") {
     if (layer.shape === "circle") return "50%";
     if (layer.shape === "line") return 999;
+    if (!isBoxShape(layer.shape)) return 0;
     return Math.max(0, layer.style.borderRadius);
   }
   if (glass) return Math.max(8, Math.min(layer.size.width, layer.size.height) * 0.045);

@@ -33,11 +33,12 @@ try {
       size: { width: 320, height: 220 },
       fill: "#8b5cf6",
     });
+    const fractional = ["pulse", "breathe", "ripple", "liquid", "wobble", "heartbeat"].includes(preset.type);
     layer.animationActions = [projectCore.createAnimationAction(layer.id, "loop", preset.type, {
       startTime: start,
       duration: preset.recommendedDuration ?? 2,
       easing: preset.recommendedEasing ?? "easeInOut",
-      parameters: { intensity: preset.type === "pulse" || preset.type === "breathe" || preset.type === "ripple" || preset.type === "liquid" || preset.type === "wobble" || preset.type === "heartbeat" ? .1 : 20, blendIn: .25 },
+      parameters: { intensity: fractional ? 0.1 : 20, blendIn: 0.25 },
       repeat: { count: "infinite", delay: 0 },
     })];
 
@@ -52,13 +53,11 @@ try {
   }
 
   if (issues.length) {
-    console.error("
-Loop continuity audit failed:");
+    console.error("\nLoop continuity audit failed:");
     for (const issue of issues) console.error(`- ${issue}`);
     process.exitCode = 1;
   } else {
-    console.log(`
-Loop continuity audit passed: ${loopPresets.length} presets start from the base pose without a visual jump.`);
+    console.log(`\nLoop continuity audit passed: ${loopPresets.length} presets start from the base pose without a visual jump.`);
   }
 } finally {
   await server.close();
@@ -80,6 +79,5 @@ function visualDistance(left, right) {
 }
 
 function angleDelta(left, right) {
-  const delta = ((left - right + 180) % 360 + 360) % 360 - 180;
-  return delta;
+  return ((left - right + 180) % 360 + 360) % 360 - 180;
 }

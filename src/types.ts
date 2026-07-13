@@ -1,91 +1,261 @@
-export type LayerKind = "text" | "shape" | "image";
-export type MotionKind = "fadeUp" | "scaleIn" | "float" | "pulse" | "fadeOut";
-export type Layer = {
+export const PROJECT_VERSION = 4;
+
+export type LayerType = "text" | "shape" | "image" | "svg" | "group";
+export type ShapeType =
+  | "rectangle" | "circle" | "line" | "polygon" | "arrow"
+  | "triangle" | "diamond" | "star" | "heart" | "hexagon" | "octagon"
+  | "plus" | "cross" | "speechBubble" | "cloud" | "burst" | "chevron"
+  | "ring" | "droplet" | "lightning";
+export type AnimationCategory = "in" | "loop" | "out";
+export type TextAnimationUnit = "layer" | "line" | "word" | "character";
+export type StaggerOrder = "normal" | "reverse" | "center" | "edges" | "random";
+export type TextVerticalAlign = "top" | "middle" | "bottom";
+
+export type EasingName =
+  | "linear"
+  | "easeIn"
+  | "easeOut"
+  | "easeInOut"
+  | "backIn"
+  | "backOut"
+  | "overshoot"
+  | "bounce"
+  | "elastic";
+
+export type AnimationType =
+  | "fadeIn"
+  | "moveIn"
+  | "scaleIn"
+  | "rotateIn"
+  | "blurIn"
+  | "maskReveal"
+  | "popIn"
+  | "slideIn"
+  | "springIn"
+  | "flipIn"
+  | "stretchIn"
+  | "wipeIn"
+  | "zoomBlurIn"
+  | "dropIn"
+  | "rollIn"
+  | "elasticIn"
+  | "pulse"
+  | "float"
+  | "shake"
+  | "spin"
+  | "breathe"
+  | "swing"
+  | "hover"
+  | "wobble"
+  | "heartbeat"
+  | "drift"
+  | "orbit"
+  | "wave"
+  | "jiggle"
+  | "glowPulse"
+  | "ripple"
+  | "liquid"
+  | "fadeOut"
+  | "moveOut"
+  | "scaleOut"
+  | "rotateOut"
+  | "blurOut"
+  | "maskHide"
+  | "popOut"
+  | "slideOut"
+  | "flipOut"
+  | "stretchOut"
+  | "wipeOut"
+  | "zoomBlurOut"
+  | "dropOut"
+  | "rollOut"
+  | "dissolveOut";
+
+export type LayerEffectType =
+  | "blur"
+  | "dropShadow"
+  | "glow"
+  | "glass"
+  | "waterDrop"
+  | "ripple"
+  | "chromatic"
+  | "grain"
+  | "hueShift"
+  | "vignette";
+
+export interface LayerEffect {
   id: string;
-  name: string;
-  kind: LayerKind;
+  type: LayerEffectType;
+  enabled: boolean;
+  intensity: number;
+  radius: number;
+  speed: number;
+  color?: string;
+  seed?: number;
+}
+
+export interface Point {
   x: number;
   y: number;
+}
+
+export interface Size {
   width: number;
   height: number;
+}
+
+export interface AnimationAction {
+  id: string;
+  layerId: string;
+  category: AnimationCategory;
+  type: AnimationType;
+  startTime: number;
+  duration: number;
+  delay: number;
+  easing: EasingName;
+  parameters: Record<string, number | string | boolean>;
+  stagger?: {
+    enabled: boolean;
+    unit: TextAnimationUnit;
+    delay: number;
+    order: StaggerOrder;
+    seed?: number;
+  };
+  repeat?: {
+    count: number | "infinite";
+    delay: number;
+  };
+}
+
+export interface BaseLayer {
+  id: string;
+  sceneId: string;
+  name: string;
+  type: LayerType;
+  visible: boolean;
+  locked: boolean;
+  position: Point;
+  size: Size;
   rotation: number;
   opacity: number;
-  color: string;
-  text?: string;
-  src?: string;
-  fontSize?: number;
-  hidden?: boolean;
-  locked?: boolean;
-  motion: MotionKind[];
-  start: number;
-  duration: number;
-};
-export type Project = {
+  scale: Point;
+  anchor: Point;
+  parentId?: string;
+  animationActions: AnimationAction[];
+  effects?: LayerEffect[];
+}
+
+export interface TextLayer extends BaseLayer {
+  type: "text";
+  text: string;
+  style: {
+    fontFamily: string;
+    fontSize: number;
+    fontWeight: number;
+    lineHeight: number;
+    letterSpacing: number;
+    align: "left" | "center" | "right";
+    verticalAlign: TextVerticalAlign;
+    color: string;
+  };
+}
+
+export interface ShapeLayer extends BaseLayer {
+  type: "shape";
+  shape: ShapeType;
+  style: {
+    fill: string;
+    stroke: string;
+    strokeWidth: number;
+    borderRadius: number;
+    shadow: number;
+    blur: number;
+  };
+}
+
+export interface ImageLayer extends BaseLayer {
+  type: "image";
+  assetId: string;
+  fit: "contain" | "cover" | "fill";
+}
+
+export interface SvgLayer extends BaseLayer {
+  type: "svg";
+  assetId: string;
+}
+
+export interface GroupLayer extends BaseLayer {
+  type: "group";
+  childIds: string[];
+}
+
+export type Layer = TextLayer | ShapeLayer | ImageLayer | SvgLayer | GroupLayer;
+
+export interface Scene {
+  id: string;
   name: string;
   width: number;
   height: number;
-  fps: number;
   duration: number;
-  background: string;
-  layers: Layer[];
-};
+  fps: number;
+  background: {
+    type: "solid" | "transparent";
+    color?: string;
+  };
+  layerIds: string[];
+}
 
-export const starterProject: Project = {
-  name: "Untitled motion",
-  width: 1080,
-  height: 1080,
-  fps: 30,
-  duration: 5,
-  background: "#F5F4FF",
-  layers: [
-    {
-      id: "hero",
-      name: "Make it move",
-      kind: "text",
-      text: "MAKE IT\nMOVE.",
-      x: 120,
-      y: 180,
-      width: 760,
-      height: 280,
-      rotation: 0,
-      opacity: 1,
-      color: "#1B173A",
-      fontSize: 128,
-      motion: ["fadeUp"],
-      start: 0,
-      duration: 1.1,
-    },
-    {
-      id: "orb",
-      name: "Violet orb",
-      kind: "shape",
-      x: 700,
-      y: 570,
-      width: 235,
-      height: 235,
-      rotation: 0,
-      opacity: 1,
-      color: "#8B5CF6",
-      motion: ["float", "pulse"],
-      start: 0.25,
-      duration: 2.2,
-    },
-    {
-      id: "label",
-      name: "Action-based animation",
-      kind: "text",
-      text: "ACTION-BASED ANIMATION",
-      x: 125,
-      y: 725,
-      width: 550,
-      height: 60,
-      rotation: 0,
-      opacity: 1,
-      color: "#6B6389",
-      fontSize: 25,
-      motion: ["fadeUp"],
-      start: 0.45,
-      duration: 0.8,
-    },
-  ],
-};
+export interface ProjectAsset {
+  id: string;
+  projectId: string;
+  name: string;
+  type: "image" | "svg";
+  mimeType: string;
+  width?: number;
+  height?: number;
+  sourceUrl: string;
+  thumbnailUrl?: string;
+  storage?: "inline" | "blob";
+  blobId?: string;
+  byteSize?: number;
+}
+
+export interface KurogiProject {
+  id: string;
+  name: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  activeSceneId: string;
+  scenes: Record<string, Scene>;
+  layers: Record<string, Layer>;
+  assets: Record<string, ProjectAsset>;
+  settings: {
+    autoSave: boolean;
+    snapEnabled: boolean;
+    defaultFps: number;
+  };
+}
+
+export type Project = KurogiProject;
+
+export type ExportFormat = "webm" | "mp4" | "mov" | "gif" | "png-sequence";
+export type ExportQuality = "low" | "medium" | "high";
+
+export interface ExportOptions {
+  format: ExportFormat;
+  fps: 24 | 30 | 60;
+  scale: number;
+  quality: ExportQuality;
+  transparent: boolean;
+  gifLoops: number | null;
+}
+
+export interface ExportProgress {
+  phase: "preparing" | "rendering" | "encoding" | "completed" | "failed";
+  progress: number;
+  renderedFrames?: number;
+  encodedFrames?: number;
+  frameCount?: number;
+  message?: string;
+}

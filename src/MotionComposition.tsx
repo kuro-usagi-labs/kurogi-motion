@@ -1,268 +1,489 @@
-import React from "react";
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
-import type { Layer, Project } from "./types";
+import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCurrentFrame, useVideoConfig } from "remotion";
+import {
+  evaluateLayer,
+  evaluateTextUnit,
+  getTextAnimationUnit,
+  splitTextUnits,
+} from "./core/evaluator";
+import { getActiveScene, getSceneLayers } from "./core/project";
+import { textVerticalJustification } from "./core/textLayout";
+import { getShapeDefinition, getShapeMaskStyle, isBoxShape } from "./core/shapeLibrary";
+import { LayerEffects } from "./renderer/LayerEffects";
+import type { KurogiProject, Layer, TextLayer } from "./types";
 
-const animated = (layer: Layer, frame: number, fps: number) => {
-  const t = frame / fps;
-  const local = Math.max(0, t - layer.start);
-  let opacity = layer.opacity;
-  let y = layer.y;
-  let scale = 1;
-  if (layer.motion.includes("fadeUp")) {
-    const p = spring({
-      frame: Math.round(local * fps),
-      fps,
-      config: { damping: 15, stiffness: 130 },
-    });
-    opacity *= p;
-    y += (1 - p) * 80;
-  }
-  if (layer.motion.includes("scaleIn")) {
-    const p = spring({
-      frame: Math.round(local * fps),
-      fps,
-      config: { damping: 12, stiffness: 130 },
-    });
-    opacity *= p;
-    scale *= 0.75 + p * 0.25;
-  }
-  if (layer.motion.includes("float"))
-    y += Math.sin((t - layer.start) * Math.PI * 1.4) * 18;
-  if (layer.motion.includes("pulse"))
-    scale *= 1 + Math.sin((t - layer.start) * Math.PI * 2) * 0.045;
-  if (
-    layer.motion.includes("fadeOut") &&
-    t > layer.start + layer.duration - 0.5
-  )
-    opacity *= interpolate(
-      t,
-      [layer.start + layer.duration - 0.5, layer.start + layer.duration],
-      [1, 0],
-      { extrapolateRight: "clamp" },
-    );
-  return { opacity, y, scale };
-};
+type TransformPatch = Partial<
+  Pick<Layer, "position" | "size" | "rotation" | "scale" | "anchor">
+>;
 
 type Props = {
-  project: Project;
+  project: KurogiProject;
   selectedId?: string;
   onSelect?: (id: string) => void;
-  onMove?: (id: string, x: number, y: number) => void;
-  onTransform?: (
-    id: string,
-    patch: Partial<Pick<Layer, "width" | "height" | "rotation">>,
-  ) => void;
+  onTransformCommit?: (id: string, patch: TransformPatch) => void;
+  onTextCommit?: (id: string, text: string) => void;
   editable?: boolean;
+  showSelection?: boolean;
+  showSafeArea?: boolean;
 };
-type Drag = {
+
+type Gesture = {
   id: string;
+  pointerId: number;
   mode: "move" | "resize" | "rotate";
-  startX: number;
-  startY: number;
-  offsetX?: number;
-  offsetY?: number;
-  width?: number;
-  height?: number;
-  rotation?: number;
-  centerX?: number;
-  centerY?: number;
+  start: { x: number; y: number };
+  initial: Layer;
+  offset?: { x: number; y: number };
+  center?: { x: number; y: number };
   startAngle?: number;
+};
+
+type TextEdit = {
+  layerId: string;
+  value: string;
+  original: string;
 };
 
 export const MotionComposition: React.FC<Props> = ({
   project,
   selectedId,
   onSelect,
-  onMove,
-  onTransform,
-  editable,
+  onTransformCommit,
+  onTextCommit,
+  editable = false,
+  showSelection = true,
+  showSafeArea = false,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const canvas = React.useRef<HTMLDivElement>(null);
-  const drag = React.useRef<Drag | null>(null);
-  const startDrag = (
-    event: React.PointerEvent,
+  const time = frame / fps;
+  const scene = getActiveScene(project);
+  const layers = getSceneLayers(project);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const textEditorRef = useRef<HTMLDivElement>(null);
+  const gestureRef = useRef<Gesture | null>(null);
+  const [draftLayer, setDraftLayer] = useState<Layer | null>(null);
+  const draftLayerRef = useRef<Layer | null>(null);
+  const [textEdit, setTextEdit] = useState<TextEdit | null>(null);
+
+  useLayoutEffect(() => {
+    const editor = textEditorRef.current;
+    if (!editor || !textEdit) return;
+    editor.innerText = textEdit.value;
+    editor.focus();
+    moveCaretToEnd(editor);
+  }, [textEdit?.layerId]);
+
+  const renderedLayers = useMemo(
+    () => layers.map((layer) => (draftLayer?.id === layer.id ? draftLayer : layer)),
+    [draftLayer, layers],
+  );
+
+  function projectPoint(event: { clientX: number; clientY: number }) {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * scene.width,
+      y: ((event.clientY - rect.top) / rect.height) * scene.height,
+    };
+  }
+
+  function startGesture(
+    event: React.PointerEvent<HTMLElement>,
     layer: Layer,
-    mode: Drag["mode"],
-  ) => {
+    mode: Gesture["mode"],
+  ) {
+    if (!editable || layer.locked || textEdit) return;
+    const point = projectPoint(event);
+    if (!point) return;
+    event.preventDefault();
     event.stopPropagation();
-    const rect = canvas.current?.getBoundingClientRect();
-    if (!rect) return;
-    const px = ((event.clientX - rect.left) / rect.width) * project.width;
-    const py = ((event.clientY - rect.top) / rect.height) * project.height;
-    drag.current =
-      mode === "move"
-        ? {
-            id: layer.id,
-            mode,
-            startX: px,
-            startY: py,
-            offsetX: px - layer.x,
-            offsetY: py - layer.y,
-          }
-        : mode === "resize"
-          ? {
-              id: layer.id,
-              mode,
-              startX: px,
-              startY: py,
-              width: layer.width,
-              height: layer.height,
-            }
-          : {
-              id: layer.id,
-              mode,
-              startX: px,
-              startY: py,
-              rotation: layer.rotation,
-              centerX: layer.x + layer.width / 2,
-              centerY: layer.y + layer.height / 2,
-              startAngle: Math.atan2(
-                py - (layer.y + layer.height / 2),
-                px - (layer.x + layer.width / 2),
-              ),
-            };
     onSelect?.(layer.id);
-    (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
-  };
-  const move = (event: React.PointerEvent) => {
-    if (!drag.current || !canvas.current) return;
-    const rect = canvas.current.getBoundingClientRect();
-    const px = ((event.clientX - rect.left) / rect.width) * project.width;
-    const py = ((event.clientY - rect.top) / rect.height) * project.height;
-    const d = drag.current;
-    if (d.mode === "move")
-      onMove?.(
-        d.id,
-        Math.max(-300, Math.min(project.width, px - (d.offsetX || 0))),
-        Math.max(-300, Math.min(project.height, py - (d.offsetY || 0))),
-      );
-    if (d.mode === "resize")
-      onTransform?.(d.id, {
-        width: Math.max(40, (d.width || 40) + px - d.startX),
-        height: Math.max(30, (d.height || 30) + py - d.startY),
-      });
-    if (d.mode === "rotate") {
-      const angle = Math.atan2(py - (d.centerY || 0), px - (d.centerX || 0));
-      onTransform?.(d.id, {
-        rotation:
-          (d.rotation || 0) + ((angle - (d.startAngle || 0)) * 180) / Math.PI,
-      });
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    gestureRef.current = {
+      id: layer.id,
+      pointerId: event.pointerId,
+      mode,
+      start: point,
+      initial: cloneLayer(layer),
+      offset:
+        mode === "move"
+          ? { x: point.x - layer.position.x, y: point.y - layer.position.y }
+          : undefined,
+      center:
+        mode === "rotate"
+          ? {
+              x: layer.position.x + layer.size.width / 2,
+              y: layer.position.y + layer.size.height / 2,
+            }
+          : undefined,
+      startAngle:
+        mode === "rotate"
+          ? Math.atan2(
+              point.y - (layer.position.y + layer.size.height / 2),
+              point.x - (layer.position.x + layer.size.width / 2),
+            )
+          : undefined,
+    };
+    const initialDraft = cloneLayer(layer);
+    draftLayerRef.current = initialDraft;
+    setDraftLayer(initialDraft);
+  }
+
+  function moveGesture(event: React.PointerEvent<HTMLDivElement>) {
+    const gesture = gestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const point = projectPoint(event);
+    if (!point) return;
+
+    const next = cloneLayer(gesture.initial);
+    if (gesture.mode === "move") {
+      next.position = {
+        x: clamp(point.x - (gesture.offset?.x ?? 0), -next.size.width, scene.width),
+        y: clamp(point.y - (gesture.offset?.y ?? 0), -next.size.height, scene.height),
+      };
+    } else if (gesture.mode === "resize") {
+      next.size = {
+        width: Math.max(24, gesture.initial.size.width + point.x - gesture.start.x),
+        height: Math.max(24, gesture.initial.size.height + point.y - gesture.start.y),
+      };
+    } else {
+      const center = gesture.center ?? { x: 0, y: 0 };
+      const angle = Math.atan2(point.y - center.y, point.x - center.x);
+      const delta = ((angle - (gesture.startAngle ?? 0)) * 180) / Math.PI;
+      next.rotation = gesture.initial.rotation + delta;
     }
-  };
+    draftLayerRef.current = next;
+    setDraftLayer(next);
+  }
+
+  function finishGesture(event?: React.PointerEvent<HTMLDivElement>) {
+    const gesture = gestureRef.current;
+    if (!gesture) return;
+    if (event && gesture.pointerId !== event.pointerId) return;
+    gestureRef.current = null;
+    const finalLayer = draftLayerRef.current;
+    draftLayerRef.current = null;
+    setDraftLayer(null);
+    if (!finalLayer || finalLayer.id !== gesture.id) return;
+    onTransformCommit?.(finalLayer.id, {
+      position: finalLayer.position,
+      size: finalLayer.size,
+      rotation: finalLayer.rotation,
+      scale: finalLayer.scale,
+      anchor: finalLayer.anchor,
+    });
+  }
+
+  function beginTextEditing(event: React.MouseEvent, layer: TextLayer) {
+    if (!editable || layer.locked) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onSelect?.(layer.id);
+    setTextEdit({ layerId: layer.id, value: layer.text, original: layer.text });
+  }
+
+  function commitTextEdit() {
+    if (!textEdit) return;
+    if (textEdit.value !== textEdit.original) onTextCommit?.(textEdit.layerId, textEdit.value);
+    setTextEdit(null);
+  }
+
   return (
     <div
-      ref={canvas}
-      onPointerMove={move}
-      onPointerUp={() => (drag.current = null)}
+      ref={canvasRef}
+      onPointerMove={moveGesture}
+      onPointerUp={finishGesture}
+      onPointerCancel={finishGesture}
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onSelect?.("");
+      }}
       style={{
         width: "100%",
         height: "100%",
         position: "relative",
         overflow: "hidden",
-        background: project.background,
+        background:
+          scene.background.type === "transparent"
+            ? "transparent"
+            : scene.background.color ?? "#ffffff",
       }}
     >
-      {project.layers
-        .filter((l) => !l.hidden)
-        .map((layer) => {
-          const a = animated(layer, frame, fps);
-          const selected = selectedId === layer.id;
-          const style: React.CSSProperties = {
-            position: "absolute",
-            left: `${(layer.x / project.width) * 100}%`,
-            top: `${(a.y / project.height) * 100}%`,
-            width: `${(layer.width / project.width) * 100}%`,
-            height: `${(layer.height / project.height) * 100}%`,
-            opacity: a.opacity,
-            transform: `rotate(${layer.rotation}deg) scale(${a.scale})`,
-            transformOrigin: "center",
-            cursor: editable ? "move" : "default",
-            outline: selected ? "3px solid #7c5cff" : "none",
-            outlineOffset: 5,
-          };
-          return (
-            <div
-              key={layer.id}
-              style={style}
-              onPointerDown={
-                editable ? (e) => startDrag(e, layer, "move") : undefined
-              }
-            >
-              {layer.kind === "text" ? (
-                <div
-                  style={{
-                    whiteSpace: "pre-line",
-                    fontFamily: "Inter, Arial, sans-serif",
-                    fontWeight: 800,
-                    letterSpacing: "-.065em",
-                    lineHeight: 0.86,
-                    color: layer.color,
-                    fontSize: `${layer.fontSize || 48}px`,
-                  }}
-                >
-                  {layer.text}
-                </div>
-              ) : layer.kind === "image" && layer.src ? (
-                <img
-                  src={layer.src}
-                  draggable={false}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "contain",
-                    pointerEvents: "none",
-                  }}
-                />
-              ) : (
-                <div
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    borderRadius: "50%",
-                    background: layer.color,
-                    boxShadow: "0 25px 50px rgba(91,55,212,.27)",
-                  }}
-                />
-              )}
-              {editable && selected && (
-                <>
-                  <span
-                    aria-label="Rotate layer"
-                    onPointerDown={(e) => startDrag(e, layer, "rotate")}
-                    style={{
-                      position: "absolute",
-                      left: "50%",
-                      top: -29,
-                      width: 15,
-                      height: 15,
-                      marginLeft: -8,
-                      borderRadius: "50%",
-                      background: "#a78bfa",
-                      border: "2px solid white",
-                      cursor: "grab",
-                    }}
-                  />
-                  <span
-                    onPointerDown={(e) => startDrag(e, layer, "resize")}
-                    style={{
-                      position: "absolute",
-                      right: -9,
-                      bottom: -9,
-                      width: 16,
-                      height: 16,
-                      borderRadius: 3,
-                      background: "#fff",
-                      border: "3px solid #7c5cff",
-                      cursor: "nwse-resize",
-                    }}
-                  />
-                </>
-              )}
-            </div>
-          );
-        })}
+      {editable && scene.background.type === "transparent" ? <TransparencyGrid /> : null}
+      {showSafeArea ? <SafeArea /> : null}
+      {renderedLayers.map((layer) => {
+        if (!layer.visible || layer.type === "group") return null;
+        const visual = evaluateLayer(layer, scene, time);
+        const selected = editable && showSelection && selectedId === layer.id;
+        const isEditing = textEdit?.layerId === layer.id;
+        const transformOrigin = `${layer.anchor.x * 100}% ${layer.anchor.y * 100}%`;
+        const wrapperStyle: React.CSSProperties = {
+          position: "absolute",
+          left: `${(visual.x / scene.width) * 100}%`,
+          top: `${(visual.y / scene.height) * 100}%`,
+          width: `${(visual.width / scene.width) * 100}%`,
+          height: `${(visual.height / scene.height) * 100}%`,
+          opacity: visual.opacity,
+          transform: `perspective(${scene.width * 1.4}px) rotate(${visual.rotation}deg) rotateX(${visual.rotateX}deg) rotateY(${visual.rotateY}deg) skew(${visual.skewX}deg, ${visual.skewY}deg) scale(${visual.scaleX}, ${visual.scaleY})`,
+          transformOrigin,
+          clipPath: visual.clipPath,
+          cursor: editable && !layer.locked ? "move" : "default",
+          outline: selected ? `${Math.max(1, scene.width / 540)}px solid #7c5cff` : "none",
+          outlineOffset: selected ? Math.max(2, scene.width / 360) : 0,
+          boxSizing: "border-box",
+          userSelect: "none",
+          transformStyle: "preserve-3d",
+        };
+        const animatedFilter = [
+          visual.blur > 0 ? `blur(${visual.blur}px)` : "",
+          visual.brightness !== 1 ? `brightness(${visual.brightness})` : "",
+          visual.saturation !== 1 ? `saturate(${visual.saturation})` : "",
+          visual.glow > 0
+            ? `drop-shadow(0 0 ${visual.glow * .5}px rgba(139,92,246,.65)) drop-shadow(0 0 ${visual.glow}px rgba(98,212,173,.3))`
+            : "",
+        ].filter(Boolean).join(" ");
+
+        return (
+          <div
+            key={layer.id}
+            style={wrapperStyle}
+            onPointerDown={
+              editable && !isEditing
+                ? (event) => startGesture(event, layer, "move")
+                : undefined
+            }
+            onDoubleClick={
+              layer.type === "text"
+                ? (event) => beginTextEditing(event, layer)
+                : undefined
+            }
+          >
+            <LayerEffects layer={layer} time={time}>
+              <div style={{ width: "100%", height: "100%", filter: animatedFilter || undefined }}>
+                {layer.type === "text" ? (
+                  isEditing && textEdit ? (
+                    <TextFrame layer={layer}>
+                      <div
+                        ref={textEditorRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        spellCheck={false}
+                        onInput={(event) => {
+                          const value = event.currentTarget.innerText.replace(/\r/g, "");
+                          setTextEdit((current) => current ? { ...current, value } : current);
+                        }}
+                        onBlur={commitTextEdit}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setTextEdit(null);
+                          }
+                          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                            event.preventDefault();
+                            commitTextEdit();
+                          }
+                        }}
+                        style={{
+                          ...textStyle(layer),
+                          width: "100%",
+                          minHeight: layer.style.fontSize * layer.style.lineHeight,
+                          maxHeight: "100%",
+                          padding: 0,
+                          border: 0,
+                          outline: `${Math.max(1, scene.width / 540)}px solid #7c5cff`,
+                          overflow: "hidden",
+                          background: "transparent",
+                          cursor: "text",
+                          userSelect: "text",
+                        }}
+                      />
+                    </TextFrame>
+                  ) : (
+                    <AnimatedText layer={layer} scene={scene} time={time} />
+                  )
+                ) : layer.type === "shape" ? (
+                  <ShapeVisual layer={layer} />
+                ) : (
+                  <AssetVisual project={project} layer={layer} />
+                )}
+              </div>
+            </LayerEffects>
+            {selected && !isEditing && !layer.locked ? (
+              <SelectionHandles
+                sceneWidth={scene.width}
+                onResize={(event) => startGesture(event, layer, "resize")}
+                onRotate={(event) => startGesture(event, layer, "rotate")}
+              />
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 };
+
+function AnimatedText({ layer, scene, time }: { layer: TextLayer; scene: ReturnType<typeof getActiveScene>; time: number }) {
+  const unit = getTextAnimationUnit(layer);
+  const units = splitTextUnits(layer.text, unit);
+  if (unit === "layer") {
+    return <TextFrame layer={layer}><div style={{ ...textStyle(layer), width: "100%" }}>{layer.text}</div></TextFrame>;
+  }
+
+  return (
+    <TextFrame layer={layer}>
+      <div style={{ ...textStyle(layer), width: "100%" }}>
+        {units.map((part, index) => {
+          if (part.text === "\n") return <br key={part.key} />;
+          const visual = evaluateTextUnit(layer, scene, time, index, units.length);
+          return (
+            <span
+              key={part.key}
+              style={{
+                display: "inline-block",
+                whiteSpace: "pre",
+                opacity: visual.opacity,
+                transform: `perspective(${scene.width}px) translate(${visual.translateX}px, ${visual.translateY}px) rotate(${visual.rotation}deg) rotateX(${visual.rotateX}deg) rotateY(${visual.rotateY}deg) scale(${visual.scale})`,
+                transformOrigin: "center",
+                filter: visual.blur > 0 ? `blur(${visual.blur}px)` : undefined,
+              }}
+            >
+              {part.text}
+            </span>
+          );
+        })}
+      </div>
+    </TextFrame>
+  );
+}
+
+function TextFrame({ layer, children }: { layer: TextLayer; children: React.ReactNode }) {
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: textVerticalJustification(layer.style.verticalAlign),
+      width: "100%",
+      height: "100%",
+      minWidth: 0,
+      minHeight: 0,
+      overflow: "hidden",
+      boxSizing: "border-box",
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function textStyle(layer: TextLayer): React.CSSProperties {
+  return {
+    whiteSpace: "pre-wrap",
+    overflowWrap: "break-word",
+    fontFamily: `${layer.style.fontFamily}, Inter, Arial, sans-serif`,
+    fontWeight: layer.style.fontWeight,
+    fontSize: layer.style.fontSize,
+    lineHeight: layer.style.lineHeight,
+    letterSpacing: layer.style.letterSpacing,
+    textAlign: layer.style.align,
+    color: layer.style.color,
+    WebkitTextFillColor: layer.style.color,
+    boxSizing: "border-box",
+    minWidth: 0,
+  };
+}
+
+function moveCaretToEnd(element: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function ShapeVisual({ layer }: { layer: Extract<Layer, { type: "shape" }> }) {
+  const shadowFilter = layer.style.shadow > 0
+    ? `drop-shadow(0 ${layer.style.shadow * .45}px ${layer.style.shadow * 1.25}px rgba(18,14,35,.28))`
+    : undefined;
+
+  if (isBoxShape(layer.shape)) {
+    return (
+      <div style={{
+        width: "100%",
+        height: "100%",
+        background: layer.style.fill,
+        border: layer.style.strokeWidth > 0 ? `${layer.style.strokeWidth}px solid ${layer.style.stroke}` : undefined,
+        borderRadius: layer.shape === "circle" ? "50%" : layer.shape === "line" ? 999 : layer.style.borderRadius,
+        filter: shadowFilter,
+        boxSizing: "border-box",
+      }} />
+    );
+  }
+
+  const definition = getShapeDefinition(layer.shape);
+  const maskStyle = getShapeMaskStyle(layer.shape);
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%", filter: shadowFilter }}>
+      <div style={{ position: "absolute", inset: 0, background: layer.style.fill, ...maskStyle }} />
+      {layer.style.strokeWidth > 0 ? (
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "visible" }}>
+          <path d={definition.path} fill="none" fillRule={definition.fillRule ?? "nonzero"} stroke={layer.style.stroke} strokeWidth={Math.max(.5, layer.style.strokeWidth / 2)} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        </svg>
+      ) : null}
+    </div>
+  );
+}
+
+function AssetVisual({ project, layer }: { project: KurogiProject; layer: Extract<Layer, { type: "image" | "svg" }> }) {
+  const asset = project.assets[layer.assetId];
+  if (!asset?.sourceUrl) {
+    return (
+      <div style={{ width: "100%", height: "100%", display: "grid", placeItems: "center", background: "rgba(255,255,255,.72)", border: "2px dashed rgba(80,70,100,.35)", color: "#756f80", fontFamily: "Inter,sans-serif", fontSize: 20 }}>
+        Missing asset
+      </div>
+    );
+  }
+  return (
+    <img
+      src={asset.sourceUrl}
+      alt=""
+      draggable={false}
+      style={{
+        display: "block",
+        width: "100%",
+        height: "100%",
+        objectFit: layer.type === "image" ? layer.fit : "contain",
+        pointerEvents: "none",
+      }}
+    />
+  );
+}
+
+function SelectionHandles({ sceneWidth, onResize, onRotate }: { sceneWidth: number; onResize: (event: React.PointerEvent<HTMLSpanElement>) => void; onRotate: (event: React.PointerEvent<HTMLSpanElement>) => void }) {
+  const size = Math.max(12, sceneWidth / 72);
+  const border = Math.max(2, sceneWidth / 540);
+  return (
+    <>
+      <span aria-label="Rotate layer" onPointerDown={onRotate} style={{ position: "absolute", left: "50%", top: -size * 2.1, width: size, height: size, marginLeft: -size / 2, borderRadius: "50%", background: "#a78bfa", border: `${border}px solid white`, cursor: "grab", boxSizing: "border-box" }} />
+      <span aria-label="Resize layer" onPointerDown={onResize} style={{ position: "absolute", right: -size / 2, bottom: -size / 2, width: size, height: size, borderRadius: Math.max(2, size / 5), background: "white", border: `${border}px solid #7c5cff`, cursor: "nwse-resize", boxSizing: "border-box" }} />
+    </>
+  );
+}
+
+function TransparencyGrid() {
+  return <div style={{ position: "absolute", inset: 0, backgroundColor: "#ffffff", backgroundImage: "linear-gradient(45deg,#e7e5eb 25%,transparent 25%),linear-gradient(-45deg,#e7e5eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e7e5eb 75%),linear-gradient(-45deg,transparent 75%,#e7e5eb 75%)", backgroundPosition: "0 0,0 16px,16px -16px,-16px 0", backgroundSize: "32px 32px" }} />;
+}
+
+function SafeArea() {
+  return <div style={{ position: "absolute", inset: "5%", border: "2px dashed rgba(124,92,255,.45)", pointerEvents: "none", zIndex: 9999 }} />;
+}
+
+function cloneLayer<T extends Layer>(layer: T): T {
+  return JSON.parse(JSON.stringify(layer)) as T;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}

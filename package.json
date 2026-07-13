@@ -1,13 +1,22 @@
 {
   "name": "kurogi-motion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && electron .\"",
-    "web": "vite",
-    "build": "tsc --noEmit && vite build",
+    "dev": "concurrently -k \"vite --host 127.0.0.1 --port 5173 --strictPort\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
+    "web": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "audit:templates": "node scripts/audit-templates.mjs",
+    "audit:effects": "node scripts/audit-effects.mjs",
+    "audit:loops": "node scripts/audit-loops.mjs",
+    "audit:text-canvas": "node scripts/audit-text-canvas.mjs",
+    "audit:shapes": "node scripts/audit-shapes.mjs",
+    "audit:export": "node scripts/audit-export.mjs",
+    "audit:foundation-v2": "node scripts/audit-foundation-v2.mjs",
+    "audit": "npm run audit:templates && npm run audit:effects && npm run audit:loops && npm run audit:text-canvas && npm run audit:shapes && npm run audit:export && npm run audit:foundation-v2",
+    "build": "npm run typecheck && vite build",
     "desktop": "npm run build && electron .",
     "package": "npm run build && electron-builder --win --x64"
   },
@@ -34,7 +43,19 @@
   "build": {
     "appId": "com.kurogi.motion",
     "productName": "Kurogi Motion",
-    "files": ["dist/**/*", "electron/**/*", "package.json"],
-    "win": { "target": "nsis", "signAndEditExecutable": false }
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "src/**/*",
+      "package.json",
+      "tsconfig.json"
+    ],
+    "asarUnpack": [
+      "node_modules/@remotion/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    }
   }
 }

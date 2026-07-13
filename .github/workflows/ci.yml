@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - feature/**
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Typecheck, audits, and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit template layouts
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:templates 2>&1 | tee template-audit.log
+
+      - name: Audit vector shape library
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:shapes 2>&1 | tee shape-audit.log
+
+      - name: Audit export experience
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:export 2>&1 | tee export-audit.log
+
+      - name: Audit scalable project foundations
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:foundation-v2 2>&1 | tee foundation-v2-audit.log
+
+      - name: Audit effect renderer
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:effects 2>&1 | tee effect-audit.log
+
+      - name: Audit loop continuity
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:loops 2>&1 | tee loop-audit.log
+
+      - name: Audit text and canvas foundations
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:text-canvas 2>&1 | tee text-canvas-audit.log
+
+      - name: Typecheck and build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee build.log
+
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics-${{ github.run_id }}
+          path: |
+            template-audit.log
+            shape-audit.log
+            export-audit.log
+            foundation-v2-audit.log
+            effect-audit.log
+            loop-audit.log
+            text-canvas-audit.log
+            build.log
+          if-no-files-found: ignore
+          retention-days: 3

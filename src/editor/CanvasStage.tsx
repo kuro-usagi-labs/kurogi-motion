@@ -52,23 +52,36 @@ export function CanvasStage({
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const panGestureRef = useRef<PanGesture | null>(null);
   const callbacksRef = useRef({ onSelect, onTransformCommit, onTextCommit });
+  const zoomChangeRef = useRef(onZoomChange);
   const zoomRef = useRef(zoom);
   const panRef = useRef({ x: 0, y: 0 });
   callbacksRef.current = { onSelect, onTransformCommit, onTextCommit };
+  zoomChangeRef.current = onZoomChange;
+
   const [available, setAvailable] = useState({ width: 900, height: 600 });
+  const [viewZoom, setViewZoom] = useState(zoom);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
-  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
-  useEffect(() => { panRef.current = pan; }, [pan]);
+  useEffect(() => {
+    zoomRef.current = zoom;
+    setViewZoom(zoom);
+  }, [zoom]);
+
+  useEffect(() => {
+    panRef.current = pan;
+  }, [pan]);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
     const update = () => {
       const rect = stage.getBoundingClientRect();
-      setAvailable({ width: Math.max(240, rect.width - 72), height: Math.max(180, rect.height - 88) });
+      setAvailable({
+        width: Math.max(240, rect.width - 72),
+        height: Math.max(180, rect.height - 88),
+      });
     };
     update();
     const observer = new ResizeObserver(update);
@@ -76,10 +89,56 @@ export function CanvasStage({
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      setContextMenu(null);
+
+      if (event.ctrlKey || event.metaKey) {
+        const rect = viewport.getBoundingClientRect();
+        const currentZoom = zoomRef.current;
+        const delta = normalizeWheelDelta(event.deltaY, event.deltaMode);
+        const nextZoom = zoomFromWheel(currentZoom, delta);
+        if (Math.abs(nextZoom - currentZoom) < 0.01) return;
+
+        const pointerFromViewportCenter = {
+          x: event.clientX - rect.left - rect.width / 2,
+          y: event.clientY - rect.top - rect.height / 2,
+        };
+        const nextPan = panForZoomAnchor(
+          panRef.current,
+          pointerFromViewportCenter,
+          currentZoom,
+          nextZoom,
+        );
+
+        zoomRef.current = nextZoom;
+        panRef.current = nextPan;
+        setViewZoom(nextZoom);
+        setPan(nextPan);
+        zoomChangeRef.current?.(nextZoom);
+        return;
+      }
+
+      const nextPan = {
+        x: panRef.current.x - event.deltaX,
+        y: panRef.current.y - event.deltaY,
+      };
+      panRef.current = nextPan;
+      setPan(nextPan);
+    };
+
+    viewport.addEventListener("wheel", handleWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", handleWheel);
+  }, []);
+
   const fitScale = Math.min(available.width / scene.width, available.height / scene.height);
   const baseWidth = Math.max(1, scene.width * fitScale);
   const baseHeight = Math.max(1, scene.height * fitScale);
-  const viewScale = Math.max(.2, Math.min(4, zoom / 100));
+  const viewScale = Math.max(0.2, Math.min(4, viewZoom / 100));
 
   const stableSelect = useCallback((id: string) => callbacksRef.current.onSelect(id), []);
   const stableTransformCommit = useCallback(
@@ -141,36 +200,16 @@ export function CanvasStage({
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     panGestureRef.current = null;
     setPanning(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-  }
-
-  function handleWheel(event: React.WheelEvent<HTMLElement>) {
-    setContextMenu(null);
-    event.preventDefault();
-    if (event.ctrlKey || event.metaKey) {
-      const viewport = viewportRef.current?.getBoundingClientRect();
-      if (!viewport) return;
-      const currentZoom = zoomRef.current;
-      const delta = normalizeWheelDelta(event.deltaY, event.deltaMode);
-      const nextZoom = zoomFromWheel(currentZoom, delta);
-      if (Math.abs(nextZoom - currentZoom) < .01) return;
-      const pointerFromViewportCenter = {
-        x: event.clientX - (viewport.left + viewport.width / 2),
-        y: event.clientY - (viewport.top + viewport.height / 2),
-      };
-      const nextPan = panForZoomAnchor(panRef.current, pointerFromViewportCenter, currentZoom, nextZoom);
-      zoomRef.current = nextZoom;
-      updatePan(nextPan);
-      onZoomChange?.(nextZoom);
-      return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    updatePan({ x: panRef.current.x - event.deltaX, y: panRef.current.y - event.deltaY });
   }
 
   function fitView() {
     updatePan({ x: 0, y: 0 });
     zoomRef.current = 100;
-    onZoomChange?.(100);
+    setViewZoom(100);
+    zoomChangeRef.current?.(100);
   }
 
   function openContextMenu(event: React.MouseEvent<HTMLElement>) {
@@ -194,7 +233,6 @@ export function CanvasStage({
       onPointerMove={movePan}
       onPointerUp={finishPan}
       onPointerCancel={finishPan}
-      onWheel={handleWheel}
       onContextMenu={openContextMenu}
       onAuxClick={(event) => event.preventDefault()}
       onMouseDown={() => contextMenu && setContextMenu(null)}
@@ -211,27 +249,35 @@ export function CanvasStage({
           setContextMenu(null);
         }}
       />
-      <div className="stage-top"><span>{scene.name}</span><span>{scene.width} × {scene.height} · {scene.fps} FPS</span></div>
-      <div className="canvas-viewport" ref={viewportRef}>
+      <div className="stage-top">
+        <span>{scene.name}</span>
+        <span>{scene.width} × {scene.height} · {scene.fps} FPS</span>
+      </div>
+      <div className="canvas-viewport" ref={viewportRef} data-canvas-viewport="true">
         <div
-          aria-hidden="true"
+          className="canvas-pan-shell"
+          data-canvas-pan-shell="true"
           style={{
             position: "absolute",
             left: "50%",
             top: "50%",
             width: baseWidth,
             height: baseHeight,
-            transform: `translate(-50%, -50%) translate3d(${pan.x}px, ${pan.y}px, 0)`,
+            marginLeft: -baseWidth / 2,
+            marginTop: -baseHeight / 2,
+            transform: `translate3d(${pan.x}px, ${pan.y}px, 0)`,
             willChange: panning ? "transform" : undefined,
           }}
         >
           <div
-            className="canvas-wrap stable-canvas-wrap"
+            className="canvas-scale-shell"
+            data-canvas-scale-shell="true"
             style={{
-              width: baseWidth,
-              height: baseHeight,
+              width: "100%",
+              height: "100%",
               transform: `scale(${viewScale})`,
-              transformOrigin: "center center",
+              transformOrigin: "50% 50%",
+              boxShadow: "0 28px 80px rgba(2,3,8,.66)",
               willChange: "transform",
             }}
           >
@@ -252,21 +298,41 @@ export function CanvasStage({
         </div>
       </div>
       <div className="canvas-view-controls">
-        <button type="button" title="Fit canvas" onClick={fitView}><Icon name="frame" size={15} /></button>
-        <span>{Math.round(zoom)}%</span>
+        <button type="button" title="Fit canvas" onClick={fitView}>
+          <Icon name="frame" size={15} />
+        </button>
+        <span>{Math.round(viewZoom)}%</span>
       </div>
       {contextMenu ? (
-        <div className="asset-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onMouseDown={(event) => event.stopPropagation()}>
+        <div
+          className="asset-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
           <strong>{selectedLayer?.name}</strong>
-          <button type="button" onClick={() => replaceInputRef.current?.click()}><Icon name="upload" size={15} />Replace asset</button>
-          {imageLayer ? <>
-            <button type="button" onClick={() => { onTransformCommit(imageLayer.id, { fit: "cover" } as Partial<Layer>); setContextMenu(null); }}><Icon name="frame" size={15} />Crop to fill</button>
-            <button type="button" onClick={() => { onTransformCommit(imageLayer.id, { fit: "contain" } as Partial<Layer>); setContextMenu(null); }}><Icon name="assets" size={15} />Fit inside</button>
-            <button type="button" onClick={() => { onTransformCommit(imageLayer.id, { fit: "fill" } as Partial<Layer>); setContextMenu(null); }}><Icon name="shapes" size={15} />Stretch to frame</button>
-          </> : null}
+          <button type="button" onClick={() => replaceInputRef.current?.click()}>
+            <Icon name="upload" size={15} />Replace asset
+          </button>
+          {imageLayer ? (
+            <>
+              <button type="button" onClick={() => { onTransformCommit(imageLayer.id, { fit: "cover" } as Partial<Layer>); setContextMenu(null); }}>
+                <Icon name="frame" size={15} />Crop to fill
+              </button>
+              <button type="button" onClick={() => { onTransformCommit(imageLayer.id, { fit: "contain" } as Partial<Layer>); setContextMenu(null); }}>
+                <Icon name="assets" size={15} />Fit inside
+              </button>
+              <button type="button" onClick={() => { onTransformCommit(imageLayer.id, { fit: "fill" } as Partial<Layer>); setContextMenu(null); }}>
+                <Icon name="shapes" size={15} />Stretch to frame
+              </button>
+            </>
+          ) : null}
           <span />
-          <button type="button" onClick={() => { onDuplicateLayer?.(selectedLayerId); setContextMenu(null); }}><Icon name="copy" size={15} />Duplicate</button>
-          <button type="button" className="danger-text" onClick={() => { onDeleteLayer?.(selectedLayerId); setContextMenu(null); }}><Icon name="trash" size={15} />Delete</button>
+          <button type="button" onClick={() => { onDuplicateLayer?.(selectedLayerId); setContextMenu(null); }}>
+            <Icon name="copy" size={15} />Duplicate
+          </button>
+          <button type="button" className="danger-text" onClick={() => { onDeleteLayer?.(selectedLayerId); setContextMenu(null); }}>
+            <Icon name="trash" size={15} />Delete
+          </button>
         </div>
       ) : null}
     </section>

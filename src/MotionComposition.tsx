@@ -7,6 +7,7 @@ import {
   splitTextUnits,
 } from "./core/evaluator";
 import { getActiveScene, getSceneLayers } from "./core/project";
+import { LayerEffects } from "./renderer/LayerEffects";
 import type { KurogiProject, Layer, TextLayer } from "./types";
 
 type TransformPatch = Partial<
@@ -174,8 +175,7 @@ export const MotionComposition: React.FC<Props> = ({
 
   function commitTextEdit() {
     if (!textEdit) return;
-    const next = textEdit.value;
-    if (next !== textEdit.original) onTextCommit?.(textEdit.layerId, next);
+    if (textEdit.value !== textEdit.original) onTextCommit?.(textEdit.layerId, textEdit.value);
     setTextEdit(null);
   }
 
@@ -214,16 +214,24 @@ export const MotionComposition: React.FC<Props> = ({
           width: `${(visual.width / scene.width) * 100}%`,
           height: `${(visual.height / scene.height) * 100}%`,
           opacity: visual.opacity,
-          transform: `rotate(${visual.rotation}deg) scale(${visual.scaleX}, ${visual.scaleY})`,
+          transform: `perspective(${scene.width * 1.4}px) rotate(${visual.rotation}deg) rotateX(${visual.rotateX}deg) rotateY(${visual.rotateY}deg) skew(${visual.skewX}deg, ${visual.skewY}deg) scale(${visual.scaleX}, ${visual.scaleY})`,
           transformOrigin,
-          filter: visual.blur > 0 ? `blur(${visual.blur}px)` : undefined,
           clipPath: visual.clipPath,
           cursor: editable && !layer.locked ? "move" : "default",
           outline: selected ? `${Math.max(1, scene.width / 540)}px solid #7c5cff` : "none",
           outlineOffset: selected ? Math.max(2, scene.width / 360) : 0,
           boxSizing: "border-box",
           userSelect: "none",
+          transformStyle: "preserve-3d",
         };
+        const animatedFilter = [
+          visual.blur > 0 ? `blur(${visual.blur}px)` : "",
+          visual.brightness !== 1 ? `brightness(${visual.brightness})` : "",
+          visual.saturation !== 1 ? `saturate(${visual.saturation})` : "",
+          visual.glow > 0
+            ? `drop-shadow(0 0 ${visual.glow * .5}px rgba(139,92,246,.65)) drop-shadow(0 0 ${visual.glow}px rgba(98,212,173,.3))`
+            : "",
+        ].filter(Boolean).join(" ");
 
         return (
           <div
@@ -240,50 +248,54 @@ export const MotionComposition: React.FC<Props> = ({
                 : undefined
             }
           >
-            {layer.type === "text" ? (
-              isEditing && textEdit ? (
-                <textarea
-                  autoFocus
-                  value={textEdit.value}
-                  spellCheck={false}
-                  onChange={(event) =>
-                    setTextEdit((current) =>
-                      current ? { ...current, value: event.currentTarget.value } : current,
-                    )
-                  }
-                  onBlur={commitTextEdit}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      setTextEdit(null);
-                    }
-                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                      event.preventDefault();
-                      commitTextEdit();
-                    }
-                  }}
-                  style={{
-                    ...textStyle(layer),
-                    width: "100%",
-                    height: "100%",
-                    margin: 0,
-                    padding: 0,
-                    border: 0,
-                    outline: `${Math.max(1, scene.width / 540)}px solid #7c5cff`,
-                    resize: "none",
-                    overflow: "hidden",
-                    background: "transparent",
-                  }}
-                />
-              ) : (
-                <AnimatedText layer={layer} scene={scene} time={time} />
-              )
-            ) : layer.type === "shape" ? (
-              <ShapeVisual layer={layer} />
-            ) : (
-              <AssetVisual project={project} layer={layer} />
-            )}
+            <LayerEffects layer={layer} time={time}>
+              <div style={{ width: "100%", height: "100%", filter: animatedFilter || undefined }}>
+                {layer.type === "text" ? (
+                  isEditing && textEdit ? (
+                    <textarea
+                      autoFocus
+                      value={textEdit.value}
+                      spellCheck={false}
+                      onChange={(event) =>
+                        setTextEdit((current) =>
+                          current ? { ...current, value: event.currentTarget.value } : current,
+                        )
+                      }
+                      onBlur={commitTextEdit}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setTextEdit(null);
+                        }
+                        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                          event.preventDefault();
+                          commitTextEdit();
+                        }
+                      }}
+                      style={{
+                        ...textStyle(layer),
+                        width: "100%",
+                        height: "100%",
+                        margin: 0,
+                        padding: 0,
+                        border: 0,
+                        outline: `${Math.max(1, scene.width / 540)}px solid #7c5cff`,
+                        resize: "none",
+                        overflow: "hidden",
+                        background: "transparent",
+                      }}
+                    />
+                  ) : (
+                    <AnimatedText layer={layer} scene={scene} time={time} />
+                  )
+                ) : layer.type === "shape" ? (
+                  <ShapeVisual layer={layer} />
+                ) : (
+                  <AssetVisual project={project} layer={layer} />
+                )}
+              </div>
+            </LayerEffects>
             {selected && !isEditing && !layer.locked ? (
               <SelectionHandles
                 sceneWidth={scene.width}
@@ -317,9 +329,9 @@ function AnimatedText({ layer, scene, time }: { layer: TextLayer; scene: ReturnT
               display: "inline-block",
               whiteSpace: "pre",
               opacity: visual.opacity,
-              transform: `translate(${visual.translateX}px, ${visual.translateY}px) rotate(${visual.rotation}deg) scale(${visual.scale})`,
+              transform: `perspective(${scene.width}px) translate(${visual.translateX}px, ${visual.translateY}px) rotate(${visual.rotation}deg) rotateX(${visual.rotateX}deg) rotateY(${visual.rotateY}deg) scale(${visual.scale})`,
+              transformOrigin: "center",
               filter: visual.blur > 0 ? `blur(${visual.blur}px)` : undefined,
-              clipPath: visual.clipPath,
             }}
           >
             {part.text}
@@ -356,39 +368,21 @@ function ShapeVisual({ layer }: { layer: Extract<Layer, { type: "shape" }> }) {
       : undefined,
     borderRadius: layer.shape === "circle" ? "50%" : layer.style.borderRadius,
     boxShadow: layer.style.shadow > 0
-      ? `0 ${layer.style.shadow * 0.5}px ${layer.style.shadow * 1.8}px rgba(18, 14, 35, 0.28)`
+      ? `0 ${layer.style.shadow * .5}px ${layer.style.shadow * 1.8}px rgba(18,14,35,.28)`
       : undefined,
     boxSizing: "border-box",
   };
-  if (layer.shape === "polygon") base.clipPath = "polygon(50% 0, 100% 38%, 82% 100%, 18% 100%, 0 38%)";
-  if (layer.shape === "arrow") base.clipPath = "polygon(0 35%, 66% 35%, 66% 0, 100% 50%, 66% 100%, 66% 65%, 0 65%)";
+  if (layer.shape === "polygon") base.clipPath = "polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)";
+  if (layer.shape === "arrow") base.clipPath = "polygon(0 35%,66% 35%,66% 0,100% 50%,66% 100%,66% 65%,0 65%)";
   if (layer.shape === "line") base.borderRadius = 999;
   return <div style={base} />;
 }
 
-function AssetVisual({
-  project,
-  layer,
-}: {
-  project: KurogiProject;
-  layer: Extract<Layer, { type: "image" | "svg" }>;
-}) {
+function AssetVisual({ project, layer }: { project: KurogiProject; layer: Extract<Layer, { type: "image" | "svg" }> }) {
   const asset = project.assets[layer.assetId];
   if (!asset?.sourceUrl) {
     return (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "grid",
-          placeItems: "center",
-          background: "rgba(255,255,255,.72)",
-          border: "2px dashed rgba(80,70,100,.35)",
-          color: "#756f80",
-          fontFamily: "Inter, sans-serif",
-          fontSize: 20,
-        }}
-      >
+      <div style={{ width: "100%", height: "100%", display: "grid", placeItems: "center", background: "rgba(255,255,255,.72)", border: "2px dashed rgba(80,70,100,.35)", color: "#756f80", fontFamily: "Inter,sans-serif", fontSize: 20 }}>
         Missing asset
       </div>
     );
@@ -409,84 +403,23 @@ function AssetVisual({
   );
 }
 
-function SelectionHandles({
-  sceneWidth,
-  onResize,
-  onRotate,
-}: {
-  sceneWidth: number;
-  onResize: (event: React.PointerEvent<HTMLSpanElement>) => void;
-  onRotate: (event: React.PointerEvent<HTMLSpanElement>) => void;
-}) {
+function SelectionHandles({ sceneWidth, onResize, onRotate }: { sceneWidth: number; onResize: (event: React.PointerEvent<HTMLSpanElement>) => void; onRotate: (event: React.PointerEvent<HTMLSpanElement>) => void }) {
   const size = Math.max(12, sceneWidth / 72);
   const border = Math.max(2, sceneWidth / 540);
   return (
     <>
-      <span
-        aria-label="Rotate layer"
-        onPointerDown={onRotate}
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: -size * 2.1,
-          width: size,
-          height: size,
-          marginLeft: -size / 2,
-          borderRadius: "50%",
-          background: "#a78bfa",
-          border: `${border}px solid white`,
-          cursor: "grab",
-          boxSizing: "border-box",
-        }}
-      />
-      <span
-        aria-label="Resize layer"
-        onPointerDown={onResize}
-        style={{
-          position: "absolute",
-          right: -size / 2,
-          bottom: -size / 2,
-          width: size,
-          height: size,
-          borderRadius: Math.max(2, size / 5),
-          background: "white",
-          border: `${border}px solid #7c5cff`,
-          cursor: "nwse-resize",
-          boxSizing: "border-box",
-        }}
-      />
+      <span aria-label="Rotate layer" onPointerDown={onRotate} style={{ position: "absolute", left: "50%", top: -size * 2.1, width: size, height: size, marginLeft: -size / 2, borderRadius: "50%", background: "#a78bfa", border: `${border}px solid white`, cursor: "grab", boxSizing: "border-box" }} />
+      <span aria-label="Resize layer" onPointerDown={onResize} style={{ position: "absolute", right: -size / 2, bottom: -size / 2, width: size, height: size, borderRadius: Math.max(2, size / 5), background: "white", border: `${border}px solid #7c5cff`, cursor: "nwse-resize", boxSizing: "border-box" }} />
     </>
   );
 }
 
 function TransparencyGrid() {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        backgroundColor: "#ffffff",
-        backgroundImage:
-          "linear-gradient(45deg,#e7e5eb 25%,transparent 25%),linear-gradient(-45deg,#e7e5eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e7e5eb 75%),linear-gradient(-45deg,transparent 75%,#e7e5eb 75%)",
-        backgroundPosition: "0 0,0 16px,16px -16px,-16px 0",
-        backgroundSize: "32px 32px",
-      }}
-    />
-  );
+  return <div style={{ position: "absolute", inset: 0, backgroundColor: "#ffffff", backgroundImage: "linear-gradient(45deg,#e7e5eb 25%,transparent 25%),linear-gradient(-45deg,#e7e5eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e7e5eb 75%),linear-gradient(-45deg,transparent 75%,#e7e5eb 75%)", backgroundPosition: "0 0,0 16px,16px -16px,-16px 0", backgroundSize: "32px 32px" }} />;
 }
 
 function SafeArea() {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        inset: "5%",
-        border: "2px dashed rgba(124,92,255,.45)",
-        pointerEvents: "none",
-        zIndex: 9999,
-      }}
-    />
-  );
+  return <div style={{ position: "absolute", inset: "5%", border: "2px dashed rgba(124,92,255,.45)", pointerEvents: "none", zIndex: 9999 }} />;
 }
 
 function cloneLayer<T extends Layer>(layer: T): T {

@@ -1,4 +1,4 @@
-export const PROJECT_VERSION = 4;
+export const PROJECT_VERSION = 5;
 
 export type LayerType = "text" | "shape" | "image" | "svg" | "group";
 export type ShapeType =
@@ -10,6 +10,23 @@ export type AnimationCategory = "in" | "loop" | "out";
 export type TextAnimationUnit = "layer" | "line" | "word" | "character";
 export type StaggerOrder = "normal" | "reverse" | "center" | "edges" | "random";
 export type TextVerticalAlign = "top" | "middle" | "bottom";
+export type BlendMode =
+  | "normal" | "multiply" | "screen" | "overlay" | "darken" | "lighten"
+  | "color-dodge" | "color-burn" | "hard-light" | "soft-light" | "difference"
+  | "exclusion" | "hue" | "saturation" | "color" | "luminosity";
+
+export interface GradientFill {
+  type: "linear" | "radial";
+  startColor: string;
+  endColor: string;
+  angle: number;
+}
+
+export interface MaskDefinition {
+  type: "vector" | "alpha";
+  sourceLayerId: string;
+  inverted?: boolean;
+}
 
 export type EasingName =
   | "linear"
@@ -141,6 +158,10 @@ export interface BaseLayer {
   scale: Point;
   anchor: Point;
   parentId?: string;
+  blendMode?: BlendMode;
+  backgroundBlur?: number;
+  mask?: MaskDefinition;
+  maskSource?: boolean;
   animationActions: AnimationAction[];
   effects?: LayerEffect[];
 }
@@ -157,6 +178,7 @@ export interface TextLayer extends BaseLayer {
     align: "left" | "center" | "right";
     verticalAlign: TextVerticalAlign;
     color: string;
+    gradient?: GradientFill;
   };
 }
 
@@ -170,6 +192,7 @@ export interface ShapeLayer extends BaseLayer {
     borderRadius: number;
     shadow: number;
     blur: number;
+    gradient?: GradientFill;
   };
 }
 
@@ -209,7 +232,7 @@ export interface ProjectAsset {
   id: string;
   projectId: string;
   name: string;
-  type: "image" | "svg";
+  type: "image" | "svg" | "font";
   mimeType: string;
   width?: number;
   height?: number;
@@ -218,6 +241,9 @@ export interface ProjectAsset {
   storage?: "inline" | "blob";
   blobId?: string;
   byteSize?: number;
+  fontFamily?: string;
+  fontWeight?: number;
+  fontStyle?: "normal" | "italic";
 }
 
 export interface KurogiProject {

@@ -33,9 +33,24 @@ import {
   type SceneUpdatePatch,
   type SceneWorkspacePosition,
 } from "../core/sceneWorkspace";
+import {
+  alignLayers,
+  applyMask,
+  clearMask,
+  distributeLayers,
+  groupLayers,
+  setBackgroundBlur,
+  setBlendMode,
+  setFontFamily,
+  setGradient,
+  ungroupLayer,
+  type AlignMode,
+  type DistributeMode,
+} from "../core/designTools";
 import { useProjectHistory } from "../core/useProjectHistory";
 import { Inspector, type InspectorTab } from "../editor/InspectorV2";
 import { MultiSceneCanvasStage } from "../editor/MultiSceneCanvasStage";
+import { DesignToolsPanel } from "../editor/DesignToolsPanel";
 import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
 import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
@@ -47,6 +62,7 @@ import type {
   AnimationType,
   ExportOptions,
   ExportProgress,
+  GradientFill,
   KurogiProject,
   Layer,
   ProjectAsset,
@@ -74,7 +90,8 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const { project } = history;
   const scene = getActiveScene(project);
   const layers = getSceneLayers(project);
-  const [selectedLayerId, setSelectedLayerId] = useState(scene.layerIds.at(-1) ?? "");
+  const [selectedLayerId, setPrimaryLayerId] = useState(scene.layerIds.at(-1) ?? "");
+  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>(() => selectedLayerId ? [selectedLayerId] : []);
   const [selectedActionId, setSelectedActionId] = useState("");
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("layers");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("Design");
@@ -100,6 +117,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const assetInputRef = useRef<HTMLInputElement>(null);
 
   const selectedLayer = selectedLayerId ? project.layers[selectedLayerId] ?? null : null;
+  const selectedLayers = useMemo(() => selectedLayerIds.map((id) => project.layers[id]).filter((layer): layer is Layer => Boolean(layer)), [project.layers, selectedLayerIds]);
   const selectedAction = useMemo(() => {
     if (!selectedActionId) return null;
     for (const layer of Object.values(project.layers)) {
@@ -114,7 +132,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     const selected = selectedLayerId ? project.layers[selectedLayerId] : null;
     if (!active) return;
     if (!selected || selected.sceneId !== active.id) {
-      setSelectedLayerId(active.layerIds.at(-1) ?? "");
+      selectOnly(active.layerIds.at(-1) ?? "");
       setSelectedActionId("");
     }
     setPlaying(false);
@@ -195,6 +213,11 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         if (selectedActionId) duplicateAction(selectedActionId);
         else duplicateSelectedLayer();
       }
+      if (!editable && modifier && event.key.toLowerCase() === "g") {
+        event.preventDefault();
+        if (event.shiftKey) ungroupSelected();
+        else groupSelected();
+      }
       if (!editable && (event.key === "Delete" || event.key === "Backspace")) {
         event.preventDefault();
         if (selectedActionId) deleteAction(selectedActionId);
@@ -216,15 +239,29 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     return () => window.clearTimeout(timer);
   }, [exportNotice]);
 
-  function selectLayer(layerId: string) {
-    setSelectedLayerId(layerId);
-    if (!layerId || project.layers[layerId]?.animationActions.every((action) => action.id !== selectedActionId)) {
+  function selectOnly(layerId: string) {
+    setPrimaryLayerId(layerId);
+    setSelectedLayerIds(layerId ? [layerId] : []);
+  }
+
+  function selectLayer(layerId: string, additive = false) {
+    if (!layerId) {
+      selectOnly("");
       setSelectedActionId("");
+      return;
     }
+    if (additive) {
+      setSelectedLayerIds((current) => {
+        const next = current.includes(layerId) ? current.filter((id) => id !== layerId) : [...current, layerId];
+        setPrimaryLayerId(next.at(-1) ?? "");
+        return next;
+      });
+    } else selectOnly(layerId);
+    if (project.layers[layerId]?.animationActions.every((action) => action.id !== selectedActionId)) setSelectedActionId("");
   }
 
   function selectAction(layerId: string, actionId: string) {
-    setSelectedLayerId(layerId);
+    selectOnly(layerId);
     setSelectedActionId(actionId);
     setInspectorTab("Animation");
   }
@@ -272,7 +309,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       }),
     );
     commitProject((current) => addLayers(current, [layer]));
-    setSelectedLayerId(layer.id);
+    selectOnly(layer.id);
     setSelectedActionId(layer.animationActions[0]?.id ?? "");
     setSidebarTab("layers");
     setInspectorTab("Design");
@@ -287,7 +324,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       }),
     );
     commitProject((current) => addLayers(current, [layer]));
-    setSelectedLayerId(layer.id);
+    selectOnly(layer.id);
     setSelectedActionId(layer.animationActions[0]?.id ?? "");
     setSidebarTab("layers");
     setInspectorTab("Design");
@@ -337,7 +374,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         next.assets[asset.id] = asset;
         return addLayers(next, [layer]);
       });
-      setSelectedLayerId(layer.id);
+      selectOnly(layer.id);
       setSelectedActionId(layer.animationActions[0]?.id ?? "");
       setSidebarTab("layers");
     } catch {
@@ -348,10 +385,10 @@ export function Editor({ initialProject, onExit }: EditorProps) {
 
   function addExistingAsset(assetId: string) {
     const asset = project.assets[assetId];
-    if (!asset) return;
+    if (!asset || asset.type === "font") return;
     const layer = createAssetLayer(scene, asset);
     commitProject((current) => addLayers(current, [layer]));
-    setSelectedLayerId(layer.id);
+    selectOnly(layer.id);
     setSidebarTab("layers");
   }
 
@@ -359,19 +396,23 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     if (!layerId) return;
     const ids = scene.layerIds.filter((id) => id !== layerId);
     commitProject((current) => removeLayer(current, layerId));
-    setSelectedLayerId(ids.at(-1) ?? "");
+    selectOnly(ids.at(-1) ?? "");
     setSelectedActionId("");
   }
 
   function deleteSelectedLayer() {
-    deleteLayerById(selectedLayerId);
+    if (selectedLayerIds.length <= 1) { deleteLayerById(selectedLayerId); return; }
+    const ids = [...selectedLayerIds];
+    commitProject((current) => ids.reduce((next, id) => removeLayer(next, id), current));
+    selectOnly("");
+    setSelectedActionId("");
   }
 
   function duplicateLayerById(layerId: string) {
     if (!layerId) return;
     commitProject((current) => {
       const result = duplicateLayer(current, layerId);
-      window.queueMicrotask(() => setSelectedLayerId(result.layerId));
+      window.queueMicrotask(() => selectOnly(result.layerId));
       return result.project;
     });
     setSelectedActionId("");
@@ -443,7 +484,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       ...layer,
       animationActions: [...layer.animationActions, copy],
     }));
-    setSelectedLayerId(owner.id);
+    selectOnly(owner.id);
     setSelectedActionId(copy.id);
   }
 
@@ -470,7 +511,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       window.queueMicrotask(() => {
         playerRef.current?.pause();
         setPlaying(false);
-        setSelectedLayerId(active?.layerIds.at(-1) ?? "");
+        selectOnly(active?.layerIds.at(-1) ?? "");
         setSelectedActionId("");
       });
       return next;
@@ -483,7 +524,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       window.queueMicrotask(() => {
         playerRef.current?.pause();
         setPlaying(false);
-        setSelectedLayerId("");
+        selectOnly("");
         setSelectedActionId("");
       });
       return result.project;
@@ -496,7 +537,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       window.queueMicrotask(() => {
         playerRef.current?.pause();
         setPlaying(false);
-        setSelectedLayerId(result.layerIds.at(-1) ?? "");
+        selectOnly(result.layerIds.at(-1) ?? "");
         setSelectedActionId("");
       });
       return result.project;
@@ -512,7 +553,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       window.queueMicrotask(() => {
         playerRef.current?.pause();
         setPlaying(false);
-        setSelectedLayerId(result.layerIds.at(-1) ?? "");
+        selectOnly(result.layerIds.at(-1) ?? "");
         setSelectedActionId("");
       });
       return result.project;
@@ -537,12 +578,60 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       window.queueMicrotask(() => {
         playerRef.current?.pause();
         setPlaying(false);
-        setSelectedLayerId(result.layerIds.at(-1) ?? "");
+        selectOnly(result.layerIds.at(-1) ?? "");
         setSelectedActionId("");
         setSidebarTab("layers");
       });
       return result.project;
     });
+  }
+
+  function alignSelection(mode: AlignMode) { commitProject((current) => alignLayers(current, selectedLayerIds, mode)); }
+  function distributeSelection(mode: DistributeMode) { commitProject((current) => distributeLayers(current, selectedLayerIds, mode)); }
+  function groupSelected() {
+    commitProject((current) => {
+      const result = groupLayers(current, selectedLayerIds);
+      if (result.groupId) window.queueMicrotask(() => selectOnly(result.groupId ?? ""));
+      return result.project;
+    });
+  }
+  function ungroupSelected() {
+    if (selectedLayer?.type !== "group") return;
+    commitProject((current) => {
+      const result = ungroupLayer(current, selectedLayer.id);
+      window.queueMicrotask(() => {
+        setSelectedLayerIds(result.layerIds);
+        setPrimaryLayerId(result.layerIds.at(-1) ?? "");
+      });
+      return result.project;
+    });
+  }
+  function applySelectionGradient(gradient?: GradientFill) { commitProject((current) => setGradient(current, selectedLayerIds, gradient)); }
+  function applySelectionMask(type: "vector" | "alpha") {
+    if (selectedLayerIds.length !== 2) return;
+    const sourceId = selectedLayerIds[0];
+    const targetId = selectedLayerIds[1];
+    commitProject((current) => applyMask(current, targetId, sourceId, type));
+    window.queueMicrotask(() => selectOnly(targetId));
+  }
+  function clearSelectionMask() { if (selectedLayerId) commitProject((current) => clearMask(current, selectedLayerId)); }
+  function toggleSmartSnap() {
+    commitProject((current) => touchProject({ ...cloneProject(current), settings: { ...current.settings, snapEnabled: !current.settings.snapEnabled } }));
+  }
+  async function importFont(file: File) {
+    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!["woff", "woff2", "ttf", "otf"].includes(extension) || file.size > 12 * 1024 * 1024) {
+      window.alert("Use a WOFF, WOFF2, TTF, or OTF font up to 12 MB.");
+      return;
+    }
+    try {
+      const assetId = createId("asset");
+      const stored = await storeAssetBlob(project.id, assetId, file);
+      const family = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Custom font";
+      const asset: ProjectAsset = { id: assetId, projectId: project.id, name: family, type: "font", mimeType: file.type || `font/${extension}`, sourceUrl: stored.sourceUrl, storage: "blob", blobId: stored.blobId, byteSize: stored.byteSize, fontFamily: family, fontWeight: 400, fontStyle: "normal" };
+      commitProject((current) => { const next = cloneProject(current); next.assets[assetId] = asset; return touchProject(next); });
+      if (selectedLayers.some((layer) => layer.type === "text")) commitProject((current) => setFontFamily(current, selectedLayerIds, family));
+    } catch { window.alert("The font could not be imported."); }
   }
 
   function togglePlay() {
@@ -688,8 +777,8 @@ export function Editor({ initialProject, onExit }: EditorProps) {
                   <div
                     key={layer.id}
                     draggable
-                    className={`layer-row ${selectedLayerId === layer.id ? "selected" : ""} ${draggedLayerId === layer.id ? "is-dragging" : ""} ${dragOverLayerId === layer.id ? "drag-over" : ""}`}
-                    onClick={() => selectLayer(layer.id)}
+                    className={`layer-row ${selectedLayerIds.includes(layer.id) ? "selected" : ""} ${layer.maskSource ? "is-mask-source" : ""} ${draggedLayerId === layer.id ? "is-dragging" : ""} ${dragOverLayerId === layer.id ? "drag-over" : ""}`}
+                    onClick={(event) => selectLayer(layer.id, event.shiftKey)}
                     onDragStart={(event) => { setDraggedLayerId(layer.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", layer.id); }}
                     onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverLayerId(layer.id); }}
                     onDragLeave={() => setDragOverLayerId((current) => current === layer.id ? "" : current)}
@@ -768,7 +857,9 @@ export function Editor({ initialProject, onExit }: EditorProps) {
             <div className="assets-panel sidebar-scroll">
               <button type="button" className="asset-dropzone" onClick={() => assetInputRef.current?.click()}><span><Icon name="upload" size={24} /></span><strong>Import an asset</strong><small>PNG, JPG, WebP, or sanitized SVG</small></button>
               <div className="asset-grid">
-                {Object.values(project.assets).map((asset) => (
+                {Object.values(project.assets).map((asset) => asset.type === "font" ? (
+                  <button type="button" className="font-asset-card" key={asset.id} onClick={() => selectedLayers.some((layer) => layer.type === "text") && commitProject((current) => setFontFamily(current, selectedLayerIds, asset.fontFamily ?? asset.name))}><strong>Aa</strong><span>{asset.fontFamily ?? asset.name}</span></button>
+                ) : (
                   <button type="button" key={asset.id} onClick={() => addExistingAsset(asset.id)}><img src={asset.thumbnailUrl ?? asset.sourceUrl} alt="" /><span>{asset.name}</span></button>
                 ))}
               </div>
@@ -781,10 +872,28 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           ) : null}
         </aside>
 
+        <DesignToolsPanel
+          project={project}
+          selectedLayers={selectedLayers}
+          onAlign={alignSelection}
+          onDistribute={distributeSelection}
+          onGroup={groupSelected}
+          onUngroup={ungroupSelected}
+          onGradient={applySelectionGradient}
+          onBlendMode={(mode) => commitProject((current) => setBlendMode(current, selectedLayerIds, mode))}
+          onBackgroundBlur={(radius) => commitProject((current) => setBackgroundBlur(current, selectedLayerIds, radius))}
+          onApplyMask={applySelectionMask}
+          onClearMask={clearSelectionMask}
+          onFontFamily={(family) => commitProject((current) => setFontFamily(current, selectedLayerIds, family))}
+          onImportFont={(file) => void importFont(file)}
+          onToggleSnap={toggleSmartSnap}
+        />
+
         <MultiSceneCanvasStage
           project={project}
           playerRef={playerRef}
           selectedLayerId={selectedLayerId}
+          selectedLayerIds={selectedLayerIds}
           zoom={zoom}
           playing={playing}
           showSafeArea={showSafeArea}

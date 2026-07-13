@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { MotionComposition } from "../MotionComposition";
 import { getActiveScene } from "../core/project";
@@ -34,7 +34,7 @@ export function CanvasStage({
   playerRef,
   selectedLayerId,
   zoom,
-  playing,
+  playing: _playing,
   showSafeArea,
   onSelect,
   onTransformCommit,
@@ -49,6 +49,8 @@ export function CanvasStage({
   const stageRef = useRef<HTMLElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const panGestureRef = useRef<PanGesture | null>(null);
+  const callbacksRef = useRef({ onSelect, onTransformCommit, onTextCommit });
+  callbacksRef.current = { onSelect, onTransformCommit, onTextCommit };
   const [available, setAvailable] = useState({ width: 900, height: 600 });
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
@@ -71,6 +73,30 @@ export function CanvasStage({
   const scale = Math.max(fitScale * .2, Math.min(fitScale * 4, fitScale * (zoom / 100)));
   const width = Math.max(1, Math.round(scene.width * scale));
   const height = Math.max(1, Math.round(scene.height * scale));
+
+  const stableSelect = useCallback((id: string) => callbacksRef.current.onSelect(id), []);
+  const stableTransformCommit = useCallback(
+    (id: string, patch: Partial<Layer>) => callbacksRef.current.onTransformCommit(id, patch),
+    [],
+  );
+  const stableTextCommit = useCallback(
+    (id: string, text: string) => callbacksRef.current.onTextCommit(id, text),
+    [],
+  );
+
+  const playerInputProps = useMemo(
+    () => ({
+      project,
+      selectedId: selectedLayerId,
+      onSelect: stableSelect,
+      onTransformCommit: stableTransformCommit,
+      onTextCommit: stableTextCommit,
+      editable: true,
+      showSelection: true,
+      showSafeArea,
+    }),
+    [project, selectedLayerId, showSafeArea, stableSelect, stableTextCommit, stableTransformCommit],
+  );
 
   function beginPan(event: React.PointerEvent<HTMLElement>) {
     if (event.button !== 1) return;
@@ -173,7 +199,7 @@ export function CanvasStage({
           <Player
             ref={playerRef}
             component={MotionComposition}
-            inputProps={{ project, selectedId: selectedLayerId, onSelect, onTransformCommit, onTextCommit, editable: true, showSelection: !playing, showSafeArea }}
+            inputProps={playerInputProps}
             durationInFrames={Math.max(1, Math.round(scene.duration * scene.fps))}
             compositionWidth={scene.width}
             compositionHeight={scene.height}

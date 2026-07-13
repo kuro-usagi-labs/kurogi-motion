@@ -71,7 +71,7 @@ export function Timeline({ project, playerRef, selectedLayerId, selectedActionId
     const editor = document.querySelector<HTMLElement>(".editor-app");
     editor?.style.setProperty("--timeline-height", `${height}px`);
     localStorage.setItem(HEIGHT_KEY, String(height));
-    return () => editor?.style.removeProperty("--timeline-height");
+    return () => { editor?.style.removeProperty("--timeline-height"); };
   }, [height]);
 
   useEffect(() => {

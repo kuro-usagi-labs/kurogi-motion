@@ -21,6 +21,7 @@ import {
   type UserTemplateRecord,
 } from "./core/persistence";
 import { exportKuroMotionFile, instantiateProject, readKuroMotionFile } from "./core/projectFiles";
+import { persistProjectBeforeExit } from "./core/saveBeforeExit";
 import { createCatalogTemplateProject } from "./core/templateCatalog";
 import type { KurogiProject } from "./types";
 
@@ -42,6 +43,10 @@ export default function App() {
     try {
       await importLegacyLocalStorageProject();
       await Promise.all([refreshLibrary(), minimumSplash]);
+    } catch (error) {
+      console.error("Unable to initialize the project library", error);
+      await minimumSplash;
+      window.alert("Kurogi Motion could not open the local project library. Reload the app and close any other Kurogi Motion windows if the problem continues.");
     } finally {
       setLoading(false);
       setBootReady(true);
@@ -60,22 +65,34 @@ export default function App() {
   }
 
   async function openProject(projectId: string) {
-    const project = await loadProject(projectId);
-    if (!project) {
-      window.alert("This project could not be opened.");
+    try {
+      const project = await loadProject(projectId);
+      if (!project) {
+        window.alert("This project could not be opened because its saved document is missing or invalid.");
+        await refreshLibrary();
+        return;
+      }
+      setCurrentProject(project);
+    } catch (error) {
+      console.error(`Unable to open project ${projectId}`, error);
+      window.alert(error instanceof Error ? error.message : "This project could not be opened.");
       await refreshLibrary();
-      return;
     }
-    setCurrentProject(project);
   }
 
   async function openDraft() {
-    const latest = await loadLatestDraft();
-    if (!latest) {
-      setDraft(null);
-      return;
+    try {
+      const latest = await loadLatestDraft();
+      if (!latest) {
+        setDraft(null);
+        return;
+      }
+      setCurrentProject(latest.project);
+    } catch (error) {
+      console.error("Unable to open recovery draft", error);
+      window.alert("The recovery draft could not be opened.");
+      await refreshLibrary();
     }
-    setCurrentProject(latest.project);
   }
 
   async function createNewProject(options: CreateProjectOptions, templateId?: string) {
@@ -141,6 +158,17 @@ export default function App() {
     await refreshLibrary();
   }
 
+  async function exitEditor(project: KurogiProject) {
+    try {
+      await persistProjectBeforeExit(project, saveProject, clearDraft);
+      setCurrentProject(null);
+      await refreshLibrary();
+    } catch (error) {
+      console.error("Unable to save the project before leaving the editor", error);
+      window.alert("The project could not be saved, so the editor will stay open. Check available storage and try again.");
+    }
+  }
+
   if (!bootReady) return <StartupSplash />;
 
   if (currentProject) {
@@ -149,10 +177,7 @@ export default function App() {
         key={currentProject.id}
         initialProject={currentProject}
         onExit={(project) => {
-          setCurrentProject(null);
-          void saveProject(project)
-            .then(() => clearDraft(project.id))
-            .finally(refreshLibrary);
+          void exitEditor(project);
         }}
       />
     );

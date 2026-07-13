@@ -38,14 +38,26 @@ export function parseKuroMotionText(source: string): {
   kind: KuroMotionFileKind;
   project: KurogiProject;
 } {
-  const parsed = JSON.parse(source) as Partial<KuroMotionFileEnvelope> | KurogiProject;
-  if (isEnvelope(parsed)) {
-    if (parsed.fileVersion > KUROMOTION_FILE_VERSION) {
-      throw new Error("This .kuromotion file was created by a newer version of Kurogi Motion.");
-    }
-    return { kind: parsed.kind, project: normalizeProject(parsed.project) };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    throw new Error("This .kuromotion file does not contain valid JSON.");
   }
-  return { kind: "project", project: normalizeProject(parsed) };
+
+  const envelope = isEnvelope(parsed) ? parsed : null;
+  if (envelope && envelope.fileVersion > KUROMOTION_FILE_VERSION) {
+    throw new Error("This .kuromotion file was created by a newer version of Kurogi Motion.");
+  }
+
+  const candidate = envelope ? envelope.project : parsed;
+  if (!isRecognizedProjectDocument(candidate)) {
+    throw new Error("This file does not contain a valid Kurogi Motion project.");
+  }
+
+  const project = normalizeProject(candidate);
+  assertProjectIntegrity(project);
+  return { kind: envelope?.kind ?? "project", project };
 }
 
 export async function readKuroMotionFile(file: File) {
@@ -84,6 +96,7 @@ export function instantiateProject(
   name = source.name,
 ): KurogiProject {
   const normalized = normalizeProject(source);
+  assertProjectIntegrity(normalized);
   const now = new Date().toISOString();
   const projectId = createId("project");
   const sceneIds = new Map<string, string>();
@@ -148,12 +161,81 @@ export function instantiateProject(
 }
 
 function isEnvelope(value: unknown): value is KuroMotionFileEnvelope {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<KuroMotionFileEnvelope>;
-  return candidate.application === "Kurogi Motion" &&
-    (candidate.kind === "project" || candidate.kind === "template") &&
-    typeof candidate.fileVersion === "number" &&
-    Boolean(candidate.project);
+  if (!isRecord(value)) return false;
+  return value.application === "Kurogi Motion" &&
+    (value.kind === "project" || value.kind === "template") &&
+    Number.isInteger(value.fileVersion) &&
+    Number(value.fileVersion) >= 1 &&
+    isRecord(value.project);
+}
+
+function isRecognizedProjectDocument(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+
+  if (Array.isArray(value.layers)) {
+    return isFiniteNumber(value.width) &&
+      isFiniteNumber(value.height) &&
+      isFiniteNumber(value.duration) &&
+      isFiniteNumber(value.fps);
+  }
+
+  if (typeof value.id !== "string" || !value.id.trim()) return false;
+  if (typeof value.activeSceneId !== "string" || !value.activeSceneId.trim()) return false;
+  if (!isRecord(value.scenes) || !isRecord(value.layers) || !isRecord(value.assets)) return false;
+  if (!isRecord(value.scenes[value.activeSceneId])) return false;
+
+  for (const [sceneId, sceneValue] of Object.entries(value.scenes)) {
+    if (!isRecord(sceneValue)) return false;
+    if (typeof sceneValue.id !== "string" || sceneValue.id !== sceneId) return false;
+    if (!isFiniteNumber(sceneValue.width) || !isFiniteNumber(sceneValue.height)) return false;
+    if (!isFiniteNumber(sceneValue.duration) || !isFiniteNumber(sceneValue.fps)) return false;
+    if (!Array.isArray(sceneValue.layerIds) || sceneValue.layerIds.some((id) => typeof id !== "string")) return false;
+  }
+
+  for (const [layerId, layerValue] of Object.entries(value.layers)) {
+    if (!isRecord(layerValue)) return false;
+    if (typeof layerValue.id !== "string" || layerValue.id !== layerId) return false;
+    if (typeof layerValue.sceneId !== "string" || !isRecord(value.scenes[layerValue.sceneId])) return false;
+    if (!Array.isArray(layerValue.animationActions)) return false;
+    if (!isRecord(layerValue.position) || !isFiniteNumber(layerValue.position.x) || !isFiniteNumber(layerValue.position.y)) return false;
+    if (!isRecord(layerValue.size) || !isFiniteNumber(layerValue.size.width) || !isFiniteNumber(layerValue.size.height)) return false;
+  }
+
+  for (const [sceneId, sceneValue] of Object.entries(value.scenes)) {
+    if (!isRecord(sceneValue) || !Array.isArray(sceneValue.layerIds)) return false;
+    for (const layerId of sceneValue.layerIds) {
+      if (typeof layerId !== "string") return false;
+      const layerValue = value.layers[layerId];
+      if (!isRecord(layerValue) || layerValue.sceneId !== sceneId) return false;
+    }
+  }
+
+  return true;
+}
+
+function assertProjectIntegrity(project: KurogiProject): void {
+  const activeScene = project.scenes[project.activeSceneId];
+  if (!activeScene) throw new Error("The project does not contain its active scene.");
+
+  for (const [sceneId, scene] of Object.entries(project.scenes)) {
+    for (const layerId of scene.layerIds) {
+      const layer = project.layers[layerId];
+      if (!layer) throw new Error(`Scene ${scene.name || sceneId} references a missing layer.`);
+      if (layer.sceneId !== sceneId) throw new Error(`Layer ${layer.name || layerId} belongs to a different scene.`);
+    }
+  }
+
+  for (const layer of Object.values(project.layers)) {
+    if (!project.scenes[layer.sceneId]) throw new Error(`Layer ${layer.name || layer.id} references a missing scene.`);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function safeFileName(value: string) {

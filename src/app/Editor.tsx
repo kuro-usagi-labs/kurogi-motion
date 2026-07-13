@@ -14,6 +14,7 @@ import {
   getSceneLayers,
   removeLayer,
   reorderLayer,
+  setSceneLayerOrder,
   touchProject,
   updateAction,
   updateLayer,
@@ -23,7 +24,7 @@ import { useProjectHistory } from "../core/useProjectHistory";
 import { Inspector, type InspectorTab } from "../editor/InspectorV2";
 import { CanvasStage } from "../editor/CanvasStage";
 import { Icon, type IconName } from "../ui/Icon";
-import { Timeline } from "../editor/TimelineV2";
+import { Timeline } from "../editor/TimelineV3";
 import type {
   AnimationAction,
   AnimationCategory,
@@ -63,6 +64,8 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [zoom, setZoom] = useState(64);
   const [playing, setPlaying] = useState(false);
   const [showSafeArea, setShowSafeArea] = useState(false);
+  const [draggedLayerId, setDraggedLayerId] = useState("");
+  const [dragOverLayerId, setDragOverLayerId] = useState("");
   const [saveStatus, setSaveStatus] = useState<"Saving…" | "Saved" | "Offline" | "Save failed" | "Copied">("Saved");
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
@@ -313,22 +316,44 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     setSidebarTab("layers");
   }
 
-  function deleteSelectedLayer() {
-    if (!selectedLayerId) return;
-    const ids = scene.layerIds.filter((id) => id !== selectedLayerId);
-    commitProject((current) => removeLayer(current, selectedLayerId));
+  function deleteLayerById(layerId: string) {
+    if (!layerId) return;
+    const ids = scene.layerIds.filter((id) => id !== layerId);
+    commitProject((current) => removeLayer(current, layerId));
     setSelectedLayerId(ids.at(-1) ?? "");
     setSelectedActionId("");
   }
 
-  function duplicateSelectedLayer() {
-    if (!selectedLayerId) return;
+  function deleteSelectedLayer() {
+    deleteLayerById(selectedLayerId);
+  }
+
+  function duplicateLayerById(layerId: string) {
+    if (!layerId) return;
     commitProject((current) => {
-      const result = duplicateLayer(current, selectedLayerId);
+      const result = duplicateLayer(current, layerId);
       window.queueMicrotask(() => setSelectedLayerId(result.layerId));
       return result.project;
     });
     setSelectedActionId("");
+  }
+
+  function duplicateSelectedLayer() {
+    duplicateLayerById(selectedLayerId);
+  }
+
+  function moveLayerByDrop(draggedId: string, targetId: string) {
+    if (!draggedId || !targetId || draggedId === targetId) return;
+    commitProject((current) => {
+      const currentScene = getActiveScene(current);
+      const displayOrder = [...currentScene.layerIds].reverse();
+      const fromIndex = displayOrder.indexOf(draggedId);
+      const targetIndex = displayOrder.indexOf(targetId);
+      if (fromIndex < 0 || targetIndex < 0) return current;
+      displayOrder.splice(fromIndex, 1);
+      displayOrder.splice(targetIndex, 0, draggedId);
+      return setSceneLayerOrder(current, currentScene.id, displayOrder.reverse());
+    });
   }
 
   function renameLayer(layerId: string, name: string) {
@@ -509,7 +534,18 @@ export function Editor({ initialProject, onExit }: EditorProps) {
               <div className="scene-row"><span>⌄</span><b>{scene.name}</b><small>{scene.width} × {scene.height}</small></div>
               <div className="layer-list">
                 {[...layers].reverse().map((layer) => (
-                  <div key={layer.id} className={`layer-row ${selectedLayerId === layer.id ? "selected" : ""}`} onClick={() => selectLayer(layer.id)}>
+                  <div
+                    key={layer.id}
+                    draggable
+                    className={`layer-row ${selectedLayerId === layer.id ? "selected" : ""} ${draggedLayerId === layer.id ? "is-dragging" : ""} ${dragOverLayerId === layer.id ? "drag-over" : ""}`}
+                    onClick={() => selectLayer(layer.id)}
+                    onDragStart={(event) => { setDraggedLayerId(layer.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", layer.id); }}
+                    onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverLayerId(layer.id); }}
+                    onDragLeave={() => setDragOverLayerId((current) => current === layer.id ? "" : current)}
+                    onDrop={(event) => { event.preventDefault(); const sourceId = event.dataTransfer.getData("text/plain") || draggedLayerId; moveLayerByDrop(sourceId, layer.id); setDraggedLayerId(""); setDragOverLayerId(""); }}
+                    onDragEnd={() => { setDraggedLayerId(""); setDragOverLayerId(""); }}
+                  >
+                    <span className="layer-drag-grip" title="Drag to reorder"><Icon name="grip" size={15} /></span>
                     <span className={`layer-thumb ${layer.type}`}><Icon name={layer.type === "text" ? "text" : layer.type === "shape" ? "shapes" : "assets"} size={13} /></span>
                     <input
                       className="layer-name-editor"
@@ -542,10 +578,6 @@ export function Editor({ initialProject, onExit }: EditorProps) {
                     />
                     <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, visible: !candidate.visible })); }} title={layer.visible ? "Hide" : "Show"}>{layer.visible ? <Icon name="eye" size={14} /> : <Icon name="eyeOff" size={14} />}</button>
                     <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, locked: !candidate.locked })); }} title={layer.locked ? "Unlock" : "Lock"}>{layer.locked ? <Icon name="lock" size={13} /> : <Icon name="unlock" size={13} />}</button>
-                    <div className="layer-order-actions">
-                      <button type="button" onClick={(event) => { event.stopPropagation(); commitProject((current) => reorderLayer(current, layer.id, "up")); }} title="Move up"><Icon name="chevronUp" size={14} /></button>
-                      <button type="button" onClick={(event) => { event.stopPropagation(); commitProject((current) => reorderLayer(current, layer.id, "down")); }} title="Move down"><Icon name="chevronDown" size={14} /></button>
-                    </div>
                   </div>
                 ))}
               </div>
@@ -598,6 +630,9 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           onSelect={selectLayer}
           onTransformCommit={commitTransform}
           onTextCommit={commitText}
+          onZoomChange={setZoom}
+          onDuplicateLayer={duplicateLayerById}
+          onDeleteLayer={deleteLayerById}
         />
 
         <Inspector

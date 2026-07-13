@@ -94,7 +94,7 @@ export function DashboardV3({ projects, templates, draft, loading, onOpen, onOpe
         ) : (
           <section className="template-library-page template-library-v3">
             <div className="template-library-hero">
-              <div><span className="eyebrow">TEMPLATE LIBRARY</span><h1>Start polished. Keep everything editable.</h1><p>These previews use the same Remotion composition that opens in the editor.</p></div>
+              <div><span className="eyebrow">TEMPLATE LIBRARY</span><h1>Ready-made motion, fully editable.</h1><p>Pick a polished starting point, then change every layer, color, word, and action.</p></div>
               <button type="button" className="secondary-dashboard-button" onClick={() => setCreateOpen(true)}><Icon name="plus" size={15} />Blank project</button>
             </div>
             <div className="template-library-controls sticky-template-controls">
@@ -168,25 +168,29 @@ function UserTemplateCard({ template, onUse, onDelete }: { template: UserTemplat
 
 function TemplateCardShell({ name, category, description, duration, project, onUse, onDelete }: { name: string; category: string; description: string; duration: number; project: UserTemplateRecord["project"]; onUse: () => void; onDelete?: () => void }) {
   const scene = getActiveScene(project);
-  return <article className="library-template-card live-template-card">
+  const orientation = scene.height > scene.width ? "portrait" : scene.width > scene.height ? "landscape" : "square";
+  const sceneColor = scene.background.type === "solid" ? scene.background.color ?? "#171821" : "#171821";
+  return <article className={`library-template-card live-template-card template-${orientation}`}>
     <button type="button" className="live-template-preview-button" onClick={onUse}>
-      <div className="live-template-player">
-        <Player
-          component={MotionComposition}
-          inputProps={{ project, editable: false, showSelection: false, showSafeArea: false }}
-          durationInFrames={Math.max(1, Math.round(scene.duration * scene.fps))}
-          compositionWidth={scene.width}
-          compositionHeight={scene.height}
-          fps={scene.fps}
-          autoPlay
-          loop
-          controls={false}
-          style={{ width: "100%", height: "100%" }}
-        />
+      <div className="live-template-player" style={{ "--template-scene-color": sceneColor } as React.CSSProperties}>
+        <div className="live-template-player-frame" style={{ aspectRatio: `${scene.width} / ${scene.height}` }}>
+          <Player
+            component={MotionComposition}
+            inputProps={{ project, editable: false, showSelection: false, showSafeArea: false }}
+            durationInFrames={Math.max(1, Math.round(scene.duration * scene.fps))}
+            compositionWidth={scene.width}
+            compositionHeight={scene.height}
+            fps={scene.fps}
+            autoPlay
+            loop
+            controls={false}
+            style={{ width: "100%", height: "100%" }}
+          />
+        </div>
       </div>
       <span className="template-duration">{duration}s</span>
     </button>
-    <div className="library-template-copy"><span><small>{category}</small><strong>{name}</strong><p>{description}</p></span><button type="button" className="template-use-action" onClick={onUse}>Use template <Icon name="arrow" size={15} /></button></div>
+    <div className="library-template-copy"><span><small>{category}</small><strong>{name}</strong><p>{description}</p></span><button type="button" className="template-use-action" onClick={onUse}><span>Open template</span><Icon name="arrow" size={15} /></button></div>
     {onDelete ? <button type="button" className="custom-template-delete" title="Delete custom template" onClick={onDelete}><Icon name="trash" size={14} /></button> : null}
   </article>;
 }
@@ -218,12 +222,14 @@ function CreateProjectDialog({ onClose, onCreate }: { onClose: () => void; onCre
         {format === "custom" ? <div className="dashboard-two"><label className="dashboard-field">Width<input type="number" min={64} max={7680} value={width} onChange={(event) => setWidth(Number(event.currentTarget.value))} /></label><label className="dashboard-field">Height<input type="number" min={64} max={7680} value={height} onChange={(event) => setHeight(Number(event.currentTarget.value))} /></label></div> : null}
         <div className="dashboard-two"><label className="dashboard-field">Duration<input type="number" min={.1} max={3600} step={.1} value={duration} onChange={(event) => setDuration(Number(event.currentTarget.value))} /></label><label className="dashboard-field">Frame rate<select value={fps} onChange={(event) => setFps(Number(event.currentTarget.value) as 24 | 30 | 60)}><option value={24}>24 FPS</option><option value={30}>30 FPS</option><option value={60}>60 FPS</option></select></label></div>
         <label className="dashboard-field">Background<div className="background-control"><input type="color" value={background} disabled={transparent} onChange={(event) => setBackground(event.currentTarget.value)} /><input value={background} disabled={transparent} onChange={(event) => setBackground(event.currentTarget.value)} /></div></label>
-        <label className="dashboard-toggle"><span><strong>Transparent canvas</strong><small>Required for alpha WebM, PNG sequence, and MOV ProRes 4444.</small></span><input type="checkbox" checked={transparent} onChange={(event) => setTransparent(event.currentTarget.checked)} /></label>
+        <label className="dashboard-toggle"><span><strong>Transparent canvas</strong><small>Required for alpha WebM, PNG sequence, and MOV ProRes 4444.</small></span><DashboardSwitch checked={transparent} onChange={setTransparent} /></label>
       </div>
       <footer><button type="button" className="dialog-secondary" onClick={onClose}>Cancel</button><button type="button" className="dashboard-primary-action" onClick={submit}>Create project <Icon name="arrow" size={15} /></button></footer>
     </section>
   </div>;
 }
+
+function DashboardSwitch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) { return <span className={`switch-control ${checked ? "is-on" : ""}`}><input type="checkbox" checked={checked} onChange={(event) => onChange(event.currentTarget.checked)} /><i aria-hidden="true" /></span>; }
 
 function relativeTime(value: string) {
   const time = new Date(value).getTime();

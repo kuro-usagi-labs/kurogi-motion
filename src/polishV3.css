@@ -187,3 +187,47 @@
 @media (prefers-reduced-motion: reduce) {
   .startup-splash *, .live-template-card, .dashboard-primary-action { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+
+/* UX repair pass v4 */
+.layer-row { grid-template-columns: 22px 28px minmax(0,1fr) 28px 28px !important; }
+.layer-drag-grip { display:grid; width:22px; height:28px; place-items:center; color:#6f6b79; cursor:grab; }
+.layer-row:hover .layer-drag-grip { color:#aaa4b4; }
+.layer-row.is-dragging { opacity:.42; transform:scale(.985); }
+.layer-row.drag-over { background:#3c334f !important; box-shadow:inset 0 2px #aa8cff !important; }
+
+.switch-control { position:relative; display:inline-flex; flex:0 0 auto; width:36px; height:22px; }
+.switch-control input { position:absolute !important; inset:0 !important; z-index:2; width:100% !important; height:100% !important; margin:0 !important; opacity:0 !important; cursor:pointer; }
+.switch-control > i { position:absolute; inset:0; border:1px solid rgba(255,255,255,.13); border-radius:999px; background:#353641; box-shadow:inset 0 1px 2px rgba(0,0,0,.25); transition:background .16s ease,border-color .16s ease; }
+.switch-control > i::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#d9d6df; box-shadow:0 2px 5px rgba(0,0,0,.35); transition:transform .16s cubic-bezier(.2,.8,.2,1),background .16s ease; }
+.switch-control.is-on > i { border-color:#9c80ec; background:#8d6ee5; }
+.switch-control.is-on > i::after { transform:translateX(14px); background:#fff; }
+.switch-control.is-disabled { opacity:.42; }
+.switch-control.is-disabled input { cursor:not-allowed; }
+.inspector input[type="checkbox"], .dashboard-toggle input[type="checkbox"] { appearance:auto !important; }
+
+.timeline-v3 .tracks,
+.timeline-v3 .timeline-lanes,
+.timeline-v3 .clean-track-lane,
+.timeline-v3 .clean-ruler,
+.timeline-v3 .track-lane { background-image:none !important; }
+.timeline-v3 .track-lane::before, .timeline-v3 .track-lane::after, .timeline-v3 .tracks::before, .timeline-v3 .tracks::after { display:none !important; content:none !important; }
+.timeline-v3 .track { border-bottom:1px solid rgba(255,255,255,.045) !important; }
+.timeline-v3 .track:nth-child(even) .clean-track-lane { background:rgba(255,255,255,.008) !important; }
+.timeline-v3 .clean-ruler { background:#15161e !important; }
+.timeline-v3 .clean-ruler span::after { height:4px !important; opacity:.65; }
+.timeline-v3 .playhead { box-shadow:none !important; }
+
+.template-library-hero h1 { max-width:760px; font-size:clamp(38px,4.6vw,64px) !important; line-height:.98; }
+.live-template-preview-button { height:340px !important; background:#111219 !important; }
+.live-template-player { display:grid; width:100%; height:100%; place-items:center; padding:18px; background:radial-gradient(circle at 50% 42%,color-mix(in srgb,var(--template-scene-color) 46%,transparent),transparent 58%),#12131a; }
+.live-template-player-frame { overflow:hidden; max-width:100%; max-height:100%; border-radius:8px; box-shadow:0 18px 55px rgba(0,0,0,.36); }
+.template-portrait .live-template-player-frame { height:100%; width:auto; }
+.template-square .live-template-player-frame { height:min(100%,306px); width:auto; }
+.template-landscape .live-template-player-frame { width:min(100%,560px); height:auto; }
+.live-template-card .library-template-copy { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:18px; min-height:116px; padding:18px 19px !important; }
+.template-use-action { display:inline-flex !important; align-items:center; justify-content:center; gap:8px; min-width:132px; height:36px; padding:0 13px !important; border:1px solid rgba(180,154,252,.28) !important; border-radius:10px !important; color:#efe9ff !important; background:rgba(124,92,255,.16) !important; font-size:10px !important; font-weight:760 !important; cursor:pointer; }
+.template-use-action:hover { border-color:rgba(191,168,255,.55) !important; background:rgba(124,92,255,.28) !important; transform:translateY(-1px); }
+.live-template-card .library-template-copy p { max-width:520px; }
+
+@media (max-width:900px) { .live-template-preview-button { height:300px !important; } .live-template-card .library-template-copy { grid-template-columns:1fr; } .template-use-action { width:100%; } }

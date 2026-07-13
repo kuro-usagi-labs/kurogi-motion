@@ -253,6 +253,22 @@ export function reorderLayer(project: KurogiProject, layerId: string, direction:
   return touchProject(next);
 }
 
+export function setSceneLayerOrder(
+  project: KurogiProject,
+  sceneId: string,
+  orderedLayerIds: string[],
+): KurogiProject {
+  const scene = project.scenes[sceneId];
+  if (!scene || orderedLayerIds.length !== scene.layerIds.length) return project;
+  const expected = new Set(scene.layerIds);
+  if (new Set(orderedLayerIds).size !== orderedLayerIds.length) return project;
+  if (orderedLayerIds.some((id) => !expected.has(id))) return project;
+  if (orderedLayerIds.every((id, index) => id === scene.layerIds[index])) return project;
+  const next = cloneProject(project);
+  next.scenes[sceneId].layerIds = [...orderedLayerIds];
+  return touchProject(next);
+}
+
 export function createTextLayer(
   scene: Scene,
   options: Partial<{

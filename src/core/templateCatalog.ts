@@ -59,11 +59,11 @@ function buildTemplateLayers(scene: Scene, id: string): Layer[] {
 }
 
 function buildChatbox(scene: Scene): Layer[] {
-  const title = text(scene, "Conversation title", "A QUICK UPDATE", .1, .08, .8, .1, 42, "#17192b");
+  const title = text(scene, "Conversation title", "A QUICK UPDATE", .1, .07, .8, .1, 58, "#17192b");
   const bubbleA = card(scene, "Message from Alex", .08, .25, .67, .17, "#ffffff", 42);
-  const messageA = text(scene, "Message text", "Alex · 09:42\nThe first draft is ready ✨", .13, .285, .57, .1, 28, "#202235");
+  const messageA = text(scene, "Message text", "Alex · 09:42\nThe first draft is ready ✨", .13, .28, .57, .11, 43, "#202235");
   const bubbleB = card(scene, "Reply bubble", .25, .5, .67, .16, "#7c5cff", 42);
-  const messageB = text(scene, "Reply text", "Perfect. Let’s make it move.", .3, .55, .57, .08, 29, "#ffffff");
+  const messageB = text(scene, "Reply text", "Perfect. Let’s make it move.", .3, .545, .57, .09, 44, "#ffffff");
   enter(title, "fadeIn", 0, .45); enter(bubbleA, "moveIn", .15, .55, "left"); enter(messageA, "fadeIn", .32, .4);
   enter(bubbleB, "moveIn", .7, .55, "right"); enter(messageB, "fadeIn", .88, .4); loop(bubbleB, "float", 1.5, 2.2, 7);
   return [title, bubbleA, messageA, bubbleB, messageB];
@@ -80,11 +80,11 @@ function buildComment(scene: Scene): Layer[] {
 }
 
 function buildNotification(scene: Scene): Layer[] {
-  const title = text(scene, "Section title", "PRODUCT UPDATE", .1, .12, .8, .08, 34, "#67e8c3");
-  const cardLayer = card(scene, "Notification", .08, .34, .84, .23, "#242734", 36); cardLayer.style.shadow = 38;
-  const icon = createShapeLayer(scene, "circle", { name: "App icon", position: pos(scene, .13, .385), size: size(scene, .13, .13), fill: "#67e8c3" });
-  const copy = text(scene, "Notification copy", "Kurogi Motion\nYour export is ready.", .31, .38, .54, .14, 31, "#f4f5fa");
-  const time = text(scene, "Notification time", "now", .78, .36, .1, .04, 19, "#9298a8");
+  const title = text(scene, "Section title", "PRODUCT UPDATE", .1, .1, .8, .09, 56, "#67e8c3");
+  const cardLayer = card(scene, "Notification", .07, .3, .86, .3, "#242734", 44); cardLayer.style.shadow = 38;
+  const icon = createShapeLayer(scene, "circle", { name: "App icon", position: pos(scene, .12, .37), size: size(scene, .16, .16), fill: "#67e8c3" });
+  const copy = text(scene, "Notification copy", "Kurogi Motion\nYour export is ready.", .32, .36, .52, .16, 48, "#f4f5fa");
+  const time = text(scene, "Notification time", "now", .79, .33, .1, .05, 28, "#9298a8");
   enter(title, "fadeIn", 0, .4); enter(cardLayer, "moveIn", .18, .62, "down"); enter(icon, "scaleIn", .42, .45); enter(copy, "fadeIn", .5, .45); enter(time, "fadeIn", .62, .35); loop(cardLayer, "float", 1.4, 2.3, 6);
   return [title, cardLayer, icon, copy, time];
 }

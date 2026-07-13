@@ -18,6 +18,8 @@ requireText(files.editor, "setExportDialogOpen(true)", "Toolbar Export does not 
 if (files.editor.includes('setInspectorTab("Export")')) issues.push("Toolbar Export still redirects to the inspector.");
 requireText(files.editor, "Export complete", "Success notification is missing.");
 requireText(files.editor, "Export failed", "Failure notification is missing.");
+requireText(files.editor, "const effectiveOptions: ExportOptions", "Export options are not normalized before rendering.");
+requireText(files.editor, "alphaSupported && exportOptions.transparent", "Unsupported alpha formats can still request transparency.");
 requireText(files.dialog, 'id: "mp4"', "MP4 option is missing.");
 requireText(files.dialog, 'id: "mov"', "MOV option is missing.");
 requireText(files.dialog, 'id: "webm"', "WebM option is missing.");

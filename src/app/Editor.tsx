@@ -79,7 +79,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     fps: scene.fps as 24 | 30 | 60,
     scale: 1,
     quality: "high",
-    transparent: scene.background.type === "transparent",
+    transparent: false,
     gifLoops: null,
   });
   const playerRef = useRef<PlayerRef>(null);
@@ -474,17 +474,22 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       });
       return;
     }
+    const alphaSupported = exportOptions.format === "webm" || exportOptions.format === "mov" || exportOptions.format === "png-sequence";
+    const effectiveOptions: ExportOptions = {
+      ...exportOptions,
+      transparent: alphaSupported && exportOptions.transparent,
+    };
     const snapshot = cloneProject(project);
     const snapshotScene = getActiveScene(snapshot);
-    snapshotScene.fps = exportOptions.fps;
-    snapshotScene.background = exportOptions.transparent
+    snapshotScene.fps = effectiveOptions.fps;
+    snapshotScene.background = effectiveOptions.transparent
       ? { type: "transparent" }
-      : cloneProject(scene.background);
+      : cloneProject(scene.background.type === "transparent" ? { type: "solid", color: "#000000" } : scene.background);
     setExportNotice(null);
     setExporting(true);
     setExportProgress({ phase: "preparing", progress: 0, message: "Preparing export" });
     try {
-      const result = await window.kurogi.exportVideo(snapshot, exportOptions);
+      const result = await window.kurogi.exportVideo(snapshot, effectiveOptions);
       if (!result.canceled && result.path) {
         setExportProgress({ phase: "completed", progress: 1, message: result.path });
         setExportNotice({

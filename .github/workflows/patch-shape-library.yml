@@ -1,0 +1,40 @@
+name: Patch shape library and templates
+
+on:
+  push:
+    branches:
+      - feature/prd-foundation-remotion
+    paths:
+      - scripts/patch-shape-library.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/prd-foundation-remotion
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply shape and template patch
+        run: python scripts/patch-shape-library.py
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate shape and template foundations
+        run: |
+          npm run audit:shapes
+          npm run audit:templates
+          npm run typecheck
+      - name: Commit source patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/types.ts src/core/project.ts src/core/shapeLibrary.ts src/ui/ShapeIcon.tsx src/MotionComposition.tsx src/renderer/LayerEffects.tsx src/app/Editor.tsx src/core/templateLayout.ts src/core/templateCatalog.ts src/finalUx.css scripts/audit-shapes.mjs package.json .github/workflows/ci.yml
+          git commit -m "Expand vector shapes and refine template accents"
+          git push origin HEAD:feature/prd-foundation-remotion

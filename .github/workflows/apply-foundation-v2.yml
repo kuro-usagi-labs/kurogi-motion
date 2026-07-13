@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/apply-foundation-v2.py
       - scripts/fix-foundation-v2-await.py
+      - scripts/publish-foundation-v2.mjs
       - .github/workflows/apply-foundation-v2.yml
   push:
     branches:
@@ -14,6 +15,7 @@ on:
     paths:
       - scripts/apply-foundation-v2.py
       - scripts/fix-foundation-v2-await.py
+      - scripts/publish-foundation-v2.mjs
       - .github/workflows/apply-foundation-v2.yml
 
 permissions:
@@ -56,14 +58,7 @@ jobs:
           path: foundation-v2.log
           if-no-files-found: ignore
           retention-days: 3
-      - name: Commit implementation
-        shell: bash
-        run: |
-          set -euxo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/types.ts src/core/historyPatch.ts src/core/useProjectHistory.ts src/core/persistence.ts src/app/Editor.tsx src/App.tsx scripts/audit-foundation-v2.mjs package.json .github/workflows/ci.yml
-          git diff --cached --stat
-          git commit -m "Build Asset Storage V2, patch history, and real recovery"
-          git pull --rebase origin feature/prd-foundation-remotion
-          git push origin HEAD:feature/prd-foundation-remotion
+      - name: Publish implementation atomically
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/publish-foundation-v2.mjs

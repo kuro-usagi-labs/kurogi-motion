@@ -294,7 +294,11 @@ export function MultiSceneCanvasStage({
     const sceneGesture = sceneMoveRef.current;
     if (sceneGesture?.pointerId === event.pointerId) {
       sceneMoveRef.current = null;
-      const final = draftPositions[sceneGesture.sceneId] ?? sceneGesture.origin;
+      const scale = clamp(zoomRef.current / 100, 0.05, 2.5);
+      const final = {
+        x: sceneGesture.origin.x + (event.clientX - sceneGesture.startX) / scale,
+        y: sceneGesture.origin.y + (event.clientY - sceneGesture.startY) / scale,
+      };
       setDraftPositions((current) => {
         const next = { ...current };
         delete next[sceneGesture.sceneId];

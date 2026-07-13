@@ -20,9 +20,22 @@ import {
   updateLayer,
 } from "../core/project";
 import { clearDraft, prepareProjectForExport, saveDraft, saveProject, storeAssetBlob } from "../core/persistence";
+import {
+  copyLayersToScene,
+  createScene as createWorkspaceScene,
+  duplicateScene as duplicateWorkspaceScene,
+  ensureSceneWorkspace,
+  moveScene as moveWorkspaceScene,
+  removeScene as removeWorkspaceScene,
+  renameScene as renameWorkspaceScene,
+  setActiveScene,
+  updateScene as updateWorkspaceScene,
+  type SceneUpdatePatch,
+  type SceneWorkspacePosition,
+} from "../core/sceneWorkspace";
 import { useProjectHistory } from "../core/useProjectHistory";
 import { Inspector, type InspectorTab } from "../editor/InspectorV2";
-import { CanvasStage } from "../editor/CanvasStage";
+import { MultiSceneCanvasStage } from "../editor/MultiSceneCanvasStage";
 import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
 import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
@@ -56,7 +69,8 @@ const SIDEBAR_TABS: Array<{ id: SidebarTab; icon: IconName; label: string }> = [
 ];
 
 export function Editor({ initialProject, onExit }: EditorProps) {
-  const history = useProjectHistory(initialProject);
+  const preparedInitialProject = useMemo(() => ensureSceneWorkspace(initialProject), [initialProject]);
+  const history = useProjectHistory(preparedInitialProject);
   const { project } = history;
   const scene = getActiveScene(project);
   const layers = getSceneLayers(project);
@@ -94,6 +108,17 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     }
     return null;
   }, [project.layers, selectedActionId]);
+
+  useEffect(() => {
+    const active = project.scenes[project.activeSceneId];
+    const selected = selectedLayerId ? project.layers[selectedLayerId] : null;
+    if (!active) return;
+    if (!selected || selected.sceneId !== active.id) {
+      setSelectedLayerId(active.layerIds.at(-1) ?? "");
+      setSelectedActionId("");
+    }
+    setPlaying(false);
+  }, [project.activeSceneId]);
 
   useEffect(() => {
     const player = playerRef.current;
@@ -438,6 +463,88 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     commitLayer(layerId, (layer) => layer.type === "text" ? { ...layer, text } : layer);
   }
 
+  function activateWorkspaceScene(sceneId: string) {
+    commitProject((current) => {
+      const next = setActiveScene(current, sceneId);
+      const active = next.scenes[sceneId];
+      window.queueMicrotask(() => {
+        playerRef.current?.pause();
+        setPlaying(false);
+        setSelectedLayerId(active?.layerIds.at(-1) ?? "");
+        setSelectedActionId("");
+      });
+      return next;
+    });
+  }
+
+  function addWorkspaceScene() {
+    commitProject((current) => {
+      const result = createWorkspaceScene(current);
+      window.queueMicrotask(() => {
+        playerRef.current?.pause();
+        setPlaying(false);
+        setSelectedLayerId("");
+        setSelectedActionId("");
+      });
+      return result.project;
+    });
+  }
+
+  function duplicateActiveWorkspaceScene(sceneId: string) {
+    commitProject((current) => {
+      const result = duplicateWorkspaceScene(current, sceneId);
+      window.queueMicrotask(() => {
+        playerRef.current?.pause();
+        setPlaying(false);
+        setSelectedLayerId(result.layerIds.at(-1) ?? "");
+        setSelectedActionId("");
+      });
+      return result.project;
+    });
+  }
+
+  function deleteWorkspaceScene(sceneId: string) {
+    const target = project.scenes[sceneId];
+    if (!target || Object.keys(project.scenes).length <= 1) return;
+    if (!window.confirm(`Delete scene “${target.name}” and all of its layers?`)) return;
+    commitProject((current) => {
+      const result = removeWorkspaceScene(current, sceneId);
+      window.queueMicrotask(() => {
+        playerRef.current?.pause();
+        setPlaying(false);
+        setSelectedLayerId(result.layerIds.at(-1) ?? "");
+        setSelectedActionId("");
+      });
+      return result.project;
+    });
+  }
+
+  function renameWorkspaceSceneById(sceneId: string, name: string) {
+    commitProject((current) => renameWorkspaceScene(current, sceneId, name));
+  }
+
+  function updateWorkspaceSceneById(sceneId: string, patch: SceneUpdatePatch) {
+    commitProject((current) => updateWorkspaceScene(current, sceneId, patch));
+  }
+
+  function moveWorkspaceSceneById(sceneId: string, position: SceneWorkspacePosition) {
+    commitProject((current) => moveWorkspaceScene(current, sceneId, position));
+  }
+
+  function copyLayerIntoWorkspaceScene(layerId: string, sceneId: string) {
+    commitProject((current) => {
+      const result = copyLayersToScene(current, [layerId], sceneId);
+      window.queueMicrotask(() => {
+        playerRef.current?.pause();
+        setPlaying(false);
+        setSelectedLayerId(result.layerIds.at(-1) ?? "");
+        setSelectedActionId("");
+        setSidebarTab("layers");
+      });
+      return result.project;
+    });
+  }
+
   function togglePlay() {
     if (playing) playerRef.current?.pause();
     else playerRef.current?.play();
@@ -674,7 +781,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           ) : null}
         </aside>
 
-        <CanvasStage
+        <MultiSceneCanvasStage
           project={project}
           playerRef={playerRef}
           selectedLayerId={selectedLayerId}
@@ -687,6 +794,14 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           onZoomChange={setZoom}
           onDuplicateLayer={duplicateLayerById}
           onDeleteLayer={deleteLayerById}
+          onActivateScene={activateWorkspaceScene}
+          onCreateScene={addWorkspaceScene}
+          onDuplicateScene={duplicateActiveWorkspaceScene}
+          onDeleteScene={deleteWorkspaceScene}
+          onRenameScene={renameWorkspaceSceneById}
+          onUpdateScene={updateWorkspaceSceneById}
+          onMoveScene={moveWorkspaceSceneById}
+          onCopyLayerToScene={copyLayerIntoWorkspaceScene}
         />
 
         <Inspector

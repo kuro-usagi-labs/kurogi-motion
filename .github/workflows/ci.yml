@@ -45,6 +45,12 @@ jobs:
           set -o pipefail
           npm run audit:shapes 2>&1 | tee shape-audit.log
 
+      - name: Audit export experience
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:export 2>&1 | tee export-audit.log
+
       - name: Audit effect renderer
         shell: bash
         run: |
@@ -77,6 +83,7 @@ jobs:
           path: |
             template-audit.log
             shape-audit.log
+            export-audit.log
             effect-audit.log
             loop-audit.log
             text-canvas-audit.log

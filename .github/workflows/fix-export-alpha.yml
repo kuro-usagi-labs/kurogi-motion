@@ -1,6 +1,12 @@
 name: Fix export alpha normalization
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/fix-export-alpha.py
+      - .github/workflows/fix-export-alpha.yml
   push:
     branches:
       - feature/prd-foundation-remotion
@@ -10,6 +16,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: fix-export-alpha
+  cancel-in-progress: true
 
 jobs:
   patch:

@@ -1,6 +1,12 @@
 name: Patch text and canvas foundation
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/patch-text-canvas-foundation.py
+      - .github/workflows/patch-text-canvas-foundation.yml
   push:
     branches:
       - feature/prd-foundation-remotion

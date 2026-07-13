@@ -1,0 +1,37 @@
+name: Apply Design Tools V1
+
+on:
+  push:
+    branches:
+      - feat/design-tools-v1
+    paths:
+      - scripts/apply-design-tools-v1.cjs
+      - .github/workflows/apply-design-tools-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/design-tools-v1
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply integration patch
+        run: node scripts/apply-design-tools-v1.cjs
+      - name: Commit generated integration
+        run: |
+          if git diff --quiet; then
+            echo "Integration already applied."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/core/project.ts src/MotionComposition.tsx src/editor/MultiSceneCanvasStage.tsx src/app/Editor.tsx src/main.tsx package.json .github/workflows/ci.yml
+          git commit -m "feat: wire design tools v1"
+          git push origin HEAD:feat/design-tools-v1

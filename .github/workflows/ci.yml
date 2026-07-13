@@ -10,6 +10,7 @@ on:
   pull_request:
     branches:
       - main
+      - feat/infinite-canvas-multiscene-v1
 
 permissions:
   contents: read
@@ -71,6 +72,12 @@ jobs:
           set -o pipefail
           npm run audit:multiscene 2>&1 | tee multiscene-audit.log
 
+      - name: Audit design tools
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:design-tools 2>&1 | tee design-tools-audit.log
+
       - name: Audit effect renderer
         shell: bash
         run: |
@@ -107,6 +114,7 @@ jobs:
             foundation-v2-audit.log
             recovery-audit.log
             multiscene-audit.log
+            design-tools-audit.log
             effect-audit.log
             loop-audit.log
             text-canvas-audit.log

@@ -37,8 +37,9 @@ jobs:
           npm run typecheck
       - name: Commit source patch
         run: |
+          git restore .github/workflows/ci.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/types.ts src/core/project.ts src/core/textLayout.ts src/editor/canvasMath.ts src/MotionComposition.tsx src/editor/CanvasStage.tsx src/editor/InspectorV2.tsx scripts/audit-text-canvas.mjs package.json .github/workflows/ci.yml
+          git add src/types.ts src/core/project.ts src/core/textLayout.ts src/editor/canvasMath.ts src/MotionComposition.tsx src/editor/CanvasStage.tsx src/editor/InspectorV2.tsx scripts/audit-text-canvas.mjs package.json
           git commit -m "Fix text box alignment and stabilize canvas zoom"
           git push origin HEAD:feature/prd-foundation-remotion

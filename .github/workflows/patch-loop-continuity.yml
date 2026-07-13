@@ -30,7 +30,13 @@ jobs:
         with:
           node-version: 22
       - name: Apply patch
-        run: node scripts/patch-loop-continuity.mjs
+        shell: bash
+        run: |
+          set +e
+          node scripts/patch-loop-continuity.mjs > patch-loop.log 2>&1
+          status=$?
+          cat patch-loop.log
+          exit $status
       - name: Commit patch
         run: |
           git config user.name "github-actions[bot]"

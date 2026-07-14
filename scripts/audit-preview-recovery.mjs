@@ -17,6 +17,11 @@ assert.ok(stage.includes("position.x - workspaceOrigin.x") && stage.includes("po
 assert.ok(stage.includes("workspaceBounds.left + workspaceBounds.width / 2 - workspaceOrigin.x"), "Fit-all must center the normalized world coordinates.");
 assert.ok(stage.includes("<Player"), "Every artboard must still mount the Remotion Player.");
 
+assert.match(recovery, /\.multi-scene-stage\s*\{[\s\S]*align-items:\s*stretch\s*!important/);
+assert.match(recovery, /\.multi-scene-stage\s*\{[\s\S]*justify-content:\s*flex-start\s*!important/);
+assert.match(recovery, /\.multi-scene-stage\s*>\s*\.multi-scene-toolbar\s*\{[\s\S]*width:\s*100%/);
+assert.match(recovery, /\.multi-scene-stage\s*>\s*\.multi-scene-viewport\s*\{[\s\S]*width:\s*100%/);
+assert.match(recovery, /\.multi-scene-stage\s*>\s*\.multi-scene-viewport\s*\{[\s\S]*flex:\s*1 1 auto/);
 assert.match(recovery, /\.workspace-world\s*\{[\s\S]*position:\s*absolute/);
 assert.match(recovery, /\.workspace-world\s*\{[\s\S]*left:\s*50%/);
 assert.match(recovery, /\.workspace-world\s*\{[\s\S]*top:\s*50%/);
@@ -25,4 +30,4 @@ assert.match(recovery, /overflow:\s*visible/);
 assert.match(recovery, /\.editor-workspace \.multi-scene-toolbar\s*\{[\s\S]*margin-bottom:/);
 assert.match(recovery, /\.editor-workspace \.design-tools-panel\s*\{[\s\S]*top:\s*56px/);
 
-console.log("Preview recovery audit passed: multi-scene uses a sized world layer and non-overlapping control rows.");
+console.log("Preview recovery audit passed: the multi-scene viewport stretches to full width and renders a sized world layer.");

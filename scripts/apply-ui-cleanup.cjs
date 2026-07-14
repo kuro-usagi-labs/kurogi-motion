@@ -3,9 +3,13 @@ const fs = require("node:fs");
 function read(path) { return fs.readFileSync(path, "utf8"); }
 function write(path, content) { fs.writeFileSync(path, content); }
 function replaceOnce(source, from, to, label) {
-  if (source.includes(to)) return source;
+  if (to && source.includes(to)) return source;
   if (!source.includes(from)) throw new Error(`Could not find ${label}`);
   return source.replace(from, to);
+}
+function removeOnce(source, target, label) {
+  if (!source.includes(target)) return source;
+  return source.replace(target, "");
 }
 
 {
@@ -47,10 +51,9 @@ function replaceOnce(source, from, to, label) {
     '          onToggleSnap={toggleSmartSnap}\n          onToggleDesignToolbar={toggleDesignToolbar}\n          onCreateScene=',
     "design toolbar menu callback",
   );
-  source = replaceOnce(
+  source = removeOnce(
     source,
     '              {selectedLayer ? (\n                <div className="sidebar-selection-actions">\n                  <button type="button" onClick={duplicateSelectedLayer}>Duplicate</button>\n                  <button type="button" className="danger-text" onClick={deleteSelectedLayer}>Delete</button>\n                </div>\n              ) : null}\n',
-    '',
     "duplicate layer sidebar footer",
   );
   const designPanel = `        <DesignToolsPanel\n          project={project}\n          selectedLayers={selectedLayers}\n          onAlign={alignSelection}\n          onDistribute={distributeSelection}\n          onGroup={groupSelected}\n          onUngroup={ungroupSelected}\n          onGradient={applySelectionGradient}\n          onBlendMode={(mode) => commitProject((current) => setBlendMode(current, selectedLayerIds, mode))}\n          onBackgroundBlur={(radius) => commitProject((current) => setBackgroundBlur(current, selectedLayerIds, radius))}\n          onApplyMask={applySelectionMask}\n          onClearMask={clearSelectionMask}\n          onFontFamily={(family) => commitProject((current) => setFontFamily(current, selectedLayerIds, family))}\n          onImportFont={(file) => void importFont(file)}\n          onToggleSnap={toggleSmartSnap}\n        />`;
@@ -86,10 +89,9 @@ function replaceOnce(source, from, to, label) {
 {
   const path = "src/editor/InspectorV2.tsx";
   let source = read(path);
-  source = replaceOnce(
+  source = removeOnce(
     source,
     '      <section className="property-section compact-property-section">\n        <div className="section-label">Layer state</div>\n        <label className="toggle-row"><span>Visible</span><ToggleSwitch checked={layer.visible} onChange={(checked) => commit((current) => ({ ...current, visible: checked }))} /></label>\n        <label className="toggle-row"><span>Locked</span><ToggleSwitch checked={layer.locked} onChange={(checked) => commit((current) => ({ ...current, locked: checked }))} /></label>\n      </section>\n\n',
-    '',
     "duplicated Inspector layer state",
   );
   write(path, source);
@@ -98,10 +100,9 @@ function replaceOnce(source, from, to, label) {
 {
   const path = "src/editor/MultiSceneCanvasStage.tsx";
   let source = read(path);
-  source = replaceOnce(
+  source = removeOnce(
     source,
     '          <button type="button" className={settingsOpen ? "active" : ""} onClick={() => setSettingsOpen((value) => !value)} title="Scene settings"><Icon name="frame" size={15} /></button>\n',
-    '',
     "duplicated scene settings button",
   );
   write(path, source);

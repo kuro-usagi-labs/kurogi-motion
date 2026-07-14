@@ -75,7 +75,7 @@ export function evaluateLayer(layer: Layer, scene: Scene, time: number): Evaluat
     applyActionToLayer(visual, action, scene, time);
   }
 
-  visual.opacity = clamp(visual.opacity, 0, 1);
+  visual.opacity = normalizeOpacity(visual.opacity);
   visual.scaleX = finite(visual.scaleX, 1);
   visual.scaleY = finite(visual.scaleY, 1);
   visual.rotation = finite(visual.rotation, 0);
@@ -117,7 +117,7 @@ export function evaluateTextUnit(
     applyActionToUnit(visual, action, scene, time - offset);
   }
 
-  visual.opacity = clamp(visual.opacity, 0, 1);
+  visual.opacity = normalizeOpacity(visual.opacity);
   visual.scale = finite(visual.scale, 1);
   visual.rotation = finite(visual.rotation, 0);
   visual.rotateX = finite(visual.rotateX, 0);
@@ -336,7 +336,7 @@ function applyOut(visual: EvaluatedLayerVisual, action: AnimationAction, progres
   }
   if (action.type === "dissolveOut") {
     const flicker = .82 + .18 * Math.sin(progress * Math.PI * 18);
-    visual.opacity *= (1 - progress) * flicker;
+    visual.opacity *= flicker;
     visual.saturation *= 1 - progress * .4;
   }
 }
@@ -575,7 +575,7 @@ function maskClip(direction: string, amount: number) {
 }
 
 function isFadingType(type: AnimationType) {
-  return !["counter", "motionPath", "pulse", "float", "shake", "spin", "breathe", "swing", "hover", "wobble", "heartbeat", "drift", "orbit", "wave", "jiggle", "glowPulse", "ripple", "liquid"].includes(type);
+  return type === "fadeIn" || type === "fadeOut" || type === "dissolveOut";
 }
 
 function isMovingType(type: AnimationType) {
@@ -636,6 +636,13 @@ function bounceOut(value: number) {
 
 function finite(value: number, fallback: number) {
   return Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeOpacity(value: number) {
+  const normalized = clamp(finite(value, 1), 0, 1);
+  if (normalized >= 0.999) return 1;
+  if (normalized <= 0.001) return 0;
+  return normalized;
 }
 
 function clamp(value: number, min: number, max: number) {

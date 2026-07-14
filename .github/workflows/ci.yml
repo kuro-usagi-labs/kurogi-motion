@@ -115,6 +115,12 @@ jobs:
           set -o pipefail
           npm run audit:audio-mcp 2>&1 | tee audio-mcp-audit.log
 
+      - name: Audit true opacity rendering
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:opacity 2>&1 | tee opacity-audit.log
+
       - name: Audit effect renderer
         shell: bash
         run: |
@@ -158,6 +164,7 @@ jobs:
             ui-cleanup-audit.log
             mcp-audit.log
             audio-mcp-audit.log
+            opacity-audit.log
             effect-audit.log
             loop-audit.log
             text-canvas-audit.log

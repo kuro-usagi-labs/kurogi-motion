@@ -4,7 +4,7 @@ export type IconName =
   | "layers" | "assets" | "text" | "shapes" | "templates" | "help"
   | "undo" | "redo" | "minus" | "plus" | "frame" | "play" | "pause"
   | "share" | "export" | "eye" | "eyeOff" | "lock" | "unlock"
-  | "chevronUp" | "chevronDown" | "upload" | "copy" | "trash" | "close"
+  | "chevronUp" | "chevronDown" | "upload" | "copy" | "trash" | "close" | "check"
   | "search" | "sparkles" | "fade" | "move" | "scale" | "rotate"
   | "blur" | "mask" | "pulse" | "float" | "shake" | "spin"
   | "breathe" | "swing" | "rectangle" | "circle" | "line"
@@ -35,6 +35,7 @@ const paths: Record<IconName, React.ReactNode> = {
   copy: <><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></>,
   trash: <><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m7 7 1 13h8l1-13"/><path d="M10 11v5M14 11v5"/></>,
   close: <><path d="m6 6 12 12"/><path d="m18 6-12 12"/></>,
+  check: <path d="m5 12 4 4L19 6"/>,
   search: <><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></>,
   sparkles: <><path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4L12 3Z"/><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/></>,
   fade: <><circle cx="12" cy="12" r="7"/><path d="M12 5a7 7 0 0 1 0 14Z"/></>,

@@ -22,12 +22,13 @@
     "audit:preview-recovery": "node scripts/audit-preview-recovery.mjs",
     "audit:editor-command-ui": "node scripts/audit-editor-command-ui.mjs",
     "audit:ui-cleanup": "node scripts/audit-ui-cleanup.mjs",
-    "audit": "npm run audit:templates && npm run audit:effects && npm run audit:loops && npm run audit:text-canvas && npm run audit:shapes && npm run audit:export && npm run audit:foundation-v2 && npm run audit:recovery && npm run audit:multiscene && npm run audit:design-tools && npm run audit:animation-workflow && npm run audit:preview-recovery && npm run audit:editor-command-ui && npm run audit:ui-cleanup && npm run audit:mcp",
+    "audit": "npm run audit:templates && npm run audit:effects && npm run audit:loops && npm run audit:text-canvas && npm run audit:shapes && npm run audit:export && npm run audit:foundation-v2 && npm run audit:recovery && npm run audit:multiscene && npm run audit:design-tools && npm run audit:animation-workflow && npm run audit:preview-recovery && npm run audit:editor-command-ui && npm run audit:ui-cleanup && npm run audit:mcp && npm run audit:mcp-protocol",
     "build": "npm run typecheck && vite build",
     "desktop": "npm run build && electron .",
     "package": "npm run build && electron-builder --win --x64",
     "mcp": "electron . --mcp",
-    "audit:mcp": "node scripts/audit-mcp.mjs"
+    "audit:mcp": "node scripts/audit-mcp.mjs",
+    "audit:mcp-protocol": "node scripts/audit-mcp-protocol.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

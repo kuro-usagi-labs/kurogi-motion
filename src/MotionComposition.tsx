@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useCurrentFrame, useVideoConfig } from "remotion";
+import { Audio, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
 import {
   evaluateCounterText,
   evaluateLayer,
@@ -8,6 +8,7 @@ import {
   splitTextUnits,
 } from "./core/evaluator";
 import { getActiveScene, getSceneLayers } from "./core/project";
+import { audioClipVolumeAt, getSceneAudioClips } from "./core/audio";
 import { textVerticalJustification } from "./core/textLayout";
 import { snapLayerPosition, type AlignmentGuide } from "./core/designTools";
 import { getShapeDefinition, getShapeMaskStyle, isBoxShape } from "./core/shapeLibrary";
@@ -233,6 +234,7 @@ export const MotionComposition: React.FC<Props> = ({
       }}
     >
       <style>{projectFontFaceCss(project)}</style>
+      <AudioTracks project={project} />
       {editable && scene.background.type === "transparent" ? <TransparencyGrid /> : null}
       {showSafeArea ? <SafeArea /> : null}
       {renderedLayers.map((layer) => {
@@ -356,6 +358,28 @@ export const MotionComposition: React.FC<Props> = ({
     </div>
   );
 };
+
+function AudioTracks({ project }: { project: KurogiProject }) {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  return <>
+    {getSceneAudioClips(project).map((clip) => {
+      const asset = project.assets[clip.assetId];
+      if (!asset?.sourceUrl || asset.type !== "audio") return null;
+      const from = Math.max(0, Math.round(clip.startTime * fps));
+      const durationInFrames = Math.max(1, Math.round(clip.duration * fps));
+      return <Sequence key={clip.id} from={from} durationInFrames={durationInFrames} name={clip.name}>
+        <Audio
+          src={asset.sourceUrl}
+          startFrom={Math.max(0, Math.round(clip.trimStart * fps))}
+          playbackRate={clip.playbackRate}
+          volume={audioClipVolumeAt(clip, frame / fps)}
+          muted={clip.muted}
+        />
+      </Sequence>;
+    })}
+  </>;
+}
 
 function AnimatedText({ layer, scene, time }: { layer: TextLayer; scene: ReturnType<typeof getActiveScene>; time: number }) {
   const displayText = evaluateCounterText(layer, time) ?? layer.text;

@@ -84,7 +84,7 @@ ipcMain.handle("export-video", async (event, project, rawOptions = {}) => {
   const options = normalizeExportOptions(rawOptions);
   validateProject(project);
 
-  const target = await chooseExportTarget(project.name, options.format);
+  const target = await chooseExportTarget(project.name, options.format, options.outputPath);
   if (!target) return { canceled: true };
 
   exportInProgress = true;
@@ -224,6 +224,22 @@ ipcMain.handle("show-item-in-folder", async (_event, targetPath) => {
   return { opened: true };
 });
 
+ipcMain.handle("read-mcp-media-file", async (_event, requestedPath) => {
+  if (typeof requestedPath !== "string" || !path.isAbsolute(requestedPath)) throw new Error("MCP media import requires an absolute file path.");
+  const stats = await fs.promises.stat(requestedPath);
+  if (!stats.isFile()) throw new Error("The MCP media path is not a file.");
+  if (stats.size > 250 * 1024 * 1024) throw new Error("MCP media files are limited to 250 MB.");
+  const extension = path.extname(requestedPath).toLowerCase();
+  const mimeTypes = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml",
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".aac": "audio/aac", ".ogg": "audio/ogg", ".oga": "audio/ogg", ".webm": "audio/webm",
+  };
+  const mimeType = mimeTypes[extension];
+  if (!mimeType) throw new Error("Unsupported MCP media file. Use PNG, JPG, WebP, SVG, MP3, WAV, M4A, AAC, OGG, or WebM audio.");
+  const bytes = await fs.promises.readFile(requestedPath);
+  return { name: path.basename(requestedPath), mimeType, bytes, byteSize: bytes.length };
+});
+
 ipcMain.handle("save-kuromotion-file", async (_event, envelope, defaultName) => {
   validateKuroMotionEnvelope(envelope);
   const target = await dialog.showSaveDialog({
@@ -268,7 +284,16 @@ async function getServeUrl() {
   return packagedBundlePromise;
 }
 
-async function chooseExportTarget(projectName, format) {
+async function chooseExportTarget(projectName, format, requestedPath) {
+  if (requestedPath) {
+    if (!path.isAbsolute(requestedPath)) throw new Error("Direct export paths must be absolute.");
+    if (format === "png-sequence") { await fs.promises.mkdir(requestedPath, { recursive: true }); return requestedPath; }
+    const extensions = { mp4: ".mp4", webm: ".webm", mov: ".mov", gif: ".gif" };
+    const expected = extensions[format] || ".mp4";
+    if (path.extname(requestedPath).toLowerCase() !== expected) throw new Error(`Export path must end with ${expected}.`);
+    await fs.promises.mkdir(path.dirname(requestedPath), { recursive: true });
+    return requestedPath;
+  }
   if (format === "png-sequence") {
     const selection = await dialog.showOpenDialog({
       title: "Choose a folder for the PNG sequence",
@@ -328,6 +353,7 @@ function normalizeExportOptions(raw) {
     quality: allowedQuality.has(raw.quality) ? raw.quality : "high",
     transparent: alphaFormats.has(format) && Boolean(raw.transparent),
     gifLoops: raw.gifLoops === null ? null : Math.max(0, Number(raw.gifLoops) || 0),
+    outputPath: typeof raw.outputPath === "string" && raw.outputPath.trim() ? raw.outputPath.trim() : undefined,
   };
 }
 

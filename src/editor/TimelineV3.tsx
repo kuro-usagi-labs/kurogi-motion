@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerRef } from "@remotion/player";
 import { getActiveScene, getSceneLayers } from "../core/project";
-import type { AnimationAction, KurogiProject, StaggerOrder } from "../types";
+import type { AnimationAction, AudioClip, KurogiProject, StaggerOrder } from "../types";
+import { AudioClipToolbar, AudioTimelineTracks } from "./AudioTimeline";
 import { Icon } from "../ui/Icon";
 import { presetFor } from "./animationPresets";
 
@@ -18,6 +19,7 @@ interface TimelineProps {
   selectedLayerId: string;
   selectedLayerIds: string[];
   selectedActionIds: string[];
+  selectedAudioClipId: string;
   onSelectLayer: (layerId: string, additive?: boolean) => void;
   onSelectAction: (layerId: string, actionId: string, additive?: boolean) => void;
   onCommitActions: (patches: TimelineActionPatch[]) => void;
@@ -29,6 +31,10 @@ interface TimelineProps {
   onGroupActions: () => void;
   onUngroupActions: () => void;
   onSavePreset: () => void;
+  onSelectAudioClip: (clipId: string) => void;
+  onUpdateAudioClip: (clipId: string, patch: Partial<AudioClip>) => void;
+  onDeleteAudioClip: (clipId: string) => void;
+  onDuplicateAudioClip: (clipId: string) => void;
   canPaste: boolean;
 }
 
@@ -62,6 +68,7 @@ export function Timeline({
   selectedLayerId,
   selectedLayerIds,
   selectedActionIds,
+  selectedAudioClipId,
   onSelectLayer,
   onSelectAction,
   onCommitActions,
@@ -73,6 +80,10 @@ export function Timeline({
   onGroupActions,
   onUngroupActions,
   onSavePreset,
+  onSelectAudioClip,
+  onUpdateAudioClip,
+  onDeleteAudioClip,
+  onDuplicateAudioClip,
   canPaste,
 }: TimelineProps) {
   const scene = getActiveScene(project);
@@ -202,6 +213,7 @@ export function Timeline({
   const laneWidth = Math.max(760, scene.duration * 150 * zoom);
   const primaryActionId = selectedActionIds.at(-1) ?? "";
   const selectedAction = findAction(project, primaryActionId);
+  const selectedAudioClip = selectedAudioClipId ? project.audioClips[selectedAudioClipId] ?? null : null;
   const selectedGroups = new Set(selectedActionIds.map((id) => findAction(project, id)?.action.groupId).filter(Boolean));
 
   function togglePlay() {
@@ -210,13 +222,17 @@ export function Timeline({
     if (playing) player.pause(); else player.play();
   }
 
+  function seekToTime(time: number) {
+    const targetFrame = Math.min(Math.max(0, Math.round(time * scene.fps)), Math.max(0, Math.round(scene.duration * scene.fps) - 1));
+    playerRef.current?.seekTo(targetFrame);
+    setFrame(targetFrame);
+  }
+
   function seekFromPointer(event: React.PointerEvent<HTMLDivElement>) {
     if ((event.target as HTMLElement).closest(".timeline-action")) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const time = clamp(((event.clientX - rect.left) / Math.max(1, rect.width)) * scene.duration, 0, scene.duration);
-    const targetFrame = Math.min(Math.max(0, Math.round(time * scene.fps)), Math.max(0, Math.round(scene.duration * scene.fps) - 1));
-    playerRef.current?.seekTo(targetFrame);
-    setFrame(targetFrame);
+    seekToTime(time);
   }
 
   function beginActionGesture(event: React.PointerEvent<HTMLElement>, layerId: string, action: AnimationAction, mode: ActionGesture["mode"]) {
@@ -254,7 +270,7 @@ export function Timeline({
           <span>{formatTime(frame / scene.fps)} / {formatTime(scene.duration)}</span>
         </div>
         <div className="timeline-selection-actions animation-selection-expanded">
-          <AnimationWorkflowBar
+          {selectedAudioClip ? <AudioClipToolbar project={project} selectedClipId={selectedAudioClipId} onUpdate={onUpdateAudioClip} onDelete={onDeleteAudioClip} onDuplicate={onDuplicateAudioClip} /> : <AnimationWorkflowBar
             count={selectedActionIds.length}
             groupSelected={selectedGroups.size > 0}
             canPaste={canPaste && selectedLayerIds.length > 0}
@@ -270,8 +286,8 @@ export function Timeline({
             onGroup={onGroupActions}
             onUngroup={onUngroupActions}
             onSavePreset={onSavePreset}
-          />
-          {selectedAction ? <span className="action-group-name">{presetFor(selectedAction.action.type).label}{selectedAction.action.groupId ? ` · ${project.animationGroups[selectedAction.action.groupId]?.name ?? "Group"}` : ""}</span> : null}
+          />}
+          {!selectedAudioClip && selectedAction ? <span className="action-group-name">{presetFor(selectedAction.action.type).label}{selectedAction.action.groupId ? ` · ${project.animationGroups[selectedAction.action.groupId]?.name ?? "Group"}` : ""}</span> : null}
         </div>
         <div className="timeline-zoom"><button type="button" onClick={() => setZoom((value) => Math.max(.6, value - .2))}><Icon name="minus" size={14} /></button><span>{Math.round(zoom * 100)}%</span><button type="button" onClick={() => setZoom((value) => Math.min(3, value + .2))}><Icon name="plus" size={14} /></button></div>
       </div>
@@ -280,6 +296,7 @@ export function Timeline({
         <div className="timeline-lanes" style={{ width: LABEL_WIDTH + laneWidth }}>
           <div className="ruler clean-ruler" style={{ left: LABEL_WIDTH, width: laneWidth }}>{rulerMarks.map((mark) => <span key={mark} style={{ left: `${(mark / scene.duration) * 100}%` }}>{formatRuler(mark)}</span>)}</div>
           <div className="playhead" style={{ left: LABEL_WIDTH + (frame / Math.max(1, scene.duration * scene.fps)) * laneWidth }}><i /></div>
+          <AudioTimelineTracks project={project} laneWidth={laneWidth} labelWidth={LABEL_WIDTH} selectedClipId={selectedAudioClipId} onSelect={onSelectAudioClip} onUpdate={onUpdateAudioClip} onDelete={onDeleteAudioClip} onDuplicate={onDuplicateAudioClip} onSeek={seekToTime} />
           {[...layers].reverse().map((layer) => <div className="track" key={layer.id} style={{ gridTemplateColumns: `${LABEL_WIDTH}px ${laneWidth}px` }}>
             <button type="button" onClick={(event) => onSelectLayer(layer.id, event.shiftKey)} className={selectedLayerIds.includes(layer.id) ? "track-selected" : ""}><span className={`layer-thumb ${layer.type}`}><Icon name={layer.type === "text" ? "text" : layer.type === "shape" ? "shapes" : "assets"} size={13} /></span><span className="track-name">{layer.name}</span></button>
             <div className="track-lane clean-track-lane" onPointerDown={(event) => { if (!(event.target as HTMLElement).closest(".timeline-action")) { event.currentTarget.setPointerCapture(event.pointerId); seekFromPointer(event); } }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) seekFromPointer(event); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}>

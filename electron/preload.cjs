@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("kurogi", {
   openKuroMotionFile: () => ipcRenderer.invoke("open-kuromotion-file"),
   showItemInFolder: (targetPath) => ipcRenderer.invoke("show-item-in-folder", targetPath),
   getMcpInfo: () => ipcRenderer.invoke("mcp-info"),
+  readMcpMediaFile: (filePath) => ipcRenderer.invoke("read-mcp-media-file", filePath),
   onMcpRequest: (listener) => {
     const handler = (_event, request) => listener(request);
     ipcRenderer.on("mcp-request", handler);

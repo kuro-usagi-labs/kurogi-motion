@@ -1,4 +1,4 @@
-import type { KurogiProject, Layer, ProjectAsset, Scene } from "../types";
+import type { AudioClip, KurogiProject, Layer, ProjectAsset, Scene } from "../types";
 import { cloneProject, createId, normalizeProject } from "./project";
 
 export const KUROMOTION_FILE_VERSION = 1;
@@ -102,10 +102,12 @@ export function instantiateProject(
   const sceneIds = new Map<string, string>();
   const layerIds = new Map<string, string>();
   const assetIds = new Map<string, string>();
+  const audioClipIds = new Map<string, string>();
 
   for (const id of Object.keys(normalized.scenes)) sceneIds.set(id, createId("scene"));
   for (const id of Object.keys(normalized.layers)) layerIds.set(id, createId("layer"));
   for (const id of Object.keys(normalized.assets)) assetIds.set(id, createId("asset"));
+  for (const id of Object.keys(normalized.audioClips ?? {})) audioClipIds.set(id, createId("audio"));
 
   const scenes: Record<string, Scene> = {};
   for (const scene of Object.values(normalized.scenes)) {
@@ -114,6 +116,7 @@ export function instantiateProject(
       ...cloneProject(scene),
       id,
       layerIds: scene.layerIds.map((layerId) => layerIds.get(layerId)).filter(Boolean) as string[],
+      audioClipIds: (scene.audioClipIds ?? []).map((clipId) => audioClipIds.get(clipId)).filter(Boolean) as string[],
     };
   }
 
@@ -121,6 +124,17 @@ export function instantiateProject(
   for (const asset of Object.values(normalized.assets)) {
     const id = assetIds.get(asset.id)!;
     assets[id] = { ...cloneProject(asset), id, projectId };
+  }
+
+  const audioClips: Record<string, AudioClip> = {};
+  for (const clip of Object.values(normalized.audioClips ?? {})) {
+    const id = audioClipIds.get(clip.id)!;
+    audioClips[id] = {
+      ...cloneProject(clip),
+      id,
+      sceneId: sceneIds.get(clip.sceneId) ?? clip.sceneId,
+      assetId: assetIds.get(clip.assetId) ?? clip.assetId,
+    };
   }
 
   const layers: Record<string, Layer> = {};
@@ -157,6 +171,7 @@ export function instantiateProject(
     scenes,
     layers,
     assets,
+    audioClips,
   };
 }
 
@@ -190,6 +205,7 @@ function isRecognizedProjectDocument(value: unknown): boolean {
     if (!isFiniteNumber(sceneValue.width) || !isFiniteNumber(sceneValue.height)) return false;
     if (!isFiniteNumber(sceneValue.duration) || !isFiniteNumber(sceneValue.fps)) return false;
     if (!Array.isArray(sceneValue.layerIds) || sceneValue.layerIds.some((id) => typeof id !== "string")) return false;
+    if (sceneValue.audioClipIds !== undefined && (!Array.isArray(sceneValue.audioClipIds) || sceneValue.audioClipIds.some((id) => typeof id !== "string"))) return false;
   }
 
   for (const [layerId, layerValue] of Object.entries(value.layers)) {
@@ -227,6 +243,10 @@ function assertProjectIntegrity(project: KurogiProject): void {
 
   for (const layer of Object.values(project.layers)) {
     if (!project.scenes[layer.sceneId]) throw new Error(`Layer ${layer.name || layer.id} references a missing scene.`);
+  }
+  for (const clip of Object.values(project.audioClips ?? {})) {
+    if (!project.scenes[clip.sceneId]) throw new Error(`Audio clip ${clip.name || clip.id} references a missing scene.`);
+    if (project.assets[clip.assetId]?.type !== "audio") throw new Error(`Audio clip ${clip.name || clip.id} references a missing audio asset.`);
   }
 }
 

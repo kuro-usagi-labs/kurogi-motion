@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/apply-animation-workflow-v1.cjs
       - scripts/fix-animation-workflow-patch.cjs
+      - scripts/fix-animation-workflow-build.cjs
       - .github/workflows/apply-animation-workflow-v1.yml
   pull_request:
     branches:
@@ -14,6 +15,7 @@ on:
     paths:
       - scripts/apply-animation-workflow-v1.cjs
       - scripts/fix-animation-workflow-patch.cjs
+      - scripts/fix-animation-workflow-build.cjs
       - .github/workflows/apply-animation-workflow-v1.yml
 
 permissions:
@@ -38,6 +40,8 @@ jobs:
         run: |
           set -o pipefail
           node scripts/apply-animation-workflow-v1.cjs 2>&1 | tee patch.log
+      - name: Apply compiler fixes
+        run: node scripts/fix-animation-workflow-build.cjs
       - name: Commit generated integration
         run: |
           if git diff --quiet -- src/types.ts src/core/project.ts src/core/evaluator.ts src/editor/animationPresets.ts src/ui/Icon.tsx src/MotionComposition.tsx src/editor/MultiSceneCanvasStage.tsx src/editor/InspectorV2.tsx src/app/Editor.tsx src/core/sceneWorkspace.ts src/main.tsx package.json; then
@@ -47,7 +51,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/types.ts src/core/project.ts src/core/evaluator.ts src/editor/animationPresets.ts src/ui/Icon.tsx src/MotionComposition.tsx src/editor/MultiSceneCanvasStage.tsx src/editor/InspectorV2.tsx src/app/Editor.tsx src/core/sceneWorkspace.ts src/main.tsx package.json
-          git commit -m "feat: wire animation workflow v1"
+          git commit -m "fix: resolve animation workflow compiler issues"
           git push origin HEAD:feat/animation-workflow-v1
       - name: Upload patch diagnostics
         if: failure()

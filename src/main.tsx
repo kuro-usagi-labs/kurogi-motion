@@ -19,6 +19,7 @@ import "./uiCleanup.css";
 import "./layerContextMenu.css";
 import "./desktopFlow.css";
 import "./editorPro.css";
+import "./studioRelease.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Kurogi Motion could not find the application root.");

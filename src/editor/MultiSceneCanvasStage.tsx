@@ -441,8 +441,8 @@ export function MultiSceneCanvasStage({
       <div className="multi-scene-toolbar is-compact">
         <div className="scene-toolbar-primary">
           <span className="scene-sequence-count">Scene {scenes.findIndex((scene) => scene.id === activeScene.id) + 1}/{scenes.length}</span>
-          <button type="button" disabled={scenes.findIndex((scene) => scene.id === activeScene.id) <= 0} onClick={() => onReorderScene(activeScene.id, scenes.findIndex((scene) => scene.id === activeScene.id) - 1)} title="Move scene earlier"><Icon name="previous" size={13} /></button>
-          <button type="button" disabled={scenes.findIndex((scene) => scene.id === activeScene.id) >= scenes.length - 1} onClick={() => onReorderScene(activeScene.id, scenes.findIndex((scene) => scene.id === activeScene.id) + 1)} title="Move scene later"><Icon name="next" size={13} /></button>
+          <button type="button" disabled={scenes.findIndex((scene) => scene.id === activeScene.id) <= 0} onClick={() => onReorderScene(activeScene.id, scenes.findIndex((scene) => scene.id === activeScene.id) - 1)} title="Move scene earlier" aria-label="Move scene earlier"><Icon name="previous" size={13} /></button>
+          <button type="button" disabled={scenes.findIndex((scene) => scene.id === activeScene.id) >= scenes.length - 1} onClick={() => onReorderScene(activeScene.id, scenes.findIndex((scene) => scene.id === activeScene.id) + 1)} title="Move scene later" aria-label="Move scene later"><Icon name="next" size={13} /></button>
           <input
             className="scene-name-input"
             value={settingsDraft.name}
@@ -460,28 +460,31 @@ export function MultiSceneCanvasStage({
             </select>
             {(activeScene.transition?.type ?? "cut") !== "cut" ? <input type="number" min="0.05" max="10" step="0.05" value={activeScene.transition?.duration ?? .4} onChange={(event) => onSetSceneTransition(activeScene.id, { type: activeScene.transition?.type ?? "fade", duration: Math.max(.05, Number(event.currentTarget.value) || .4) })} aria-label="Transition duration" /> : null}
           </label>
+          <button type="button" className="scene-settings-trigger" onClick={() => setSettingsOpen((open) => !open)} aria-expanded={settingsOpen} aria-controls="scene-settings-popover">Scene settings</button>
         </div>
 
-        <div className="scene-toolbar-secondary">
-          {selectedLayerId && scenes.length > 1 ? (
-            <div className="copy-scene-control">
-              <span>Copy selected to</span>
-              <select value={copyTarget} onChange={(event) => setCopyTarget(event.target.value)}>
-                {scenes.filter((scene) => scene.id !== activeScene.id).map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}
-              </select>
-              <button type="button" disabled={!copyTarget} onClick={() => copyTarget && onCopyLayerToScene(selectedLayerId, copyTarget)}><Icon name="copy" size={14} />Copy</button>
-            </div>
-          ) : null}
-          <button type="button" onClick={fitAllScenes} title="Fit all scenes"><Icon name="frame" size={15} />Fit all</button>
-          <button type="button" onClick={() => focusScene(activeScene.id)} title="Focus active scene">Focus</button>
-          <button type="button" onClick={() => setView(clamp(viewZoom - 10, 5, 250), panRef.current)} title="Zoom out"><Icon name="minus" size={14} /></button>
-          <span className="workspace-zoom-label">{Math.round(viewZoom)}%</span>
-          <button type="button" onClick={() => setView(clamp(viewZoom + 10, 5, 250), panRef.current)} title="Zoom in"><Icon name="plus" size={14} /></button>
-        </div>
+        {selectedLayerId && scenes.length > 1 ? (
+          <div className="copy-scene-control">
+            <span>Copy to</span>
+            <select value={copyTarget} onChange={(event) => setCopyTarget(event.target.value)} aria-label="Copy selected layer to scene">
+              {scenes.filter((scene) => scene.id !== activeScene.id).map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}
+            </select>
+            <button type="button" disabled={!copyTarget} onClick={() => copyTarget && onCopyLayerToScene(selectedLayerId, copyTarget)}><Icon name="copy" size={14} />Copy</button>
+          </div>
+        ) : <span className="scene-toolbar-status">Canvas workspace</span>}
+      </div>
+
+      <div className="canvas-view-controls" aria-label="Canvas view controls">
+        <button type="button" onClick={fitAllScenes} title="Fit all scenes"><Icon name="frame" size={15} /><span>Fit</span></button>
+        <button type="button" onClick={() => focusScene(activeScene.id)} title="Focus active scene">Focus</button>
+        <i />
+        <button type="button" onClick={() => setView(clamp(viewZoom - 10, 5, 250), panRef.current)} title="Zoom out" aria-label="Zoom out"><Icon name="minus" size={14} /></button>
+        <span className="workspace-zoom-label">{Math.round(viewZoom)}%</span>
+        <button type="button" onClick={() => setView(clamp(viewZoom + 10, 5, 250), panRef.current)} title="Zoom in" aria-label="Zoom in"><Icon name="plus" size={14} /></button>
       </div>
 
       {settingsOpen ? (
-        <form className="scene-settings-popover" onSubmit={saveSceneSettings} onPointerDown={(event) => event.stopPropagation()}>
+        <form id="scene-settings-popover" className="scene-settings-popover" onSubmit={saveSceneSettings} onPointerDown={(event) => event.stopPropagation()}>
           <strong>Scene settings</strong>
           <label>Name<input value={settingsDraft.name} onChange={(event) => setSettingsDraft((current) => ({ ...current, name: event.target.value }))} /></label>
           <div className="scene-settings-grid">

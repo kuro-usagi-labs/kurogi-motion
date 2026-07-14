@@ -16,6 +16,7 @@ import { defaultMotionPath } from "./MotionPathOverlay";
 import { EffectsPanel } from "./EffectsPanel";
 import { presetFor } from "./animationPresets";
 import { estimateAutoFitFontSize } from "../core/projectValidation";
+import type { SceneUpdatePatch } from "../core/sceneWorkspace";
 
 export type InspectorTab = "Design" | "Animation" | "Export";
 
@@ -39,6 +40,7 @@ interface InspectorProps {
   onSavePreset: () => void;
   onApplyCustomPreset: (presetId: string) => void;
   onDeleteCustomPreset: (presetId: string) => void;
+  onUpdateScene: (sceneId: string, patch: SceneUpdatePatch) => void;
   exportOptions: ExportOptions;
   onExportOptionsChange: (options: ExportOptions) => void;
   exporting: boolean;
@@ -49,20 +51,20 @@ interface InspectorProps {
 export function Inspector(props: InspectorProps) {
   return (
     <aside className="inspector inspector-v2">
-      <div className="inspector-tabs">
+      <div className="inspector-tabs" role="tablist" aria-label="Inspector panels">
         {(["Design", "Animation"] as const).map((candidate) => (
-          <button type="button" key={candidate} className={props.tab === candidate ? "active" : ""} onClick={() => props.onTabChange(candidate)}>{candidate}</button>
+          <button type="button" role="tab" aria-selected={props.tab === candidate} key={candidate} className={props.tab === candidate ? "active" : ""} onClick={() => props.onTabChange(candidate)}>{candidate}</button>
         ))}
       </div>
       {props.tab === "Design" ? (
-        <DesignInspector
-          layer={props.selectedLayer}
-          onBegin={props.onBeginPropertyEdit}
-          onFinish={props.onFinishPropertyEdit}
-          onCancel={props.onCancelPropertyEdit}
-          onPreview={props.onPreviewLayer}
-          onCommit={props.onCommitLayer}
-        />
+        props.selectedLayer ? <DesignInspector
+            layer={props.selectedLayer}
+            onBegin={props.onBeginPropertyEdit}
+            onFinish={props.onFinishPropertyEdit}
+            onCancel={props.onCancelPropertyEdit}
+            onPreview={props.onPreviewLayer}
+            onCommit={props.onCommitLayer}
+          /> : <SceneInspector project={props.project} onUpdate={props.onUpdateScene} />
       ) : null}
       {props.tab === "Animation" ? (
         <AnimationInspector
@@ -185,6 +187,47 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
       ) : null}
 
       <EffectsPanel layer={layer} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onPreview={preview} onCommit={commit} />
+    </div>
+  );
+}
+
+function SceneInspector({ project, onUpdate }: { project: KurogiProject; onUpdate: (sceneId: string, patch: SceneUpdatePatch) => void }) {
+  const scene = getActiveScene(project);
+  const transparent = scene.background.type === "transparent";
+  const backgroundColor = scene.background.type === "solid" ? scene.background.color : "#11141b";
+
+  return (
+    <div className="inspector-body inspector-scroll compact-inspector-body scene-inspector">
+      <InspectorHeader eyebrow="Scene" title={scene.name} />
+      <div className="scene-inspector-preview" style={{ background: transparent ? undefined : backgroundColor }}>
+        {transparent ? <span className="scene-transparency-grid" /> : null}
+        <strong>{scene.width} × {scene.height}</strong>
+        <small>{scene.duration.toFixed(2)} sec · {scene.fps} fps</small>
+      </div>
+
+      <section className="property-section compact-property-section">
+        <div className="section-label">Canvas</div>
+        <div className="property-grid two">
+          <CommitNumberField label="Width" value={scene.width} min={64} max={7680} step={1} onCommit={(width) => onUpdate(scene.id, { width })} />
+          <CommitNumberField label="Height" value={scene.height} min={64} max={7680} step={1} onCommit={(height) => onUpdate(scene.id, { height })} />
+        </div>
+      </section>
+
+      <section className="property-section compact-property-section">
+        <div className="section-label">Playback</div>
+        <div className="property-grid two">
+          <CommitNumberField label="Duration" value={scene.duration} min={.1} max={3600} step={.1} suffix="s" onCommit={(duration) => onUpdate(scene.id, { duration })} />
+          <label>Frame rate<select value={scene.fps} onChange={(event) => onUpdate(scene.id, { fps: Number(event.currentTarget.value) })}><option value={24}>24 FPS</option><option value={30}>30 FPS</option><option value={60}>60 FPS</option></select></label>
+        </div>
+      </section>
+
+      <section className="property-section compact-property-section">
+        <div className="section-label">Background</div>
+        <label className="toggle-row"><span>Transparent</span><ToggleSwitch checked={transparent} onChange={(checked) => onUpdate(scene.id, { background: checked ? { type: "transparent" } : { type: "solid", color: backgroundColor } })} /></label>
+        {!transparent ? <label className="scene-background-color">Canvas color<input type="color" value={backgroundColor} onChange={(event) => onUpdate(scene.id, { background: { type: "solid", color: event.currentTarget.value } })} /></label> : null}
+      </section>
+
+      <p className="inspector-guidance">Scene settings apply to every layer, preview, and export in this scene.</p>
     </div>
   );
 }
@@ -341,6 +384,32 @@ interface NumberFieldProps {
   max?: number;
   step?: number;
   suffix?: string;
+}
+
+function CommitNumberField({ label, value, min, max, step = 1, suffix, onCommit }: {
+  label: string;
+  value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  suffix?: string;
+  onCommit: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commit = () => {
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+    const next = Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min ?? Number.NEGATIVE_INFINITY, parsed));
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
+  };
+
+  return <label className="number-field">{label}<span><input type="number" value={draft} min={min} max={max} step={step} onChange={(event) => setDraft(event.currentTarget.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { setDraft(String(value)); event.currentTarget.blur(); } }} />{suffix ? <i>{suffix}</i> : null}</span></label>;
 }
 
 function NumberField({ label, value, onChange, onBegin, onFinish, onCancel, min, max, step = .1, suffix }: NumberFieldProps) {

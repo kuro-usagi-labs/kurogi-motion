@@ -432,10 +432,10 @@ export function Timeline({
       ><i /></div>
       <div className="timeline-head">
         <div className="timeline-transport">
-          <button type="button" onClick={() => playerRef.current?.seekTo(0)} title="Restart"><Icon name="restart" size={15} /></button>
-          <button type="button" onClick={togglePlay} className="play-btn" title="Play or pause"><Icon name={playing ? "pause" : "play"} size={15} /></button>
-          <button type="button" onClick={() => playerRef.current?.seekTo(Math.max(0, frame - 1))} title="Previous frame"><Icon name="previous" size={14} /></button>
-          <button type="button" onClick={() => playerRef.current?.seekTo(Math.min(scene.duration * scene.fps - 1, frame + 1))} title="Next frame"><Icon name="next" size={14} /></button>
+          <button type="button" onClick={() => playerRef.current?.seekTo(0)} title="Restart" aria-label="Restart playback"><Icon name="restart" size={15} /></button>
+          <button type="button" onClick={togglePlay} className="play-btn" title="Play or pause" aria-label={playing ? "Pause playback" : "Play timeline"}><Icon name={playing ? "pause" : "play"} size={15} /></button>
+          <button type="button" onClick={() => playerRef.current?.seekTo(Math.max(0, frame - 1))} title="Previous frame" aria-label="Previous frame"><Icon name="previous" size={14} /></button>
+          <button type="button" onClick={() => playerRef.current?.seekTo(Math.min(scene.duration * scene.fps - 1, frame + 1))} title="Next frame" aria-label="Next frame"><Icon name="next" size={14} /></button>
           <span>{formatTime(frame / scene.fps)} / {formatTime(scene.duration)}</span>
           <div className="timeline-edit-tools" aria-label="Timeline edit tools">
             <button type="button" disabled={!canEditTimeline} onClick={onTrimStart} title="Trim start to playhead (Q)"><Icon name="trimStart" size={14} /><kbd>Q</kbd></button>
@@ -463,7 +463,7 @@ export function Timeline({
           />}
           {!selectedAudioClip && selectedAction ? <span className="action-group-name">{presetFor(selectedAction.action.type).label}{selectedAction.action.groupId ? ` · ${project.animationGroups[selectedAction.action.groupId]?.name ?? "Group"}` : ""}</span> : null}
         </div>
-        <div className="timeline-zoom" title="Ctrl/Cmd + scroll to zoom around the pointer"><button type="button" onClick={() => setZoom((value) => Math.max(.25, value / 1.2))}><Icon name="minus" size={14} /></button><span>{Math.round(zoom * 100)}%</span><button type="button" onClick={() => setZoom((value) => Math.min(8, value * 1.2))}><Icon name="plus" size={14} /></button></div>
+        <div className="timeline-zoom" title="Ctrl/Cmd + scroll to zoom around the pointer"><button type="button" aria-label="Zoom timeline out" onClick={() => setZoom((value) => Math.max(.25, value / 1.2))}><Icon name="minus" size={14} /></button><span>{Math.round(zoom * 100)}%</span><button type="button" aria-label="Zoom timeline in" onClick={() => setZoom((value) => Math.min(8, value * 1.2))}><Icon name="plus" size={14} /></button></div>
       </div>
       {editNotice ? <div className="timeline-edit-notice"><Icon name="check" size={13} />{editNotice}</div> : null}
 
@@ -523,18 +523,23 @@ function AnimationWorkflowBar({ count, groupSelected, canPaste, staggerStep, sta
   onUngroup: () => void;
   onSavePreset: () => void;
 }) {
+  if (!count) {
+    return <div className="timeline-selection-empty">
+      <span>Drag across clips to edit animation blocks together</span>
+      {canPaste ? <button type="button" onClick={onPaste}>Paste animation</button> : null}
+    </div>;
+  }
+
   return <div className="animation-workflow-bar">
-    <span>{count ? `${count} block${count === 1 ? "" : "s"}` : "Select animation blocks"}</span>
-    <button type="button" disabled={!count} onClick={onCopy}>Copy</button>
-    <button type="button" disabled={!canPaste} onClick={onPaste}>Paste</button>
-    <button type="button" disabled={!count} onClick={onDuplicate}>Duplicate</button>
-    <button type="button" disabled={count < 2} onClick={onGroup}>Group</button>
-    <button type="button" disabled={!groupSelected} onClick={onUngroup}>Ungroup</button>
-    <label>Stagger <input type="number" min="0" max="5" step=".01" value={staggerStep} onChange={(event) => onStaggerStep(Math.max(0, Number(event.currentTarget.value)))} /></label>
-    <select value={staggerOrder} onChange={(event) => onStaggerOrder(event.currentTarget.value as StaggerOrder)}><option value="normal">Forward</option><option value="reverse">Reverse</option><option value="center">Center</option><option value="edges">Edges</option><option value="random">Random</option></select>
-    <button type="button" disabled={count < 2} onClick={onStagger}>Apply</button>
-    <button type="button" disabled={!count} onClick={onSavePreset}>Save preset</button>
-    <button type="button" disabled={!count} className="danger-text" onClick={onDelete}>Delete</button>
+    <span><strong>{count}</strong> block{count === 1 ? "" : "s"}</span>
+    <button type="button" onClick={onCopy}>Copy</button>
+    {canPaste ? <button type="button" onClick={onPaste}>Paste</button> : null}
+    <button type="button" onClick={onDuplicate}>Duplicate</button>
+    {count >= 2 ? <button type="button" onClick={onGroup}>Group</button> : null}
+    {groupSelected ? <button type="button" onClick={onUngroup}>Ungroup</button> : null}
+    {count >= 2 ? <div className="timeline-stagger-tools"><label>Stagger <input type="number" min="0" max="5" step=".01" value={staggerStep} onChange={(event) => onStaggerStep(Math.max(0, Number(event.currentTarget.value)))} /></label><select aria-label="Stagger order" value={staggerOrder} onChange={(event) => onStaggerOrder(event.currentTarget.value as StaggerOrder)}><option value="normal">Forward</option><option value="reverse">Reverse</option><option value="center">Center</option><option value="edges">Edges</option><option value="random">Random</option></select><button type="button" onClick={onStagger}>Apply</button></div> : null}
+    <button type="button" onClick={onSavePreset}>Save preset</button>
+    <button type="button" className="danger-text" onClick={onDelete}>Delete</button>
   </div>;
 }
 

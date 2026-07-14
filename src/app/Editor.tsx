@@ -110,6 +110,7 @@ interface EditorProps {
 }
 
 type SidebarTab = "layers" | "assets" | "text" | "shapes" | "templates";
+type EditorInfoDialogKind = "shortcuts" | "about";
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; icon: IconName; label: string }> = [
   { id: "layers", icon: "layers", label: "Layers" },
@@ -146,6 +147,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [infoDialog, setInfoDialog] = useState<EditorInfoDialogKind | null>(null);
   const [layerContextMenu, setLayerContextMenu] = useState<LayerContextMenuState | null>(null);
   const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
@@ -1061,7 +1063,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   }
 
   function showKeyboardShortcuts() {
-    window.alert("Timeline\nQ: Trim start to playhead\nW: Trim end to playhead\nCtrl+B: Cut at playhead\nCtrl+wheel: Zoom timeline or canvas\n\nPlayback & edit\nSpace: Play/Pause\nArrow keys: Previous/next frame\nShift-drag: Add to marquee selection\nCtrl+S: Save\nCtrl+Z: Undo\nCtrl+Shift+Z: Redo\nCtrl+D: Duplicate\nCtrl+G: Group\nCtrl+Shift+G: Ungroup\nDelete: Remove selection");
+    setInfoDialog("shortcuts");
   }
 
   function togglePlay() {
@@ -1167,6 +1169,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     <main className="app editor-app">
       <CommandPalette open={commandPaletteOpen} actions={commandPaletteActions} onClose={() => setCommandPaletteOpen(false)} />
       <McpIntegrationDialog open={mcpDialogOpen} onClose={() => setMcpDialogOpen(false)} />
+      <EditorInfoDialog kind={infoDialog} onClose={() => setInfoDialog(null)} />
       <LayerContextMenu
         project={project}
         state={layerContextMenu}
@@ -1262,7 +1265,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           onSaveAnimationPreset={saveSelectedAnimationPreset}
           onShowShortcuts={showKeyboardShortcuts}
           onShowMcpIntegration={() => setMcpDialogOpen(true)}
-          onShowAbout={() => window.alert("Kurogi Motion\nLocal-first motion design editor powered by Remotion.")}
+          onShowAbout={() => setInfoDialog("about")}
         />
         <div className="project-name">
           <strong>{project.name}</strong>
@@ -1276,11 +1279,11 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
 
       <section className="editor-context-ribbon" aria-label="Editor context">
         <div className="context-breadcrumbs">
-          <span>{project.name}</span><i>/</i><strong>{scene.name}</strong>
-          {selectedLayer ? <><i>/</i><b>{selectedLayer.name}</b></> : null}
+          <span className="context-kicker">Scene</span><strong>{scene.name}</strong>
+          {selectedLayer ? <><i>›</i><b>{selectedLayer.name}</b></> : <><i>›</i><span>Canvas</span></>}
         </div>
         <div className="context-readout">
-          <span>{scene.width} × {scene.height}</span><span>{scene.fps} fps</span><span>{scene.duration.toFixed(2)}s</span>
+          <span>{scene.width} × {scene.height}</span><span>{scene.fps} fps</span><span>{scene.duration.toFixed(2)} sec</span>
           {selectedLayers.length > 1 ? <strong>{selectedLayers.length} layers selected</strong> : selectedLayer ? <strong>{(selectedLayer.startTime ?? 0).toFixed(2)}s — {((selectedLayer.startTime ?? 0) + (selectedLayer.duration ?? scene.duration)).toFixed(2)}s</strong> : <strong>No selection</strong>}
         </div>
         <div className="context-actions">
@@ -1311,13 +1314,21 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
                 <button type="button" onClick={() => addShape("rectangle")}><Icon name="shapes" size={13} />Shape</button>
                 <button type="button" onClick={() => assetInputRef.current?.click()}><Icon name="upload" size={13} />Media</button>
               </div>
-              <div className="layer-list">
+              <div className="layer-list" role="listbox" aria-label="Scene layers" aria-multiselectable="true">
                 {[...layers].reverse().map((layer) => (
                   <div
                     key={layer.id}
                     draggable
+                    tabIndex={0}
+                    role="option"
+                    aria-selected={selectedLayerIds.includes(layer.id)}
                     className={`layer-row ${selectedLayerIds.includes(layer.id) ? "selected" : ""} ${layer.maskSource ? "is-mask-source" : ""} ${layer.mask?.clipping ? "is-clipped" : ""} ${clippingSourceIds.has(layer.id) ? "is-clipping-source" : ""} ${draggedLayerId === layer.id ? "is-dragging" : ""} ${dragOverLayerId === layer.id ? "drag-over" : ""}`}
                     onClick={(event) => selectLayer(layer.id, event.shiftKey)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                      event.preventDefault();
+                      selectLayer(layer.id, event.shiftKey);
+                    }}
                     onContextMenu={(event) => { event.preventDefault(); openLayerContextMenu(layer.id, event.clientX, event.clientY); }}
                     onDragStart={(event) => { setDraggedLayerId(layer.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", layer.id); }}
                     onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverLayerId(layer.id); }}
@@ -1356,8 +1367,8 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
                         }
                       }}
                     />
-                    <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, visible: !candidate.visible })); }} title={layer.visible ? "Hide" : "Show"}>{layer.visible ? <Icon name="eye" size={14} /> : <Icon name="eyeOff" size={14} />}</button>
-                    <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, locked: !candidate.locked })); }} title={layer.locked ? "Unlock" : "Lock"}>{layer.locked ? <Icon name="lock" size={13} /> : <Icon name="unlock" size={13} />}</button>
+                    <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, visible: !candidate.visible })); }} title={layer.visible ? "Hide" : "Show"} aria-label={`${layer.visible ? "Hide" : "Show"} ${layer.name}`}>{layer.visible ? <Icon name="eye" size={14} /> : <Icon name="eyeOff" size={14} />}</button>
+                    <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, locked: !candidate.locked })); }} title={layer.locked ? "Unlock" : "Lock"} aria-label={`${layer.locked ? "Unlock" : "Lock"} ${layer.name}`}>{layer.locked ? <Icon name="lock" size={13} /> : <Icon name="unlock" size={13} />}</button>
                   </div>
                 ))}
               </div>
@@ -1474,6 +1485,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           onSavePreset={saveSelectedAnimationPreset}
           onApplyCustomPreset={applyAnimationPreset}
           onDeleteCustomPreset={removeAnimationPreset}
+          onUpdateScene={updateWorkspaceSceneById}
           exportOptions={exportOptions}
           onExportOptionsChange={setExportOptions}
           exporting={exporting}
@@ -1520,6 +1532,47 @@ function findActionOwner(project: KurogiProject, actionId: string) {
   return Object.values(project.layers).find((layer) =>
     layer.animationActions.some((action) => action.id === actionId),
   );
+}
+
+function EditorInfoDialog({ kind, onClose }: { kind: EditorInfoDialogKind | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!kind) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [kind, onClose]);
+
+  if (!kind) return null;
+  const shortcuts = [
+    ["Q / W", "Trim start / end to playhead"],
+    ["Ctrl B", "Cut selection at playhead"],
+    ["Ctrl + wheel", "Zoom timeline or canvas"],
+    ["Space", "Play or pause"],
+    ["Arrow keys", "Previous or next frame"],
+    ["Shift + drag", "Add to marquee selection"],
+    ["Ctrl S", "Save project"],
+    ["Ctrl Z / Ctrl Shift Z", "Undo / redo"],
+    ["Ctrl D", "Duplicate selection"],
+    ["Ctrl G / Ctrl Shift G", "Group / ungroup"],
+    ["Delete", "Remove selection"],
+  ];
+
+  return <div className="editor-info-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="editor-info-dialog" role="dialog" aria-modal="true" aria-labelledby="editor-info-title">
+      <header>
+        <div><span>{kind === "shortcuts" ? "Workflow" : "Kurogi Motion"}</span><h2 id="editor-info-title">{kind === "shortcuts" ? "Keyboard shortcuts" : "Motion design, without the handoff"}</h2></div>
+        <button type="button" onClick={onClose} aria-label="Close dialog">×</button>
+      </header>
+      {kind === "shortcuts" ? <div className="shortcut-reference">
+        {shortcuts.map(([keys, description]) => <div key={keys}><kbd>{keys}</kbd><span>{description}</span></div>)}
+      </div> : <div className="about-kurogi">
+        <div className="about-kurogi-mark">K</div>
+        <p>Kurogi Motion is a local-first desktop studio for designing, animating, and exporting production-ready motion graphics.</p>
+        <dl><div><dt>Version</dt><dd>0.2.2</dd></div><div><dt>Engine</dt><dd>Remotion</dd></div><div><dt>Automation</dt><dd>Autonomous MCP</dd></div></dl>
+      </div>}
+      <footer><span>Press Esc to close</span><button type="button" onClick={onClose}>Done</button></footer>
+    </section>
+  </div>;
 }
 
 function isEditableTarget(target: EventTarget | null) {

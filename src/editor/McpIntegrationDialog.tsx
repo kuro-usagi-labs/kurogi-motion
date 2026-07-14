@@ -58,8 +58,8 @@ export function McpIntegrationDialog({ open, onClose }: McpIntegrationDialogProp
       <section className="mcp-dialog" role="dialog" aria-modal="true" aria-labelledby="mcp-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
         <header>
           <div>
-            <span className="mcp-dialog-eyebrow">MODEL CONTEXT PROTOCOL</span>
-            <h2 id="mcp-dialog-title">Connect AI tools to Kurogi Motion</h2>
+            <span className="mcp-dialog-eyebrow">MODEL CONTEXT PROTOCOL V2</span>
+            <h2 id="mcp-dialog-title">Let AI agents build videos in Kurogi Motion</h2>
           </div>
           <button type="button" className="mcp-dialog-close" onClick={onClose} aria-label="Close MCP integration"><Icon name="close" size={16} /></button>
         </header>
@@ -69,13 +69,13 @@ export function McpIntegrationDialog({ open, onClose }: McpIntegrationDialogProp
             <span className="mcp-status-dot" />
             <div>
               <strong>{info?.bridgeRunning ? "Local bridge is running" : "Checking local bridge…"}</strong>
-              <small>The bridge only listens on 127.0.0.1 and uses a random token.</small>
+              <small>The bridge only listens on 127.0.0.1 and uses a new random token each launch.</small>
             </div>
           </div>
 
           <div className="mcp-dialog-copy">
             <h3>MCP client configuration</h3>
-            <p>Add this server entry to an MCP-compatible client. Keep Kurogi Motion open while using project tools.</p>
+            <p>Add this server entry to Claude Code, Codex, or another MCP-compatible client. Keep Kurogi Motion open with a project loaded.</p>
             <pre>{configuration || "Loading configuration…"}</pre>
             <button type="button" className="mcp-copy-button" disabled={!configuration} onClick={() => void copyConfiguration()}>
               <Icon name={copied ? "check" : "copy"} size={15} />{copied ? "Copied" : "Copy configuration"}
@@ -84,13 +84,20 @@ export function McpIntegrationDialog({ open, onClose }: McpIntegrationDialogProp
 
           <div className="mcp-permission-note">
             <Icon name="lock" size={16} />
-            <span><strong>Project edits require approval.</strong> Create, update, switch-scene, and delete tools display a confirmation inside Kurogi Motion. Export always opens the native destination dialog.</span>
+            <span><strong>Agent actions remain controlled.</strong> Project edits and local media imports require visible approval. A direct export path also requires approval; otherwise export opens the normal destination dialog.</span>
           </div>
 
           <div className="mcp-tools-summary">
-            <h3>Available in V1</h3>
+            <h3>Available in V2</h3>
             <div>
-              <span>Inspect projects</span><span>Read scenes and layers</span><span>Create scenes</span><span>Create text and shapes</span><span>Update layers</span><span>Save and export</span>
+              <span>Read full project context</span>
+              <span>Scene CRUD and variations</span>
+              <span>Text, shapes, and assets</span>
+              <span>Action-based animation</span>
+              <span>Import audio and images</span>
+              <span>Trim and mix audio</span>
+              <span>Transactional edit plans</span>
+              <span>Save and approved export</span>
             </div>
           </div>
         </div>

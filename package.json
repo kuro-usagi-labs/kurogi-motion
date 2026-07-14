@@ -18,7 +18,8 @@
     "audit:recovery": "node scripts/audit-recovery.mjs",
     "audit:multiscene": "node scripts/audit-multiscene.mjs",
     "audit:design-tools": "node scripts/audit-design-tools.mjs",
-    "audit": "npm run audit:templates && npm run audit:effects && npm run audit:loops && npm run audit:text-canvas && npm run audit:shapes && npm run audit:export && npm run audit:foundation-v2 && npm run audit:recovery && npm run audit:multiscene && npm run audit:design-tools",
+    "audit:animation-workflow": "node scripts/audit-animation-workflow.mjs",
+    "audit": "npm run audit:templates && npm run audit:effects && npm run audit:loops && npm run audit:text-canvas && npm run audit:shapes && npm run audit:export && npm run audit:foundation-v2 && npm run audit:recovery && npm run audit:multiscene && npm run audit:design-tools && npm run audit:animation-workflow",
     "build": "npm run typecheck && vite build",
     "desktop": "npm run build && electron .",
     "package": "npm run build && electron-builder --win --x64"

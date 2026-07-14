@@ -237,6 +237,7 @@ function cloneLayerForScene(layer: Layer, sceneId: string, layerMap: Map<string,
     ...action,
     id: createId("action"),
     layerId: id,
+    groupId: undefined,
   }));
   if (copy.type === "group") {
     copy.childIds = copy.childIds.map((childId) => layerMap.get(childId)).filter(Boolean) as string[];

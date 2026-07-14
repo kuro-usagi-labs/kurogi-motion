@@ -76,6 +76,8 @@ export function createProject(options: CreateProjectOptions): KurogiProject {
     scenes: { [sceneId]: scene },
     layers: {},
     assets: {},
+    animationGroups: {},
+    animationPresets: {},
     settings: {
       autoSave: true,
       snapEnabled: true,
@@ -393,6 +395,9 @@ export function createAnimationAction(
     duration: Math.max(0.05, overrides.duration ?? 0.6),
     delay: Math.max(0, overrides.delay ?? 0),
     easing: overrides.easing ?? (category === "loop" ? "easeInOut" : "easeOut"),
+    easingCurve: overrides.easingCurve,
+    groupId: overrides.groupId,
+    motionPath: overrides.motionPath,
     parameters: { ...defaultParameters(type), ...(overrides.parameters ?? {}) },
     stagger: overrides.stagger,
     repeat: overrides.repeat ?? (category === "loop" ? { count: "infinite", delay: 0 } : undefined),
@@ -515,6 +520,8 @@ function legacyMotionsToActions(layerId: string, layer: LegacyLayer): AnimationA
 function sanitizeProject(project: KurogiProject): KurogiProject {
   const next = cloneProject(project);
   next.version = PROJECT_VERSION;
+  next.animationGroups = next.animationGroups ?? {};
+  next.animationPresets = next.animationPresets ?? {};
   next.settings = {
     autoSave: next.settings?.autoSave !== false,
     snapEnabled: next.settings?.snapEnabled !== false,
@@ -541,6 +548,10 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
       startTime: Math.max(0, action.startTime),
       duration: Math.max(0.05, action.duration),
       delay: Math.max(0, action.delay),
+      easing: normalizeEasing(action.easing),
+      easingCurve: normalizeBezier(action.easingCurve),
+      groupId: action.groupId && next.animationGroups[action.groupId] ? action.groupId : undefined,
+      motionPath: normalizeMotionPath(action.motionPath),
       parameters: action.parameters ?? {},
     }));
     if (layer.type === "text") {
@@ -597,6 +608,8 @@ function isLegacyProject(value: unknown): value is LegacyProject {
 }
 
 function defaultParameters(type: AnimationType): Record<string, number | string | boolean> {
+  if (type === "counter") return { from: 0, to: 100, decimals: 0, prefix: "", suffix: "" };
+  if (type === "motionPath") return {};
   if (type === "moveIn" || type === "moveOut") return { direction: "up", distance: 90 };
   if (type === "scaleIn") return { scale: 0.7 };
   if (type === "scaleOut") return { scale: 0.7 };
@@ -626,6 +639,22 @@ type SizeLike = { width: number; height: number };
 
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function normalizeEasing(value: AnimationAction["easing"]): AnimationAction["easing"] {
+  const supported = new Set(["linear","easeIn","easeOut","easeInOut","backIn","backOut","overshoot","bounce","elastic","custom"]);
+  return value && supported.has(value) ? value : "easeOut";
+}
+
+function normalizeBezier(value: AnimationAction["easingCurve"]): AnimationAction["easingCurve"] {
+  if (!value) return undefined;
+  return { x1: clampNumber(value.x1, 0, 1), y1: clampNumber(value.y1, -4, 4), x2: clampNumber(value.x2, 0, 1), y2: clampNumber(value.y2, -4, 4) };
+}
+
+function normalizeMotionPath(value: AnimationAction["motionPath"]): AnimationAction["motionPath"] {
+  if (!value) return undefined;
+  const point = (candidate, fallback) => ({ x: Number.isFinite(candidate?.x) ? candidate.x : fallback.x, y: Number.isFinite(candidate?.y) ? candidate.y : fallback.y });
+  return { enabled: value.enabled !== false, start: point(value.start, { x: 0, y: 0 }), control1: point(value.control1, { x: 100, y: -120 }), control2: point(value.control2, { x: 220, y: 120 }), end: point(value.end, { x: 320, y: 0 }), orientToPath: Boolean(value.orientToPath) };
 }
 
 function normalizeBlendMode(value: Layer["blendMode"]): NonNullable<Layer["blendMode"]> {

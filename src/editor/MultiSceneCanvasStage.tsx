@@ -7,7 +7,7 @@ import {
   type SceneUpdatePatch,
   type SceneWorkspacePosition,
 } from "../core/sceneWorkspace";
-import type { KurogiProject, Layer } from "../types";
+import type { KurogiProject, Layer, MotionPathDefinition } from "../types";
 import { Icon } from "../ui/Icon";
 import { normalizeWheelDelta, panForZoomAnchor, zoomFromWheel } from "./canvasMath";
 
@@ -16,12 +16,14 @@ interface MultiSceneCanvasStageProps {
   playerRef: React.RefObject<PlayerRef>;
   selectedLayerId: string;
   selectedLayerIds: string[];
+  selectedActionId: string;
   zoom: number;
   playing: boolean;
   showSafeArea: boolean;
   onSelect: (id: string, additive?: boolean) => void;
   onTransformCommit: (id: string, patch: Partial<Layer>) => void;
   onTextCommit: (id: string, text: string) => void;
+  onActionCommit: (layerId: string, actionId: string, motionPath: MotionPathDefinition) => void;
   onZoomChange?: (zoom: number) => void;
   onReplaceAsset?: (layerId: string, file: File) => void;
   onDuplicateLayer?: (layerId: string) => void;
@@ -67,12 +69,14 @@ export function MultiSceneCanvasStage({
   playerRef,
   selectedLayerId,
   selectedLayerIds,
+  selectedActionId,
   zoom,
   playing: _playing,
   showSafeArea,
   onSelect,
   onTransformCommit,
   onTextCommit,
+  onActionCommit,
   onZoomChange,
   onReplaceAsset,
   onDuplicateLayer,
@@ -95,12 +99,12 @@ export function MultiSceneCanvasStage({
   const panGestureRef = useRef<PanGesture | null>(null);
   const sceneMoveRef = useRef<SceneMoveGesture | null>(null);
   const spacePressedRef = useRef(false);
-  const callbacksRef = useRef({ onSelect, onTransformCommit, onTextCommit });
+  const callbacksRef = useRef({ onSelect, onTransformCommit, onTextCommit, onActionCommit });
   const zoomChangeRef = useRef(onZoomChange);
   const zoomRef = useRef(zoom);
   const panRef = useRef({ x: 0, y: 0 });
   const initialFitRef = useRef("");
-  callbacksRef.current = { onSelect, onTransformCommit, onTextCommit };
+  callbacksRef.current = { onSelect, onTransformCommit, onTextCommit, onActionCommit };
   zoomChangeRef.current = onZoomChange;
 
   const [available, setAvailable] = useState({ width: 900, height: 600 });
@@ -222,20 +226,26 @@ export function MultiSceneCanvasStage({
     (id: string, text: string) => callbacksRef.current.onTextCommit(id, text),
     [],
   );
+  const stableActionCommit = useCallback(
+    (layerId: string, actionId: string, motionPath: MotionPathDefinition) => callbacksRef.current.onActionCommit(layerId, actionId, motionPath),
+    [],
+  );
 
   const activePlayerInputProps = useMemo(
     () => ({
       project,
       selectedId: selectedLayerId,
       selectedIds: selectedLayerIds,
+      selectedActionId,
       onSelect: stableSelect,
       onTransformCommit: stableTransformCommit,
       onTextCommit: stableTextCommit,
+      onActionCommit: stableActionCommit,
       editable: true,
       showSelection: true,
       showSafeArea,
     }),
-    [project, selectedLayerId, selectedLayerIds, showSafeArea, stableSelect, stableTextCommit, stableTransformCommit],
+    [project, selectedActionId, selectedLayerId, selectedLayerIds, showSafeArea, stableActionCommit, stableSelect, stableTextCommit, stableTransformCommit],
   );
 
   if (!activeScene) return null;

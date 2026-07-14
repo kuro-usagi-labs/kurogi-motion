@@ -11,6 +11,8 @@ import type {
 } from "../types";
 import { Icon, animationIconName } from "../ui/Icon";
 import { AnimationPresetDialog } from "./AnimationPresetDialog";
+import { CubicBezierEditor } from "./CubicBezierEditor";
+import { defaultMotionPath } from "./MotionPathOverlay";
 import { EffectsPanel } from "./EffectsPanel";
 import { presetFor } from "./animationPresets";
 
@@ -33,6 +35,9 @@ interface InspectorProps {
   onSelectAction: (actionId: string) => void;
   onDeleteAction: (actionId: string) => void;
   onDuplicateAction: (actionId: string) => void;
+  onSavePreset: () => void;
+  onApplyCustomPreset: (presetId: string) => void;
+  onDeleteCustomPreset: (presetId: string) => void;
   exportOptions: ExportOptions;
   onExportOptionsChange: (options: ExportOptions) => void;
   exporting: boolean;
@@ -72,6 +77,9 @@ export function Inspector(props: InspectorProps) {
           onSelectAction={props.onSelectAction}
           onDeleteAction={props.onDeleteAction}
           onDuplicateAction={props.onDuplicateAction}
+          onSavePreset={props.onSavePreset}
+          onApplyCustomPreset={props.onApplyCustomPreset}
+          onDeleteCustomPreset={props.onDeleteCustomPreset}
         />
       ) : null}
       {props.tab === "Export" ? (
@@ -173,7 +181,7 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
   );
 }
 
-function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish, onCancel, onPreview, onCommit, onAddAction, onSelectAction, onDeleteAction, onDuplicateAction }: {
+function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish, onCancel, onPreview, onCommit, onAddAction, onSelectAction, onDeleteAction, onDuplicateAction, onSavePreset, onApplyCustomPreset, onDeleteCustomPreset }: {
   project: KurogiProject;
   layer: Layer | null;
   selectedAction: AnimationAction | null;
@@ -186,6 +194,9 @@ function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish,
   onSelectAction: (actionId: string) => void;
   onDeleteAction: (actionId: string) => void;
   onDuplicateAction: (actionId: string) => void;
+  onSavePreset: () => void;
+  onApplyCustomPreset: (presetId: string) => void;
+  onDeleteCustomPreset: (presetId: string) => void;
 }) {
   const [category, setCategory] = useState<AnimationCategory>(selectedAction?.category ?? "in");
   const [browserOpen, setBrowserOpen] = useState(false);
@@ -233,14 +244,18 @@ function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish,
         <section className="property-section action-editor compact-action-editor">
           <div className="action-editor-title">
             <span><small>{activeAction.category.toUpperCase()}</small><strong>{presetFor(activeAction.type).label}</strong></span>
-            <span><button type="button" className="svg-button" title="Duplicate action" onClick={() => onDuplicateAction(activeAction.id)}><Icon name="copy" size={14} /></button><button type="button" className="svg-button danger-text" title="Delete action" onClick={() => onDeleteAction(activeAction.id)}><Icon name="trash" size={14} /></button></span>
+            <span><button type="button" className="svg-button" title="Save reusable preset" onClick={onSavePreset}><Icon name="sparkles" size={14} /></button><button type="button" className="svg-button" title="Duplicate action" onClick={() => onDuplicateAction(activeAction.id)}><Icon name="copy" size={14} /></button><button type="button" className="svg-button danger-text" title="Delete action" onClick={() => onDeleteAction(activeAction.id)}><Icon name="trash" size={14} /></button></span>
           </div>
           <div className="property-grid two">
             <NumberField label="Start" value={activeAction.startTime} min={0} max={scene.duration} step={.05} suffix="s" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, startTime: clamp(value, 0, scene.duration) }))} />
             <NumberField label="Duration" value={activeAction.duration} min={.05} max={scene.duration} step={.05} suffix="s" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, duration: clamp(value, .05, scene.duration) }))} />
             <NumberField label="Delay" value={activeAction.delay} min={0} max={scene.duration} step={.05} suffix="s" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, delay: clamp(value, 0, scene.duration) }))} />
-            <label>Easing<select value={activeAction.easing} onChange={(event) => commit((action) => ({ ...action, easing: event.currentTarget.value as AnimationAction["easing"] }))}><option value="linear">Linear</option><option value="easeIn">Ease in</option><option value="easeOut">Ease out</option><option value="easeInOut">Ease in out</option><option value="backIn">Back in</option><option value="backOut">Back out</option><option value="overshoot">Overshoot</option><option value="bounce">Bounce</option><option value="elastic">Elastic</option></select></label>
+            <label>Easing<select value={activeAction.easing} onChange={(event) => commit((action) => ({ ...action, easing: event.currentTarget.value as AnimationAction["easing"] }))}><option value="linear">Linear</option><option value="easeIn">Ease in</option><option value="easeOut">Ease out</option><option value="easeInOut">Ease in out</option><option value="backIn">Back in</option><option value="backOut">Back out</option><option value="overshoot">Overshoot</option><option value="bounce">Bounce</option><option value="elastic">Elastic</option><option value="custom">Custom cubic Bezier</option></select></label>
           </div>
+          {activeAction.easing === "custom" ? <CubicBezierEditor value={activeAction.easingCurve ?? { x1: .25, y1: .1, x2: .25, y2: 1 }} onBegin={onBegin} onPreview={(curve) => preview((action) => ({ ...action, easing: "custom", easingCurve: curve }))} onFinish={onFinish} /> : null}
+          {activeAction.groupId ? <div className="action-group-name">Grouped as {project.animationGroups[activeAction.groupId]?.name ?? "Animation group"}</div> : null}
+          {activeAction.type === "counter" && layer.type === "text" ? <div className="property-grid two"><NumberField label="From" value={Number(activeAction.parameters.from ?? 0)} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, from: value } }))} /><NumberField label="To" value={Number(activeAction.parameters.to ?? 100)} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, to: value } }))} /><NumberField label="Decimals" value={Number(activeAction.parameters.decimals ?? 0)} min={0} max={6} step={1} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, decimals: Math.round(clamp(value, 0, 6)) } }))} /><label>Prefix<input value={String(activeAction.parameters.prefix ?? "")} onChange={(event) => commit((action) => ({ ...action, parameters: { ...action.parameters, prefix: event.currentTarget.value } }))} /></label><label>Suffix<input value={String(activeAction.parameters.suffix ?? "")} onChange={(event) => commit((action) => ({ ...action, parameters: { ...action.parameters, suffix: event.currentTarget.value } }))} /></label></div> : null}
+          {activeAction.type === "motionPath" ? <div><label className="toggle-row"><span>Orient to path</span><ToggleSwitch checked={activeAction.motionPath?.orientToPath ?? false} onChange={(checked) => commit((action) => ({ ...action, motionPath: { ...(action.motionPath ?? defaultMotionPath()), orientToPath: checked } }))} /></label><div className="motion-path-fields">{(["start","control1","control2","end"] as const).flatMap((point) => ([<NumberField key={`${point}-x`} label={`${point} X`} value={(activeAction.motionPath ?? defaultMotionPath())[point].x} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, motionPath: { ...(action.motionPath ?? defaultMotionPath()), [point]: { ...(action.motionPath ?? defaultMotionPath())[point], x: value } } }))} />,<NumberField key={`${point}-y`} label={`${point} Y`} value={(activeAction.motionPath ?? defaultMotionPath())[point].y} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, motionPath: { ...(action.motionPath ?? defaultMotionPath()), [point]: { ...(action.motionPath ?? defaultMotionPath())[point], y: value } } }))} />]))}</div><small>Drag the four Bezier handles directly on the active canvas.</small></div> : null}
           {hasDirection(activeAction.type) ? <label>Direction<select value={String(activeAction.parameters.direction ?? "up")} onChange={(event) => commit((action) => ({ ...action, parameters: { ...action.parameters, direction: event.currentTarget.value } }))}><option value="up">Up</option><option value="down">Down</option><option value="left">Left</option><option value="right">Right</option></select></label> : null}
           {hasDistance(activeAction.type) ? <NumberField label="Distance" value={Number(activeAction.parameters.distance ?? 120)} min={0} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, distance: Math.max(0, value) } }))} /> : null}
           {hasIntensity(activeAction.type) ? <NumberField label="Intensity" value={Number(activeAction.parameters.intensity ?? defaultIntensity(activeAction.type))} min={0} step={usesFractionalIntensity(activeAction.type) ? .01 : 1} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, intensity: Math.max(0, value) } }))} /> : null}
@@ -279,6 +294,8 @@ function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish,
             onAddAction(nextCategory, type);
             setBrowserOpen(false);
           }}
+          onChooseCustom={(presetId) => { onApplyCustomPreset(presetId); setBrowserOpen(false); }}
+          onDeleteCustom={onDeleteCustomPreset}
         />
       ) : null}
     </div>

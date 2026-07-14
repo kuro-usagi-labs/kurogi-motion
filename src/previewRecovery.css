@@ -1,0 +1,30 @@
+.workspace-pan-shell,
+.workspace-scale-shell {
+  width: 1px !important;
+  height: 1px !important;
+  min-width: 1px;
+  min-height: 1px;
+  overflow: visible !important;
+  contain: none !important;
+}
+
+.workspace-pan-shell {
+  z-index: 1;
+}
+
+.workspace-scale-shell {
+  isolation: isolate;
+  transform-origin: 0 0 !important;
+}
+
+.workspace-artboard {
+  display: block !important;
+  visibility: visible !important;
+  overflow: visible;
+  backface-visibility: visible;
+}
+
+.workspace-artboard-canvas {
+  min-width: 1px;
+  min-height: 1px;
+}

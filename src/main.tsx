@@ -10,6 +10,7 @@ import "./finalUx.css";
 import "./motionLibrary.css";
 import "./multiscene.css";
 import "./designTools.css";
+import "./clippingMask.css";
 import "./animationWorkflow.css";
 import "./previewRecovery.css";
 import "./editorMenu.css";

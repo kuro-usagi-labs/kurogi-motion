@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { PlayerRef } from "@remotion/player";
 import { MotionComposition } from "../MotionComposition";
 import {
@@ -36,10 +37,13 @@ import {
 } from "../core/sceneWorkspace";
 import {
   alignLayers,
+  applyClippingMask,
   applyMask,
   clearMask,
+  getClippingMaskBase,
   distributeLayers,
   groupLayers,
+  releaseClippingMask,
   setBackgroundBlur,
   setBlendMode,
   setFontFamily,
@@ -99,6 +103,7 @@ interface EditorProps {
 }
 
 type SidebarTab = "layers" | "assets" | "text" | "shapes" | "templates";
+type LayerContextMenuState = { layerId: string; x: number; y: number };
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; icon: IconName; label: string }> = [
   { id: "layers", icon: "layers", label: "Layers" },
@@ -129,6 +134,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand | null>(null);
   const [draggedLayerId, setDraggedLayerId] = useState("");
   const [dragOverLayerId, setDragOverLayerId] = useState("");
+  const [layerContextMenu, setLayerContextMenu] = useState<LayerContextMenuState | null>(null);
   const [saveStatus, setSaveStatus] = useState<"Saving draft…" | "Draft saved" | "Saving…" | "Saved" | "Save failed" | "Copied">("Saved");
   const [exporting, setExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
@@ -147,6 +153,10 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const assetInputRef = useRef<HTMLInputElement>(null);
 
   const selectedLayer = selectedLayerId ? project.layers[selectedLayerId] ?? null : null;
+  const contextLayer = layerContextMenu ? project.layers[layerContextMenu.layerId] ?? null : null;
+  const clippingBaseLayer = contextLayer && contextLayer.mask?.type !== "clipping"
+    ? getClippingMaskBase(project, contextLayer.id)
+    : null;
   const selectedLayers = useMemo(() => selectedLayerIds.map((id) => project.layers[id]).filter((layer): layer is Layer => Boolean(layer)), [project.layers, selectedLayerIds]);
   const selectedAction = useMemo(() => {
     if (!selectedActionId) return null;
@@ -281,6 +291,22 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   }, [uiPreferences]);
 
   useEffect(() => {
+    if (!layerContextMenu) return;
+    const close = (event: PointerEvent) => {
+      if ((event.target as HTMLElement | null)?.closest?.(".layer-context-menu")) return;
+      setLayerContextMenu(null);
+    };
+    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") setLayerContextMenu(null); };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", closeOnKey);
+    window.addEventListener("blur", () => setLayerContextMenu(null), { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", closeOnKey);
+    };
+  }, [layerContextMenu]);
+
+  useEffect(() => {
     const unsubscribe = window.kurogi?.onMcpRequest?.((request) => { void handleMcpRequest(request); });
     return () => unsubscribe?.();
   });
@@ -375,6 +401,18 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   function deleteAudioClipById(clipId: string) { commitProject((current) => removeAudioClip(current, clipId)); setSelectedAudioClipId((current) => current === clipId ? "" : current); }
   function duplicateAudioClipById(clipId: string) {
     commitProject((current) => { const result = duplicateAudioClip(current, clipId); window.queueMicrotask(() => selectAudioClip(result.clipId)); return result.project; });
+  }
+
+  function openLayerContextMenu(layerId: string, point: { x: number; y: number }) {
+    if (!project.layers[layerId]) return;
+    selectLayer(layerId);
+    const width = 258;
+    const height = 330;
+    setLayerContextMenu({
+      layerId,
+      x: clamp(point.x, 8, Math.max(8, window.innerWidth - width - 8)),
+      y: clamp(point.y, 8, Math.max(8, window.innerHeight - height - 8)),
+    });
   }
 
   function selectLayer(layerId: string, additive = false) {
@@ -817,6 +855,16 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     window.queueMicrotask(() => selectOnly(targetId));
   }
   function clearSelectionMask() { if (selectedLayerId) commitProject((current) => clearMask(current, selectedLayerId)); }
+  function createContextClippingMask(layerId: string) {
+    commitProject((current) => applyClippingMask(current, layerId).project);
+    selectOnly(layerId);
+    setLayerContextMenu(null);
+  }
+  function releaseContextClippingMask(layerId: string) {
+    commitProject((current) => releaseClippingMask(current, layerId));
+    selectOnly(layerId);
+    setLayerContextMenu(null);
+  }
   function toggleSmartSnap() {
     commitProject((current) => touchProject({ ...cloneProject(current), settings: { ...current.settings, snapEnabled: !current.settings.snapEnabled } }));
   }
@@ -1085,8 +1133,9 @@ export function Editor({ initialProject, onExit }: EditorProps) {
                   <div
                     key={layer.id}
                     draggable
-                    className={`layer-row ${selectedLayerIds.includes(layer.id) ? "selected" : ""} ${layer.maskSource ? "is-mask-source" : ""} ${draggedLayerId === layer.id ? "is-dragging" : ""} ${dragOverLayerId === layer.id ? "drag-over" : ""}`}
+                    className={`layer-row ${selectedLayerIds.includes(layer.id) ? "selected" : ""} ${layer.maskSource ? "is-mask-source" : ""} ${layer.mask?.type === "clipping" ? "is-clipping-target" : ""} ${draggedLayerId === layer.id ? "is-dragging" : ""} ${dragOverLayerId === layer.id ? "drag-over" : ""}`}
                     onClick={(event) => selectLayer(layer.id, event.shiftKey)}
+                    onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); openLayerContextMenu(layer.id, { x: event.clientX, y: event.clientY }); }}
                     onDragStart={(event) => { setDraggedLayerId(layer.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", layer.id); }}
                     onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverLayerId(layer.id); }}
                     onDragLeave={() => setDragOverLayerId((current) => current === layer.id ? "" : current)}
@@ -1095,6 +1144,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
                   >
                     <span className="layer-drag-grip" title="Drag to reorder"><Icon name="grip" size={15} /></span>
                     <span className={`layer-thumb ${layer.type}`}><Icon name={layer.type === "text" ? "text" : layer.type === "shape" ? "shapes" : "assets"} size={13} /></span>
+                    {layer.mask?.type === "clipping" ? <span className="clipping-mask-chip" title={`Clipped to ${project.layers[layer.mask.sourceLayerId]?.name ?? "base layer"}`}><Icon name="mask" size={11} /></span> : null}
                     <input
                       className="layer-name-editor"
                       value={layer.name}
@@ -1209,6 +1259,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           onTransformCommit={commitTransform}
           onTextCommit={commitText}
           onActionCommit={commitMotionPath}
+          onLayerContextMenu={openLayerContextMenu}
           onZoomChange={setZoom}
           onDuplicateLayer={duplicateLayerById}
           onDeleteLayer={deleteLayerById}
@@ -1271,6 +1322,34 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         onDuplicateAudioClip={duplicateAudioClipById}
         canPaste={Boolean(animationClipboard)}
       />
+      {layerContextMenu && contextLayer ? createPortal(
+        <div
+          className="layer-context-menu"
+          role="menu"
+          style={{ left: layerContextMenu.x, top: layerContextMenu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <div className="layer-context-menu-header">
+            <span><Icon name={contextLayer.mask?.type === "clipping" ? "mask" : contextLayer.type === "text" ? "text" : contextLayer.type === "shape" ? "shapes" : "assets"} size={15} /></span>
+            <div><strong>{contextLayer.name}</strong><small>{contextLayer.type} layer</small></div>
+          </div>
+          {contextLayer.mask?.type === "clipping" ? (
+            <button type="button" className="is-active-command" onClick={() => releaseContextClippingMask(contextLayer.id)}><Icon name="mask" size={15} />Release Clipping Mask<small>{project.layers[contextLayer.mask.sourceLayerId]?.name}</small></button>
+          ) : (
+            <button type="button" disabled={!clippingBaseLayer} title={clippingBaseLayer ? `Clip to ${clippingBaseLayer.name}` : "Place this layer above another visual layer first"} onClick={() => createContextClippingMask(contextLayer.id)}><Icon name="mask" size={15} />Create Clipping Mask<small>{clippingBaseLayer?.name ?? "No base below"}</small></button>
+          )}
+          <span className="layer-context-menu-separator" />
+          <button type="button" onClick={() => { commitProject((current) => reorderLayer(current, contextLayer.id, "up")); setLayerContextMenu(null); }}><Icon name="chevronUp" size={15} />Bring Forward</button>
+          <button type="button" onClick={() => { commitProject((current) => reorderLayer(current, contextLayer.id, "down")); setLayerContextMenu(null); }}><Icon name="chevronDown" size={15} />Send Backward</button>
+          <button type="button" onClick={() => { duplicateLayerById(contextLayer.id); setLayerContextMenu(null); }}><Icon name="copy" size={15} />Duplicate</button>
+          <button type="button" onClick={() => { commitLayer(contextLayer.id, (layer) => ({ ...layer, visible: !layer.visible })); setLayerContextMenu(null); }}><Icon name={contextLayer.visible ? "eyeOff" : "eye"} size={15} />{contextLayer.visible ? "Hide Layer" : "Show Layer"}</button>
+          <button type="button" onClick={() => { commitLayer(contextLayer.id, (layer) => ({ ...layer, locked: !layer.locked })); setLayerContextMenu(null); }}><Icon name={contextLayer.locked ? "unlock" : "lock"} size={15} />{contextLayer.locked ? "Unlock Layer" : "Lock Layer"}</button>
+          <span className="layer-context-menu-separator" />
+          <button type="button" className="danger-text" onClick={() => { deleteLayerById(contextLayer.id); setLayerContextMenu(null); }}><Icon name="trash" size={15} />Delete Layer</button>
+        </div>,
+        document.body,
+      ) : null}
     </main>
   );
 }

@@ -30,6 +30,7 @@ interface MultiSceneCanvasStageProps {
   onTransformCommit: (id: string, patch: Partial<Layer>) => void;
   onTextCommit: (id: string, text: string) => void;
   onActionCommit: (layerId: string, actionId: string, motionPath: MotionPathDefinition) => void;
+  onLayerContextMenu?: (layerId: string, point: { x: number; y: number }) => void;
   onZoomChange?: (zoom: number) => void;
   onReplaceAsset?: (layerId: string, file: File) => void;
   onDuplicateLayer?: (layerId: string) => void;
@@ -81,6 +82,7 @@ export function MultiSceneCanvasStage({
   onTransformCommit,
   onTextCommit,
   onActionCommit,
+  onLayerContextMenu,
   onZoomChange,
   onReplaceAsset,
   onDuplicateLayer,
@@ -110,12 +112,12 @@ export function MultiSceneCanvasStage({
   const panGestureRef = useRef<PanGesture | null>(null);
   const sceneMoveRef = useRef<SceneMoveGesture | null>(null);
   const spacePressedRef = useRef(false);
-  const callbacksRef = useRef({ onSelect, onTransformCommit, onTextCommit, onActionCommit });
+  const callbacksRef = useRef({ onSelect, onTransformCommit, onTextCommit, onActionCommit, onLayerContextMenu });
   const zoomChangeRef = useRef(onZoomChange);
   const zoomRef = useRef(zoom);
   const panRef = useRef({ x: 0, y: 0 });
   const initialFitRef = useRef("");
-  callbacksRef.current = { onSelect, onTransformCommit, onTextCommit, onActionCommit };
+  callbacksRef.current = { onSelect, onTransformCommit, onTextCommit, onActionCommit, onLayerContextMenu };
   zoomChangeRef.current = onZoomChange;
 
   const [available, setAvailable] = useState({ width: 900, height: 600 });
@@ -251,6 +253,10 @@ export function MultiSceneCanvasStage({
     (layerId: string, actionId: string, motionPath: MotionPathDefinition) => callbacksRef.current.onActionCommit(layerId, actionId, motionPath),
     [],
   );
+  const stableLayerContextMenu = useCallback(
+    (layerId: string, point: { x: number; y: number }) => callbacksRef.current.onLayerContextMenu?.(layerId, point),
+    [],
+  );
 
   const activePlayerInputProps = useMemo(
     () => ({
@@ -261,12 +267,13 @@ export function MultiSceneCanvasStage({
       onSelect: stableSelect,
       onTransformCommit: stableTransformCommit,
       onTextCommit: stableTextCommit,
-      onActionCommit: stableActionCommit,
-      editable: true,
+       onActionCommit: stableActionCommit,
+       onLayerContextMenu: stableLayerContextMenu,
+       editable: true,
       showSelection: true,
       showSafeArea,
     }),
-    [project, selectedActionId, selectedLayerId, selectedLayerIds, showSafeArea, stableActionCommit, stableSelect, stableTextCommit, stableTransformCommit],
+    [project, selectedActionId, selectedLayerId, selectedLayerIds, showSafeArea, stableActionCommit, stableLayerContextMenu, stableSelect, stableTextCommit, stableTransformCommit],
   );
 
   if (!activeScene) return null;
@@ -405,6 +412,7 @@ export function MultiSceneCanvasStage({
   }
 
   function openContextMenu(event: React.MouseEvent<HTMLElement>) {
+    if (event.defaultPrevented) return;
     if (!selectedLayer || (selectedLayer.type !== "image" && selectedLayer.type !== "svg")) return;
     event.preventDefault();
     const rect = stageRef.current?.getBoundingClientRect();

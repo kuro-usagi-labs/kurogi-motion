@@ -26,6 +26,7 @@ export interface MaskDefinition {
   type: "vector" | "alpha";
   sourceLayerId: string;
   inverted?: boolean;
+  clipping?: boolean;
 }
 
 export type EasingName =

@@ -16,6 +16,7 @@ import { LayerEffects } from "./renderer/LayerEffects";
 import { StaticLayerTree } from "./renderer/StaticLayerTree";
 import { MotionPathOverlay } from "./editor/MotionPathOverlay";
 import { gradientToCss, layerCompositingStyle, projectFontFaceCss, textPaintStyle } from "./renderer/designStyles";
+import { clippingMaskSceneStyle } from "./renderer/clippingMask";
 import type { KurogiProject, Layer, MotionPathDefinition, TextLayer } from "./types";
 
 type TransformPatch = Partial<
@@ -31,6 +32,7 @@ type Props = {
   onTransformCommit?: (id: string, patch: TransformPatch) => void;
   onTextCommit?: (id: string, text: string) => void;
   onActionCommit?: (layerId: string, actionId: string, motionPath: MotionPathDefinition) => void;
+  onLayerContextMenu?: (layerId: string, clientX: number, clientY: number) => void;
   editable?: boolean;
   showSelection?: boolean;
   showSafeArea?: boolean;
@@ -62,6 +64,7 @@ export const MotionComposition: React.FC<Props> = ({
   onTransformCommit,
   onTextCommit,
   onActionCommit,
+  onLayerContextMenu,
   editable = false,
   showSelection = true,
   showSafeArea = false,
@@ -106,6 +109,7 @@ export const MotionComposition: React.FC<Props> = ({
     layer: Layer,
     mode: Gesture["mode"],
   ) {
+    if (event.button !== 0) return;
     if (!editable || layer.locked || textEdit) return;
     const point = projectPoint(event);
     if (!point) return;
@@ -259,8 +263,10 @@ export const MotionComposition: React.FC<Props> = ({
           boxSizing: "border-box",
           userSelect: "none",
           transformStyle: "preserve-3d",
+          pointerEvents: layer.mask?.clipping ? "auto" : undefined,
           ...layerCompositingStyle(project, layer),
         };
+        const clippingStyle = clippingMaskSceneStyle(project, layer, scene, time);
         const animatedFilter = [
           visual.blur > 0 ? `blur(${visual.blur}px)` : "",
           visual.brightness !== 1 ? `brightness(${visual.brightness})` : "",
@@ -271,14 +277,20 @@ export const MotionComposition: React.FC<Props> = ({
         ].filter(Boolean).join(" ");
 
         return (
+          <ClippedLayerFrame key={layer.id} maskStyle={clippingStyle}>
           <div
-            key={layer.id}
             style={wrapperStyle}
             onPointerDown={
               editable && !isEditing
                 ? (event) => startGesture(event, layer, "move")
                 : undefined
             }
+            onContextMenu={editable ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSelect?.(layer.id, false);
+              onLayerContextMenu?.(layer.id, event.clientX, event.clientY);
+            } : undefined}
             onDoubleClick={
               layer.type === "text"
                 ? (event) => beginTextEditing(event, layer)
@@ -349,6 +361,7 @@ export const MotionComposition: React.FC<Props> = ({
               />
             ) : null}
           </div>
+          </ClippedLayerFrame>
         );
       })}
       {alignmentGuides.map((guide, index) => (
@@ -358,6 +371,11 @@ export const MotionComposition: React.FC<Props> = ({
     </div>
   );
 };
+
+function ClippedLayerFrame({ maskStyle, children }: { maskStyle?: React.CSSProperties; children: React.ReactNode }) {
+  if (!maskStyle) return <>{children}</>;
+  return <div style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", ...maskStyle }}>{children}</div>;
+}
 
 function AudioTracks({ project }: { project: KurogiProject }) {
   const frame = useCurrentFrame();

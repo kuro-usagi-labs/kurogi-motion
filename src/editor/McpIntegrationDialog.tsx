@@ -7,6 +7,8 @@ interface McpIntegrationDialogProps {
 }
 
 interface McpInfo {
+  mcpVersion: number;
+  toolCount: number;
   bridgeRunning: boolean;
   bridgeFile: string;
   command: string;
@@ -60,7 +62,7 @@ export function McpIntegrationDialog({ open, onClose }: McpIntegrationDialogProp
       <section className="mcp-dialog" role="dialog" aria-modal="true" aria-labelledby="mcp-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
         <header>
           <div>
-            <span className="mcp-dialog-eyebrow">MODEL CONTEXT PROTOCOL V3</span>
+            <span className="mcp-dialog-eyebrow">MODEL CONTEXT PROTOCOL{info ? ` V${info.mcpVersion}` : ""}</span>
             <h2 id="mcp-dialog-title">Let AI agents build videos in Kurogi Motion</h2>
           </div>
           <button type="button" className="mcp-dialog-close" onClick={onClose} aria-label="Close MCP integration"><Icon name="close" size={16} /></button>
@@ -90,15 +92,15 @@ export function McpIntegrationDialog({ open, onClose }: McpIntegrationDialogProp
           </div>
 
           <div className="mcp-tools-summary">
-            <h3>Available in V3</h3>
+            <h3>{info ? `Available in V${info.mcpVersion} · ${info.toolCount} tools` : "Loading MCP capabilities…"}</h3>
             <div>
-              <span>Read full project context</span>
-              <span>Scene CRUD and variations</span>
-              <span>Text, shapes, and assets</span>
-              <span>Action-based animation</span>
-              <span>Import audio and images</span>
-              <span>Trim and mix audio</span>
-              <span>Transactional edit plans</span>
+              <span>Preview frames and validation</span>
+              <span>Async render jobs and cancellation</span>
+              <span>Atomic workflows with assign/$ref</span>
+              <span>Advanced design and effects</span>
+              <span>Scene transitions and layer timing</span>
+              <span>Asset reuse and metadata</span>
+              <span>Undo, redo, and checkpoints</span>
               <span>One-call autonomous video</span>
             </div>
           </div>

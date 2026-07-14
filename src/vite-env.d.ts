@@ -24,7 +24,7 @@ interface Window {
     openKuroMotionFile: () => Promise<{ canceled?: boolean; path?: string; content?: string }>;
     showItemInFolder: (targetPath: string) => Promise<{ opened: boolean }>;
     readMcpMediaFile: (filePath: string) => Promise<{ name: string; mimeType: string; bytes: Uint8Array; byteSize: number }>;
-    getMcpInfo: () => Promise<{ bridgeRunning: boolean; bridgeFile: string; command: string; args: string[]; env: Record<string, string>; packaged: boolean }>;
+    getMcpInfo: () => Promise<{ mcpVersion: number; toolCount: number; bridgeRunning: boolean; bridgeFile: string; command: string; args: string[]; env: Record<string, string>; packaged: boolean }>;
     onMcpRequest: (listener: (request: import("./core/mcpCommands").McpBridgeRequest) => void) => () => void;
     respondMcpRequest: (response: import("./core/mcpCommands").McpBridgeResponse) => void;
     onExportProgress: (

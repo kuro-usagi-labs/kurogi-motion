@@ -1,9 +1,13 @@
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const os = require("node:os");
 const { pathToFileURL } = require("node:url");
 const { createMcpBridge } = require("./mcpBridge.cjs");
+const { stageProjectAssetsForRender } = require("./renderAssetStage.cjs");
 
+const MCP_INTEGRATION_VERSION = 4;
+const MCP_TOOL_COUNT = 58;
 let packagedBundlePromise = null;
 let exportInProgress = false;
 let activeRenderJobId = null;
@@ -11,6 +15,7 @@ const renderJobs = new Map();
 let mainWindow = null;
 let mcpBridge = null;
 const mcpMode = process.argv.includes("--mcp");
+const ownsGuiInstance = mcpMode || app.requestSingleInstanceLock();
 
 const createWindow = () => {
   const window = new BrowserWindow({
@@ -49,7 +54,9 @@ const createWindow = () => {
   }
 };
 
-if (mcpMode) {
+if (!ownsGuiInstance) {
+  app.quit();
+} else if (mcpMode) {
   app.whenReady().then(async () => {
     const entry = path.join(app.getAppPath(), "mcp", "server.mjs");
     const module = await import(pathToFileURL(entry).href);
@@ -70,10 +77,18 @@ if (mcpMode) {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+  app.on("second-instance", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
   app.on("before-quit", () => { void mcpBridge?.stop(); });
 }
 
 ipcMain.handle("mcp-info", async () => ({
+  mcpVersion: MCP_INTEGRATION_VERSION,
+  toolCount: MCP_TOOL_COUNT,
   bridgeRunning: Boolean(mcpBridge?.readConnectionInfo()),
   bridgeFile: path.join(app.getPath("userData"), "mcp-bridge.json"),
   command: process.execPath,
@@ -110,16 +125,30 @@ ipcMain.handle("render-preview-frame", async (_event, project, rawOptions = {}) 
   const scene = project.scenes[project.activeSceneId];
   const time = Math.min(scene.duration, Math.max(0, Number(rawOptions.time) || 0));
   const scale = Math.min(2, Math.max(0.1, Number(rawOptions.scale) || 0.5));
-  const serveUrl = await getServeUrl();
-  const { selectComposition, renderStill } = await import("@remotion/renderer");
-  const inputProps = { project, renderMode: "active-scene", exportFps: scene.fps };
-  const composition = await selectComposition({ serveUrl, id: "KurogiMotion", inputProps });
-  const frame = Math.min(composition.durationInFrames - 1, Math.max(0, Math.round(time * composition.fps)));
   const outputDir = path.join(app.getPath("temp"), "kurogi-motion", "previews");
   await fs.promises.mkdir(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, `preview-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`);
-  await renderStill({ composition, serveUrl, inputProps, output: outputPath, frame, imageFormat: "png", scale, logLevel: "warn" });
-  return { path: outputPath, mimeType: "image/png", time: frame / composition.fps, frame, width: Math.round(composition.width * scale), height: Math.round(composition.height * scale) };
+  const staged = await stageProjectAssetsForRender(project);
+  const diagnostics = createRenderDiagnostics(project, { format: "preview", scale, fps: scene.fps }, outputPath);
+  try {
+    const serveUrl = await getServeUrl();
+    const { selectComposition, renderStill } = await import("@remotion/renderer");
+    const inputProps = { project: staged.project, renderMode: "active-scene", exportFps: scene.fps };
+    diagnostics.write("assets-staged", { ...staged.stats, inputPropsBytes: Buffer.byteLength(JSON.stringify(inputProps)) });
+    return await retryClosedBrowser(async (attempt) => {
+      diagnostics.write("preview-attempt", { attempt });
+      const browserOptions = renderBrowserOptions(diagnostics);
+      const composition = await selectComposition({ serveUrl, id: "KurogiMotion", inputProps, ...browserOptions });
+      const frame = Math.min(composition.durationInFrames - 1, Math.max(0, Math.round(time * composition.fps)));
+      await renderStill({ composition, serveUrl, inputProps, output: outputPath, frame, imageFormat: "png", scale, ...browserOptions });
+      diagnostics.write("preview-completed", { attempt, frame });
+      return { path: outputPath, mimeType: "image/png", time: frame / composition.fps, frame, width: Math.round(composition.width * scale), height: Math.round(composition.height * scale), diagnosticLogPath: diagnostics.path, assetStats: staged.stats };
+    }, diagnostics);
+  } catch (error) {
+    throw renderFailure(error, diagnostics);
+  } finally {
+    await staged.dispose();
+  }
 });
 
 ipcMain.handle("start-render-job", async (_event, project, rawOptions = {}) => {
@@ -147,10 +176,10 @@ ipcMain.handle("start-render-job", async (_event, project, rawOptions = {}) => {
   activeRenderJobId = job.id;
 
   void renderProject(project, options, target, (progress) => updateRenderJob(job, progress), cancelSignal)
-    .then((result) => updateRenderJob(job, { status: "completed", phase: "completed", progress: 1, outputPath: result.path, completedAt: new Date().toISOString() }))
+    .then((result) => updateRenderJob(job, { status: "completed", phase: "completed", progress: 1, outputPath: result.path, diagnosticLogPath: result.diagnosticLogPath, assetStats: result.assetStats, completedAt: new Date().toISOString() }))
     .catch((error) => {
       const canceled = job.status === "canceling" || /cancel/i.test(error instanceof Error ? error.message : String(error));
-      updateRenderJob(job, { status: canceled ? "canceled" : "failed", phase: canceled ? "canceled" : "failed", error: canceled ? undefined : error instanceof Error ? error.message : String(error), completedAt: new Date().toISOString() });
+      updateRenderJob(job, { status: canceled ? "canceled" : "failed", phase: canceled ? "canceled" : "failed", error: canceled ? undefined : error instanceof Error ? error.message : String(error), diagnosticLogPath: error?.renderLogPath, completedAt: new Date().toISOString() });
     })
     .finally(() => {
       exportInProgress = false;
@@ -305,73 +334,175 @@ async function createAutomaticExportTarget(projectName, format) {
 
 async function renderProject(project, options, target, onProgress, cancelSignal) {
   const report = (progress) => onProgress?.(progress);
-  report({ phase: "preparing", progress: 0, message: "Preparing the Remotion bundle" });
-  const serveUrl = await getServeUrl();
-  const { selectComposition, renderFrames, renderMedia } = await import("@remotion/renderer");
-  const inputProps = { project, renderMode: options.allScenes ? "all-scenes" : "active-scene", exportFps: options.fps };
-  const composition = await selectComposition({ serveUrl, id: "KurogiMotion", inputProps });
+  const diagnostics = createRenderDiagnostics(project, options, target);
+  report({ phase: "preparing", progress: 0, message: "Staging project assets outside Chromium" });
+  const staged = await stageProjectAssetsForRender(project);
+  try {
+    const serveUrl = await getServeUrl();
+    const { selectComposition, renderFrames, renderMedia } = await import("@remotion/renderer");
+    const inputProps = { project: staged.project, renderMode: options.allScenes ? "all-scenes" : "active-scene", exportFps: options.fps };
+    const inputPropsBytes = Buffer.byteLength(JSON.stringify(inputProps));
+    const concurrency = renderConcurrency(staged.project, options);
+    const logProgress = createProgressDiagnostics(diagnostics);
+    diagnostics.write("assets-staged", { ...staged.stats, inputPropsBytes, concurrency });
+    report({ phase: "preparing", progress: 0, message: `Prepared ${staged.stats.uniqueAssetCount} unique assets · renderer concurrency ${concurrency}` });
 
-  if (options.format === "png-sequence") {
-    const outputDir = path.join(target, safeFileName(project.name || "kurogi-motion"));
-    await fs.promises.mkdir(outputDir, { recursive: true });
-    let frameCount = composition.durationInFrames;
-    await renderFrames({
-      composition,
-      serveUrl,
-      inputProps,
-      outputDir,
-      imageFormat: "png",
-      imageSequencePattern: "frame-[frame].[ext]",
-      scale: options.scale,
-      logLevel: "warn",
-      ...(cancelSignal ? { cancelSignal } : {}),
-      onStart: ({ frameCount: count }) => {
-        frameCount = count;
-        report({ phase: "rendering", progress: 0, renderedFrames: 0, frameCount, message: `Rendering 0 / ${frameCount} frames` });
-      },
-      onFrameUpdate: (renderedFrames) => {
-        report({ phase: "rendering", progress: frameCount > 0 ? renderedFrames / frameCount : 0, renderedFrames, frameCount, message: `Rendering ${renderedFrames} / ${frameCount} frames` });
-      },
-    });
-    report({ phase: "completed", progress: 1, renderedFrames: frameCount, frameCount, message: outputDir });
-    return { path: outputDir };
-  }
+    const result = await retryClosedBrowser(async (attempt) => {
+      diagnostics.write("render-attempt", { attempt, freeMemory: os.freemem() });
+      const browserOptions = renderBrowserOptions(diagnostics);
+      const composition = await selectComposition({ serveUrl, id: "KurogiMotion", inputProps, ...browserOptions });
 
-  const media = mediaSettings(options);
-  let frameCount = composition.durationInFrames;
-  await renderMedia({
-    composition,
-    serveUrl,
-    inputProps,
-    outputLocation: target,
-    codec: media.codec,
-    scale: options.scale,
-    overwrite: true,
-    logLevel: "warn",
-    ...(cancelSignal ? { cancelSignal } : {}),
-    ...(media.crf === null ? {} : { crf: media.crf }),
-    ...(media.imageFormat ? { imageFormat: media.imageFormat } : {}),
-    ...(media.pixelFormat ? { pixelFormat: media.pixelFormat } : {}),
-    ...(media.proResProfile ? { proResProfile: media.proResProfile } : {}),
-    ...(options.format === "gif" ? { numberOfGifLoops: options.gifLoops } : {}),
-    onStart: ({ frameCount: count }) => {
-      frameCount = count;
-      report({ phase: "rendering", progress: 0, renderedFrames: 0, encodedFrames: 0, frameCount, message: `Rendering 0 / ${frameCount} frames` });
-    },
-    onProgress: ({ progress, renderedFrames, encodedFrames, stitchStage }) => {
-      const phase = stitchStage === "encoding" || stitchStage === "muxing" ? "encoding" : "rendering";
-      report({
-        phase,
-        progress,
-        renderedFrames,
-        encodedFrames,
-        frameCount,
-        message: phase === "encoding" ? `Encoding ${encodedFrames} / ${frameCount} frames` : `Rendering ${renderedFrames} / ${frameCount} frames`,
+      if (options.format === "png-sequence") {
+        const outputDir = path.join(target, safeFileName(project.name || "kurogi-motion"));
+        await fs.promises.mkdir(outputDir, { recursive: true });
+        let frameCount = composition.durationInFrames;
+        await renderFrames({
+          composition,
+          serveUrl,
+          inputProps,
+          outputDir,
+          imageFormat: "png",
+          imageSequencePattern: "frame-[frame].[ext]",
+          scale: options.scale,
+          concurrency,
+          ...browserOptions,
+          ...(cancelSignal ? { cancelSignal } : {}),
+          onStart: ({ frameCount: count }) => {
+            frameCount = count;
+            report({ phase: "rendering", progress: 0, renderedFrames: 0, frameCount, message: `Rendering 0 / ${frameCount} frames` });
+          },
+          onFrameUpdate: (renderedFrames) => {
+            const progress = frameCount > 0 ? renderedFrames / frameCount : 0;
+            report({ phase: "rendering", progress, renderedFrames, frameCount, message: `Rendering ${renderedFrames} / ${frameCount} frames` });
+            logProgress({ phase: "rendering", progress, renderedFrames, frameCount });
+          },
+        });
+        report({ phase: "completed", progress: 1, renderedFrames: frameCount, frameCount, message: outputDir });
+        return { path: outputDir, frameCount };
+      }
+
+      const media = mediaSettings(options);
+      let frameCount = composition.durationInFrames;
+      await renderMedia({
+        composition,
+        serveUrl,
+        inputProps,
+        outputLocation: target,
+        codec: media.codec,
+        scale: options.scale,
+        concurrency,
+        disallowParallelEncoding: concurrency === 1,
+        overwrite: true,
+        ...browserOptions,
+        ...(cancelSignal ? { cancelSignal } : {}),
+        ...(media.crf === null ? {} : { crf: media.crf }),
+        ...(media.imageFormat ? { imageFormat: media.imageFormat } : {}),
+        ...(media.pixelFormat ? { pixelFormat: media.pixelFormat } : {}),
+        ...(media.proResProfile ? { proResProfile: media.proResProfile } : {}),
+        ...(options.format === "gif" ? { numberOfGifLoops: options.gifLoops } : {}),
+        onStart: ({ frameCount: count }) => {
+          frameCount = count;
+          report({ phase: "rendering", progress: 0, renderedFrames: 0, encodedFrames: 0, frameCount, message: `Rendering 0 / ${frameCount} frames` });
+        },
+        onProgress: ({ progress, renderedFrames, encodedFrames, stitchStage }) => {
+          const phase = stitchStage === "encoding" || stitchStage === "muxing" ? "encoding" : "rendering";
+          report({
+            phase,
+            progress,
+            renderedFrames,
+            encodedFrames,
+            frameCount,
+            message: phase === "encoding" ? `Encoding ${encodedFrames} / ${frameCount} frames` : `Rendering ${renderedFrames} / ${frameCount} frames`,
+          });
+          logProgress({ phase, progress, renderedFrames, encodedFrames, frameCount });
+        },
       });
-    },
+      report({ phase: "completed", progress: 1, renderedFrames: frameCount, encodedFrames: frameCount, frameCount, message: target });
+      return { path: target, frameCount };
+    }, diagnostics, report);
+
+    diagnostics.write("render-completed", { path: result.path, frameCount: result.frameCount });
+    return { path: result.path, diagnosticLogPath: diagnostics.path, assetStats: { ...staged.stats, inputPropsBytes, concurrency } };
+  } catch (error) {
+    throw renderFailure(error, diagnostics);
+  } finally {
+    await staged.dispose();
+  }
+}
+
+function renderConcurrency(project, options) {
+  const scenes = options.allScenes ? Object.values(project.scenes ?? {}) : [project.scenes?.[project.activeSceneId]].filter(Boolean);
+  const duration = scenes.reduce((total, scene) => total + Number(scene.duration || 0), 0);
+  const largestPixels = scenes.reduce((largest, scene) => Math.max(largest, Number(scene.width || 0) * Number(scene.height || 0) * options.scale * options.scale), 0);
+  const assets = Object.values(project.assets ?? {});
+  const assetBytes = assets.reduce((total, asset) => total + Math.max(0, Number(asset.byteSize) || 0), 0);
+  if (duration >= 120 || assets.length >= 24 || assetBytes >= 64 * 1024 * 1024) return 1;
+  if (largestPixels >= 1920 * 1080) return 2;
+  return Math.max(1, Math.min(4, Math.floor(os.cpus().length / 2)));
+}
+
+function renderBrowserOptions(diagnostics) {
+  return {
+    logLevel: "warn",
+    timeoutInMilliseconds: 120_000,
+    onBrowserLog: (entry) => diagnostics.write("browser", { type: entry.type, text: entry.text, stackTrace: entry.stackTrace }),
+  };
+}
+
+async function retryClosedBrowser(action, diagnostics, report) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try { return await action(attempt); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      diagnostics.write("attempt-failed", { attempt, message, stack: error instanceof Error ? error.stack : undefined, freeMemory: os.freemem() });
+      if (attempt === 2 || /cancel/i.test(message) || !isClosedBrowserError(message)) throw error;
+      report?.({ phase: "preparing", progress: 0, message: "Chromium closed during initialization; retrying once with a fresh browser" });
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
+  throw new Error("Renderer retry ended unexpectedly.");
+}
+
+function createProgressDiagnostics(diagnostics) {
+  let lastPhase = "";
+  let lastBucket = -1;
+  return (details) => {
+    const bucket = Math.floor(Math.max(0, Math.min(1, Number(details.progress) || 0)) * 20);
+    if (details.phase === lastPhase && bucket === lastBucket) return;
+    lastPhase = details.phase;
+    lastBucket = bucket;
+    diagnostics.write("render-progress", details);
+  };
+}
+
+function isClosedBrowserError(message) {
+  return /Target closed|Page\.addScriptToEvaluateOnNewDocument|browser (?:was )?closed|session closed/i.test(message);
+}
+
+function createRenderDiagnostics(project, options, target) {
+  const directory = path.join(app.getPath("userData"), "render-logs");
+  fs.mkdirSync(directory, { recursive: true });
+  const filePath = path.join(directory, `${safeFileName(project.name || "kurogi-motion")}-${Date.now()}.jsonl`);
+  const write = (event, details = {}) => {
+    try { fs.appendFileSync(filePath, `${JSON.stringify({ timestamp: new Date().toISOString(), event, ...details })}\n`, "utf8"); }
+    catch {}
+  };
+  write("render-created", {
+    target,
+    options,
+    project: { id: project.id, name: project.name, scenes: Object.keys(project.scenes ?? {}).length, layers: Object.keys(project.layers ?? {}).length, assets: Object.keys(project.assets ?? {}).length },
+    memory: { total: os.totalmem(), free: os.freemem() },
   });
-  report({ phase: "completed", progress: 1, renderedFrames: frameCount, encodedFrames: frameCount, frameCount, message: target });
-  return { path: target };
+  return { path: filePath, write };
+}
+
+function renderFailure(error, diagnostics) {
+  const message = error instanceof Error ? error.message : String(error);
+  diagnostics.write("render-failed", { message, stack: error instanceof Error ? error.stack : undefined, freeMemory: os.freemem() });
+  const wrapped = new Error(`${message} Renderer log: ${diagnostics.path}`);
+  wrapped.cause = error;
+  wrapped.renderLogPath = diagnostics.path;
+  return wrapped;
 }
 
 function updateRenderJob(job, update) {

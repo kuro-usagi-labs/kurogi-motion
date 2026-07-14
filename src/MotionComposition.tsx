@@ -8,6 +8,7 @@ import {
   splitTextUnits,
 } from "./core/evaluator";
 import { getActiveScene, getSceneLayers } from "./core/project";
+import { getLayerRenderTiming } from "./core/layerTiming";
 import { audioClipVolumeAt, getSceneAudioClips } from "./core/audio";
 import { textVerticalJustification } from "./core/textLayout";
 import { snapLayerPosition, type AlignmentGuide } from "./core/designTools";
@@ -249,10 +250,9 @@ export const MotionComposition: React.FC<Props> = ({
       {showSafeArea ? <SafeArea /> : null}
       {renderedLayers.map((layer) => {
         if (!layer.visible || layer.maskSource || layer.parentId) return null;
-        const layerStartTime = Math.max(0, layer.startTime ?? 0);
-        const layerDuration = Math.max(.01, layer.duration ?? scene.duration);
-        if (time < layerStartTime || time >= layerStartTime + layerDuration) return null;
-        const layerTime = time - layerStartTime;
+        const timing = getLayerRenderTiming(layer, scene);
+        if (time < timing.startTime || time >= timing.startTime + timing.duration) return null;
+        const layerTime = time - timing.animationOffset;
         const visual = evaluateLayer(layer, scene, layerTime);
         const selected = editable && showSelection && (selectedIds?.includes(layer.id) ?? selectedId === layer.id);
         const isEditing = textEdit?.layerId === layer.id;

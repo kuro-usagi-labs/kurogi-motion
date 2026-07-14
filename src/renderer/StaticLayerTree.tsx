@@ -1,5 +1,6 @@
 import React from "react";
 import { evaluateLayer, evaluateTextUnit, getTextAnimationUnit, splitTextUnits } from "../core/evaluator";
+import { getLayerRenderTiming } from "../core/layerTiming";
 import { getShapeDefinition, getShapeMaskStyle, isBoxShape } from "../core/shapeLibrary";
 import { textVerticalJustification } from "../core/textLayout";
 import type { KurogiProject, Layer, Scene, Size, TextLayer } from "../types";
@@ -20,10 +21,9 @@ export function StaticLayerTree({
   parentSize: Size;
 }) {
   if (!layer.visible || layer.maskSource) return null;
-  const layerStartTime = Math.max(0, layer.startTime ?? 0);
-  const layerDuration = Math.max(.01, layer.duration ?? scene.duration);
-  if (time < layerStartTime || time >= layerStartTime + layerDuration) return null;
-  const layerTime = time - layerStartTime;
+  const timing = getLayerRenderTiming(layer, scene);
+  if (time < timing.startTime || time >= timing.startTime + timing.duration) return null;
+  const layerTime = time - timing.animationOffset;
   const visual = evaluateLayer(layer, scene, layerTime);
   const style: React.CSSProperties = {
     position: "absolute",

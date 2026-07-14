@@ -17,6 +17,8 @@ assert.ok(menu.includes('label="Scene"') && menu.includes('label="Layer"') && me
 assert.ok(menu.includes('label="New Project…"') && menu.includes('label="Open Project…"'), "File menu must expose project entry points.");
 assert.ok(menu.includes('label="Align Left"') && menu.includes('label="Distribute Horizontally"'), "Edit menu must expose alignment commands.");
 assert.ok(menu.includes('label="Scene Settings…"') && menu.includes('label="Copy Animation"'), "Scene and animation commands must be routed through menus.");
+assert.ok(menu.includes('import { createPortal } from "react-dom"'), "Dropdowns must use a React portal to escape toolbar clipping.");
+assert.ok(menu.includes('document.body') && menu.includes('data-editor-menu-popover="true"'), "Portal dropdowns must mount on document.body with a stable outside-click marker.");
 assert.ok(design.includes("ALIGNMENT_ICONS") && design.includes("design-tools-icon-button"), "Alignment toolbar must use icon-only controls.");
 assert.ok(!design.includes("alignmentLabel(mode)"), "Letter-based alignment buttons must be removed.");
 assert.ok(icons.includes('"alignLeft"') && icons.includes('"alignCenterVertical"') && icons.includes('"distributeHorizontal"'), "Alignment SVG icons must be registered.");
@@ -24,8 +26,11 @@ assert.ok(stage.includes("multi-scene-toolbar is-compact"), "Scene workspace too
 assert.ok(!stage.includes('onClick={onCreateScene}'), "Visible scene creation duplicate must be removed from the workspace toolbar.");
 assert.ok(stage.includes('command.type === "fit-all"') && stage.includes('command.type === "scene-settings"'), "Workspace menu commands must execute in the stage.");
 assert.ok(main.includes('import "./editorMenu.css";'), "Editor menu stylesheet must be loaded.");
-assert.match(css, /grid-template-columns:auto auto minmax\(140px,1fr\) auto/);
-assert.match(css, /\.design-tools-panel \.design-tools-icon-button/);
-assert.match(css, /\.editor-menu-dropdown/);
+assert.match(css, /grid-template-columns:\s*auto\s+auto\s+minmax\(140px,\s*1fr\)\s+auto/);
+assert.match(css, /\.design-tools-panel\s+\.design-tools-icon-button/);
+assert.match(css, /\.editor-menu-portal-layer\s*\{[\s\S]*position:\s*fixed[\s\S]*z-index:\s*2147483000/);
+assert.match(css, /\.editor-menu-dropdown\s*\{[\s\S]*position:\s*fixed/);
+assert.doesNotMatch(css, /\.editor-menu-dropdown\s*\{[\s\S]{0,160}position:\s*absolute/);
+assert.match(css, /--window-controls-safe-area:\s*150px/);
 
-console.log("Editor command UI audit passed: menus are functional, duplicate controls are removed, and alignment uses SVG icons.");
+console.log("Editor command UI audit passed: menus are portaled above the workspace, window controls have safe space, duplicates are removed, and alignment uses SVG icons.");

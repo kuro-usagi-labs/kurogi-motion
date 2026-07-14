@@ -6,12 +6,14 @@ on:
       - feat/animation-workflow-v1
     paths:
       - scripts/apply-animation-workflow-v1.cjs
+      - scripts/fix-animation-workflow-patch.cjs
       - .github/workflows/apply-animation-workflow-v1.yml
   pull_request:
     branches:
       - main
     paths:
       - scripts/apply-animation-workflow-v1.cjs
+      - scripts/fix-animation-workflow-patch.cjs
       - .github/workflows/apply-animation-workflow-v1.yml
 
 permissions:
@@ -29,6 +31,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Repair integration source
+        run: node scripts/fix-animation-workflow-patch.cjs
       - name: Apply integration patch
         shell: bash
         run: |
@@ -36,7 +40,7 @@ jobs:
           node scripts/apply-animation-workflow-v1.cjs 2>&1 | tee patch.log
       - name: Commit generated integration
         run: |
-          if git diff --quiet; then
+          if git diff --quiet -- src/types.ts src/core/project.ts src/core/evaluator.ts src/editor/animationPresets.ts src/ui/Icon.tsx src/MotionComposition.tsx src/editor/MultiSceneCanvasStage.tsx src/editor/InspectorV2.tsx src/app/Editor.tsx src/core/sceneWorkspace.ts src/main.tsx package.json; then
             echo "Integration already applied."
             exit 0
           fi

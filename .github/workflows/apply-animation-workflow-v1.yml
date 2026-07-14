@@ -1,0 +1,37 @@
+name: Apply Animation Workflow V1
+
+on:
+  push:
+    branches:
+      - feat/animation-workflow-v1
+    paths:
+      - scripts/apply-animation-workflow-v1.cjs
+      - .github/workflows/apply-animation-workflow-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/animation-workflow-v1
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply integration patch
+        run: node scripts/apply-animation-workflow-v1.cjs
+      - name: Commit generated integration
+        run: |
+          if git diff --quiet; then
+            echo "Integration already applied."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/types.ts src/core/project.ts src/core/evaluator.ts src/editor/animationPresets.ts src/ui/Icon.tsx src/MotionComposition.tsx src/editor/MultiSceneCanvasStage.tsx src/editor/InspectorV2.tsx src/app/Editor.tsx src/core/sceneWorkspace.ts src/main.tsx package.json
+          git commit -m "feat: wire animation workflow v1"
+          git push origin HEAD:feat/animation-workflow-v1

@@ -106,6 +106,7 @@ jobs:
         run: |
           set -o pipefail
           npm run audit:mcp 2>&1 | tee mcp-audit.log
+          npm run audit:mcp-protocol 2>&1 | tee -a mcp-audit.log
           node -e "import('./mcp/server.mjs').then(() => console.log('MCP SDK import passed.'))" 2>&1 | tee -a mcp-audit.log
 
       - name: Audit effect renderer

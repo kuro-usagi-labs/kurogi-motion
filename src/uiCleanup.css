@@ -1,0 +1,50 @@
+/* UI visibility and duplicate-control cleanup. Loaded after editorMenu.css. */
+.dashboard-v3-topbar {
+  --window-controls-safe-area: 150px;
+  padding-right: var(--window-controls-safe-area) !important;
+  -webkit-app-region: drag;
+}
+
+.dashboard-v3-topbar .dashboard-tabs,
+.dashboard-v3-topbar .dashboard-top-actions,
+.dashboard-v3-topbar button,
+.dashboard-v3-topbar input,
+.dashboard-v3-topbar select {
+  -webkit-app-region: no-drag;
+}
+
+.dashboard-v3-topbar .dashboard-top-actions {
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.scene-toolbar-primary .scene-name-input {
+  min-width: 110px;
+}
+
+@media (max-width: 980px) {
+  .dashboard-v3-topbar {
+    gap: 8px;
+    padding-left: 14px !important;
+    padding-right: 138px !important;
+  }
+
+  .dashboard-v3-topbar .dashboard-brand > span:last-child {
+    display: none;
+  }
+
+  .dashboard-v3-topbar .dashboard-top-actions {
+    gap: 6px;
+  }
+
+  .dashboard-v3-topbar .dashboard-quiet-action {
+    width: 38px;
+    padding: 0 !important;
+    font-size: 0;
+  }
+
+  .dashboard-v3-topbar .dashboard-primary-action {
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+}

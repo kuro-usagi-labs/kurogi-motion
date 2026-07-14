@@ -226,6 +226,12 @@ export function Timeline({
     seekToTime(time);
   }
 
+  function seekToTime(time: number) {
+    const targetFrame = Math.min(Math.max(0, Math.round(time * scene.fps)), Math.max(0, Math.round(scene.duration * scene.fps) - 1));
+    playerRef.current?.seekTo(targetFrame);
+    setFrame(targetFrame);
+  }
+
   function seekFromPointer(event: React.PointerEvent<HTMLDivElement>) {
     if ((event.target as HTMLElement).closest(".timeline-action")) return;
     const rect = event.currentTarget.getBoundingClientRect();

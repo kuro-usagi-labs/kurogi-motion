@@ -89,6 +89,12 @@ jobs:
           set -o pipefail
           npm run audit:preview-recovery 2>&1 | tee preview-recovery-audit.log
 
+      - name: Audit editor command UI
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:editor-command-ui 2>&1 | tee editor-command-ui-audit.log
+
       - name: Audit effect renderer
         shell: bash
         run: |
@@ -128,6 +134,7 @@ jobs:
             design-tools-audit.log
             animation-workflow-audit.log
             preview-recovery-audit.log
+            editor-command-ui-audit.log
             effect-audit.log
             loop-audit.log
             text-canvas-audit.log

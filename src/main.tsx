@@ -12,6 +12,7 @@ import "./multiscene.css";
 import "./designTools.css";
 import "./animationWorkflow.css";
 import "./previewRecovery.css";
+import "./editorMenu.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Kurogi Motion could not find the application root.");

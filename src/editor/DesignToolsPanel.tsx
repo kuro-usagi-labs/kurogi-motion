@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { AlignMode, DistributeMode } from "../core/designTools";
 import type { BlendMode, GradientFill, KurogiProject, Layer } from "../types";
+import { Icon, type IconName } from "../ui/Icon";
 
 interface DesignToolsPanelProps {
   project: KurogiProject;
@@ -30,6 +31,7 @@ const BLEND_MODES: BlendMode[] = [
 ];
 
 const SYSTEM_FONTS = ["Inter", "Arial", "Georgia", "Times New Roman", "Courier New", "Verdana"];
+const ALIGNMENT_ICONS: Record<AlignMode, IconName> = { left: "alignLeft", center: "alignCenterHorizontal", right: "alignRight", top: "alignTop", middle: "alignCenterVertical", bottom: "alignBottom" };
 
 export function DesignToolsPanel({
   project,
@@ -91,13 +93,13 @@ export function DesignToolsPanel({
         <button type="button" className={project.settings.snapEnabled ? "active" : ""} onClick={onToggleSnap} title="Toggle smart snapping">Snap</button>
       </div>
 
-      <div className="design-tools-section" aria-label="Alignment tools">
-        <span className="design-tools-label">Align</span>
+      <div className="design-tools-section design-tools-align-section" aria-label="Alignment tools">
         {(["left", "center", "right", "top", "middle", "bottom"] as AlignMode[]).map((mode) => (
-          <button type="button" key={mode} disabled={!selectedLayers.length} onClick={() => onAlign(mode)} title={`Align ${mode}`}>{alignmentLabel(mode)}</button>
+          <button type="button" className="design-tools-icon-button" key={mode} disabled={!selectedLayers.length} onClick={() => onAlign(mode)} title={alignmentTitle(mode)} aria-label={alignmentTitle(mode)}><Icon name={ALIGNMENT_ICONS[mode]} size={15} /></button>
         ))}
-        <button type="button" disabled={selectedLayers.length < 3} onClick={() => onDistribute("horizontal")} title="Distribute horizontal spacing">Dist H</button>
-        <button type="button" disabled={selectedLayers.length < 3} onClick={() => onDistribute("vertical")} title="Distribute vertical spacing">Dist V</button>
+        <span className="design-tools-mini-divider" />
+        <button type="button" className="design-tools-icon-button" disabled={selectedLayers.length < 3} onClick={() => onDistribute("horizontal")} title="Distribute horizontal spacing" aria-label="Distribute horizontal spacing"><Icon name="distributeHorizontal" size={15} /></button>
+        <button type="button" className="design-tools-icon-button" disabled={selectedLayers.length < 3} onClick={() => onDistribute("vertical")} title="Distribute vertical spacing" aria-label="Distribute vertical spacing"><Icon name="distributeVertical" size={15} /></button>
       </div>
 
       <div className="design-tools-section">
@@ -171,8 +173,8 @@ export function DesignToolsPanel({
   );
 }
 
-function alignmentLabel(mode: AlignMode) {
-  if (mode === "center") return "C";
-  if (mode === "middle") return "M";
-  return mode.charAt(0).toUpperCase();
+function alignmentTitle(mode: AlignMode) {
+  if (mode === "center") return "Align horizontal center";
+  if (mode === "middle") return "Align vertical center";
+  return `Align ${mode}`;
 }

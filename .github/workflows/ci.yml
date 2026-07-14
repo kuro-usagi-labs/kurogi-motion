@@ -23,24 +23,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Apply and commit feature
+      - name: Apply and capture feature patch
         shell: bash
         run: |
           set +e
           node scripts/apply-clipping-mask-feature.cjs > clipping-patch.log 2>&1
           status=$?
+          mkdir -p scripts
+          {
+            echo "exit_status=$status"
+            echo "--- output ---"
+            tail -100 clipping-patch.log
+            echo "--- git status ---"
+            git status --short
+          } > scripts/clipping-patch-status.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ "$status" -ne 0 ]; then
-            mkdir -p scripts
-            tail -80 clipping-patch.log > scripts/clipping-patch-error.log
-            git add scripts/clipping-patch-error.log
-            git commit -m "chore: capture clipping mask patch error"
-            git pull --rebase origin feat/clipping-mask-context-menu
-            git push origin HEAD:feat/clipping-mask-context-menu
-            exit 0
-          fi
-          git add src/types.ts src/core/designTools.ts src/core/project.ts src/renderer/designStyles.ts src/MotionComposition.tsx src/renderer/StaticLayerTree.tsx src/editor/MultiSceneCanvasStage.tsx src/app/Editor.tsx src/main.tsx package.json scripts/audit-clipping-mask.mjs
-          git commit -m "feat: add Photoshop-style clipping masks" || exit 0
+          git add src/types.ts src/core/designTools.ts src/core/project.ts src/renderer/designStyles.ts src/MotionComposition.tsx src/renderer/StaticLayerTree.tsx src/editor/MultiSceneCanvasStage.tsx src/app/Editor.tsx src/main.tsx package.json scripts/audit-clipping-mask.mjs scripts/clipping-patch-status.log
+          git commit -m "chore: capture clipping mask patch result"
           git pull --rebase origin feat/clipping-mask-context-menu
           git push origin HEAD:feat/clipping-mask-context-menu

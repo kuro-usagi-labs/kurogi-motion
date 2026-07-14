@@ -92,6 +92,16 @@ export function MultiSceneCanvasStage({
 }: MultiSceneCanvasStageProps) {
   const activeScene = project.scenes[project.activeSceneId] ?? Object.values(project.scenes)[0];
   const scenes = Object.values(project.scenes);
+  const workspaceBounds = getSceneWorkspaceBounds(project);
+  const workspacePadding = 240;
+  const workspaceOrigin = {
+    x: workspaceBounds.left - workspacePadding,
+    y: workspaceBounds.top - workspacePadding,
+  };
+  const workspaceSize = {
+    width: Math.max(1, workspaceBounds.width + workspacePadding * 2),
+    height: Math.max(1, workspaceBounds.height + workspacePadding * 2),
+  };
   const selectedLayer = selectedLayerId ? project.layers[selectedLayerId] ?? null : null;
   const stageRef = useRef<HTMLElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -347,18 +357,20 @@ export function MultiSceneCanvasStage({
   }
 
   function fitAllScenes() {
-    const bounds = getSceneWorkspaceBounds(project);
     const horizontalPadding = 160;
     const verticalPadding = 180;
     const scale = clamp(
       Math.min(
-        (available.width - horizontalPadding) / Math.max(1, bounds.width),
-        (available.height - verticalPadding) / Math.max(1, bounds.height),
+        (available.width - horizontalPadding) / Math.max(1, workspaceBounds.width),
+        (available.height - verticalPadding) / Math.max(1, workspaceBounds.height),
       ),
       0.05,
       2.5,
     );
-    const center = { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
+    const center = {
+      x: workspaceBounds.left + workspaceBounds.width / 2 - workspaceOrigin.x,
+      y: workspaceBounds.top + workspaceBounds.height / 2 - workspaceOrigin.y,
+    };
     setView(scale * 100, { x: -center.x * scale, y: -center.y * scale });
   }
 
@@ -374,7 +386,10 @@ export function MultiSceneCanvasStage({
       0.05,
       2.5,
     );
-    const center = { x: position.x + scene.width / 2, y: position.y + scene.height / 2 };
+    const center = {
+      x: position.x + scene.width / 2 - workspaceOrigin.x,
+      y: position.y + scene.height / 2 - workspaceOrigin.y,
+    };
     setView(scale * 100, { x: -center.x * scale, y: -center.y * scale });
   }
 
@@ -483,8 +498,15 @@ export function MultiSceneCanvasStage({
       ) : null}
 
       <div className="multi-scene-viewport" ref={viewportRef} data-canvas-viewport="true">
-        <div className="workspace-pan-shell" style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
-          <div className="workspace-scale-shell" style={{ transform: `scale(${viewScale})` }}>
+        <div
+          className="workspace-world"
+          data-workspace-world="true"
+          style={{
+            width: workspaceSize.width,
+            height: workspaceSize.height,
+            transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${viewScale})`,
+          }}
+        >
             {scenes.map((scene) => {
               const active = scene.id === activeScene.id;
               const position = draftPositions[scene.id] ?? getSceneWorkspacePosition(scene);
@@ -496,7 +518,12 @@ export function MultiSceneCanvasStage({
                 <article
                   key={scene.id}
                   className={`workspace-artboard ${active ? "is-active" : ""}`}
-                  style={{ left: position.x, top: position.y, width: scene.width, height: scene.height }}
+                  style={{
+                    left: position.x - workspaceOrigin.x,
+                    top: position.y - workspaceOrigin.y,
+                    width: scene.width,
+                    height: scene.height,
+                  }}
                   onPointerDown={() => { if (!active) onActivateScene(scene.id); }}
                 >
                   <div className="workspace-artboard-label" onPointerDown={(event) => beginSceneMove(event, scene.id)}>
@@ -522,7 +549,6 @@ export function MultiSceneCanvasStage({
                 </article>
               );
             })}
-          </div>
         </div>
       </div>
 

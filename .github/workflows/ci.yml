@@ -83,6 +83,12 @@ jobs:
           set -o pipefail
           npm run audit:animation-workflow 2>&1 | tee animation-workflow-audit.log
 
+      - name: Audit preview recovery
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:preview-recovery 2>&1 | tee preview-recovery-audit.log
+
       - name: Audit effect renderer
         shell: bash
         run: |
@@ -121,6 +127,7 @@ jobs:
             multiscene-audit.log
             design-tools-audit.log
             animation-workflow-audit.log
+            preview-recovery-audit.log
             effect-audit.log
             loop-audit.log
             text-canvas-audit.log

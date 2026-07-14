@@ -1,4 +1,4 @@
-export const PROJECT_VERSION = 5;
+export const PROJECT_VERSION = 6;
 
 export type LayerType = "text" | "shape" | "image" | "svg" | "group";
 export type ShapeType =
@@ -37,7 +37,8 @@ export type EasingName =
   | "backOut"
   | "overshoot"
   | "bounce"
-  | "elastic";
+  | "elastic"
+  | "custom";
 
 export type AnimationType =
   | "fadeIn"
@@ -56,6 +57,8 @@ export type AnimationType =
   | "dropIn"
   | "rollIn"
   | "elasticIn"
+  | "counter"
+  | "motionPath"
   | "pulse"
   | "float"
   | "shake"
@@ -116,6 +119,22 @@ export interface Point {
   y: number;
 }
 
+export interface CubicBezier {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface MotionPathDefinition {
+  enabled: boolean;
+  start: Point;
+  control1: Point;
+  control2: Point;
+  end: Point;
+  orientToPath: boolean;
+}
+
 export interface Size {
   width: number;
   height: number;
@@ -130,6 +149,9 @@ export interface AnimationAction {
   duration: number;
   delay: number;
   easing: EasingName;
+  easingCurve?: CubicBezier;
+  groupId?: string;
+  motionPath?: MotionPathDefinition;
   parameters: Record<string, number | string | boolean>;
   stagger?: {
     enabled: boolean;
@@ -246,6 +268,42 @@ export interface ProjectAsset {
   fontStyle?: "normal" | "italic";
 }
 
+export interface AnimationGroup {
+  id: string;
+  name: string;
+}
+
+export interface AnimationPresetAction {
+  category: AnimationCategory;
+  type: AnimationType;
+  startOffset?: number;
+  duration: number;
+  delay: number;
+  easing: EasingName;
+  easingCurve?: CubicBezier;
+  parameters: Record<string, number | string | boolean>;
+  stagger?: AnimationAction["stagger"];
+  repeat?: AnimationAction["repeat"];
+  motionPath?: MotionPathDefinition;
+}
+
+export interface CustomAnimationPreset {
+  id: string;
+  name: string;
+  createdAt: string;
+  actions: AnimationPresetAction[];
+}
+
+export interface AnimationClipboardAction extends AnimationPresetAction {
+  effectiveOffset: number;
+}
+
+export interface AnimationClipboard {
+  version: 1;
+  copiedAt: string;
+  actions: AnimationClipboardAction[];
+}
+
 export interface KurogiProject {
   id: string;
   name: string;
@@ -256,6 +314,8 @@ export interface KurogiProject {
   scenes: Record<string, Scene>;
   layers: Record<string, Layer>;
   assets: Record<string, ProjectAsset>;
+  animationGroups: Record<string, AnimationGroup>;
+  animationPresets: Record<string, CustomAnimationPreset>;
   settings: {
     autoSave: boolean;
     snapEnabled: boolean;

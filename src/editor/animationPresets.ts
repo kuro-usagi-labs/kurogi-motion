@@ -27,6 +27,8 @@ export const ANIMATION_PRESETS: AnimationPreset[] = [
   { type: "dropIn", category: "in", label: "Drop", description: "Drop in with weight", icon: "move", recommendedEasing: "bounce", recommendedDuration: .9 },
   { type: "rollIn", category: "in", label: "Roll", description: "Roll in from the side", icon: "rotate", recommendedEasing: "easeOut", recommendedDuration: .85 },
   { type: "elasticIn", category: "in", label: "Elastic", description: "Playful elastic expansion", icon: "pulse", recommendedEasing: "elastic", recommendedDuration: 1 },
+  { type: "counter", category: "in", label: "Counter", description: "Animate a numeric value without keyframes", icon: "text", recommendedEasing: "easeOut", recommendedDuration: 1.2 },
+  { type: "motionPath", category: "in", label: "Motion path", description: "Travel along an editable cubic Bezier curve", icon: "move", recommendedEasing: "easeInOut", recommendedDuration: 1.4 },
 
   { type: "pulse", category: "loop", label: "Pulse", description: "Rhythmic scale loop", icon: "pulse", recommendedEasing: "easeInOut", recommendedDuration: 1.2 },
   { type: "float", category: "loop", label: "Float", description: "Gentle vertical motion", icon: "float", recommendedEasing: "easeInOut", recommendedDuration: 2.2 },

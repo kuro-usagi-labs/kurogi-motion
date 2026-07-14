@@ -47,6 +47,21 @@ import {
   type AlignMode,
   type DistributeMode,
 } from "../core/designTools";
+import {
+  applyCustomAnimationPreset,
+  copyAnimationActions,
+  createAnimationGroup,
+  deleteAnimationActions,
+  deleteCustomAnimationPreset,
+  duplicateAnimationActions,
+  expandActionSelection,
+  pasteAnimationActions,
+  refsFromActionIds,
+  saveCustomAnimationPreset,
+  staggerAnimationActions,
+  ungroupAnimationActions,
+  updateAnimationActions,
+} from "../core/animationWorkflow";
 import { useProjectHistory } from "../core/useProjectHistory";
 import { Inspector, type InspectorTab } from "../editor/InspectorV2";
 import { MultiSceneCanvasStage } from "../editor/MultiSceneCanvasStage";
@@ -54,19 +69,22 @@ import { DesignToolsPanel } from "../editor/DesignToolsPanel";
 import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
 import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
-import { Timeline } from "../editor/TimelineV3";
+import { Timeline, type TimelineActionPatch } from "../editor/TimelineV3";
 import { ExportDialog, ExportToast, type ExportNotice } from "../editor/ExportDialog";
 import type {
   AnimationAction,
   AnimationCategory,
+  AnimationClipboard,
   AnimationType,
   ExportOptions,
   ExportProgress,
   GradientFill,
   KurogiProject,
   Layer,
+  MotionPathDefinition,
   ProjectAsset,
   ShapeType,
+  StaggerOrder,
 } from "../types";
 
 interface EditorProps {
@@ -92,7 +110,9 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const layers = getSceneLayers(project);
   const [selectedLayerId, setPrimaryLayerId] = useState(scene.layerIds.at(-1) ?? "");
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>(() => selectedLayerId ? [selectedLayerId] : []);
-  const [selectedActionId, setSelectedActionId] = useState("");
+  const [selectedActionId, setPrimaryActionId] = useState("");
+  const [selectedActionIds, setSelectedActionIds] = useState<string[]>([]);
+  const [animationClipboard, setAnimationClipboard] = useState<AnimationClipboard | null>(null);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("layers");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("Design");
   const [zoom, setZoom] = useState(64);
@@ -133,7 +153,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     if (!active) return;
     if (!selected || selected.sceneId !== active.id) {
       selectOnly(active.layerIds.at(-1) ?? "");
-      setSelectedActionId("");
+      setOnlyAction("");
     }
     setPlaying(false);
   }, [project.activeSceneId]);
@@ -210,9 +230,11 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       }
       if (!editable && modifier && event.key.toLowerCase() === "d") {
         event.preventDefault();
-        if (selectedActionId) duplicateAction(selectedActionId);
+        if (selectedActionIds.length) duplicateActions(selectedActionIds);
         else duplicateSelectedLayer();
       }
+      if (!editable && modifier && event.key.toLowerCase() === "c" && selectedActionIds.length) { event.preventDefault(); copySelectedActions(selectedActionIds); }
+      if (!editable && modifier && event.key.toLowerCase() === "v" && animationClipboard && selectedLayerIds.length) { event.preventDefault(); pasteSelectedActions(); }
       if (!editable && modifier && event.key.toLowerCase() === "g") {
         event.preventDefault();
         if (event.shiftKey) ungroupSelected();
@@ -220,7 +242,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       }
       if (!editable && (event.key === "Delete" || event.key === "Backspace")) {
         event.preventDefault();
-        if (selectedActionId) deleteAction(selectedActionId);
+        if (selectedActionIds.length) deleteActions(selectedActionIds);
         else deleteSelectedLayer();
       }
     };
@@ -239,6 +261,8 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     return () => window.clearTimeout(timer);
   }, [exportNotice]);
 
+  function setOnlyAction(actionId: string) { setPrimaryActionId(actionId); setSelectedActionIds(actionId ? [actionId] : []); }
+
   function selectOnly(layerId: string) {
     setPrimaryLayerId(layerId);
     setSelectedLayerIds(layerId ? [layerId] : []);
@@ -247,7 +271,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   function selectLayer(layerId: string, additive = false) {
     if (!layerId) {
       selectOnly("");
-      setSelectedActionId("");
+      setOnlyAction("");
       return;
     }
     if (additive) {
@@ -257,12 +281,28 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         return next;
       });
     } else selectOnly(layerId);
-    if (project.layers[layerId]?.animationActions.every((action) => action.id !== selectedActionId)) setSelectedActionId("");
+    if (project.layers[layerId]?.animationActions.every((action) => action.id !== selectedActionId)) setOnlyAction("");
   }
 
-  function selectAction(layerId: string, actionId: string) {
-    selectOnly(layerId);
-    setSelectedActionId(actionId);
+  function selectAction(layerId: string, actionId: string, additive = false) {
+    const expanded = expandActionSelection(project, [{ layerId, actionId }]);
+    const ids = expanded.map((ref) => ref.actionId);
+    const ownerIds = [...new Set(expanded.map((ref) => ref.layerId))];
+    if (additive) {
+      setSelectedActionIds((current) => {
+        const allSelected = ids.every((id) => current.includes(id));
+        const next = allSelected ? current.filter((id) => !ids.includes(id)) : [...new Set([...current, ...ids])];
+        setPrimaryActionId(next.at(-1) ?? "");
+        return next;
+      });
+      setSelectedLayerIds((current) => [...new Set([...current, ...ownerIds])]);
+      setPrimaryLayerId(layerId);
+    } else {
+      setSelectedActionIds(ids);
+      setPrimaryActionId(ids.at(-1) ?? actionId);
+      setSelectedLayerIds(ownerIds.length ? ownerIds : [layerId]);
+      setPrimaryLayerId(layerId);
+    }
     setInspectorTab("Animation");
   }
 
@@ -310,7 +350,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     );
     commitProject((current) => addLayers(current, [layer]));
     selectOnly(layer.id);
-    setSelectedActionId(layer.animationActions[0]?.id ?? "");
+    setOnlyAction(layer.animationActions[0]?.id ?? "");
     setSidebarTab("layers");
     setInspectorTab("Design");
   }
@@ -325,7 +365,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     );
     commitProject((current) => addLayers(current, [layer]));
     selectOnly(layer.id);
-    setSelectedActionId(layer.animationActions[0]?.id ?? "");
+    setOnlyAction(layer.animationActions[0]?.id ?? "");
     setSidebarTab("layers");
     setInspectorTab("Design");
   }
@@ -375,7 +415,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         return addLayers(next, [layer]);
       });
       selectOnly(layer.id);
-      setSelectedActionId(layer.animationActions[0]?.id ?? "");
+      setOnlyAction(layer.animationActions[0]?.id ?? "");
       setSidebarTab("layers");
     } catch {
       if (temporaryUrl) URL.revokeObjectURL(temporaryUrl);
@@ -397,7 +437,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     const ids = scene.layerIds.filter((id) => id !== layerId);
     commitProject((current) => removeLayer(current, layerId));
     selectOnly(ids.at(-1) ?? "");
-    setSelectedActionId("");
+    setOnlyAction("");
   }
 
   function deleteSelectedLayer() {
@@ -405,7 +445,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     const ids = [...selectedLayerIds];
     commitProject((current) => ids.reduce((next, id) => removeLayer(next, id), current));
     selectOnly("");
-    setSelectedActionId("");
+    setOnlyAction("");
   }
 
   function duplicateLayerById(layerId: string) {
@@ -415,7 +455,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       window.queueMicrotask(() => selectOnly(result.layerId));
       return result.project;
     });
-    setSelectedActionId("");
+    setOnlyAction("");
   }
 
   function duplicateSelectedLayer() {
@@ -451,14 +491,21 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         : 0;
     const action = createAnimationAction(selectedLayer.id, category, type, {
       startTime: defaultStart,
-      duration: category === "loop" ? Math.min(1.5, scene.duration) : 0.65,
+      duration: type === "counter" ? 1.2 : type === "motionPath" ? 1.4 : category === "loop" ? Math.min(1.5, scene.duration) : 0.65,
+      motionPath: type === "motionPath" ? { enabled: true, start: { x: 0, y: 0 }, control1: { x: 100, y: -120 }, control2: { x: 220, y: 120 }, end: { x: 320, y: 0 }, orientToPath: false } : undefined,
     });
     commitLayer(selectedLayer.id, (layer) => ({
       ...layer,
       animationActions: [...layer.animationActions, action],
     }));
-    setSelectedActionId(action.id);
+    setOnlyAction(action.id);
     setInspectorTab("Animation");
+  }
+
+  function deleteActions(actionIds: string[]) {
+    const refs = refsFromActionIds(project, actionIds);
+    commitProject((current) => deleteAnimationActions(current, refs));
+    setOnlyAction("");
   }
 
   function deleteAction(actionId: string) {
@@ -468,7 +515,16 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       ...layer,
       animationActions: layer.animationActions.filter((action) => action.id !== actionId),
     }));
-    setSelectedActionId("");
+    setOnlyAction("");
+  }
+
+  function duplicateActions(actionIds: string[]) {
+    const refs = refsFromActionIds(project, actionIds);
+    commitProject((current) => {
+      const result = duplicateAnimationActions(current, refs);
+      window.queueMicrotask(() => { setSelectedActionIds(result.refs.map((ref) => ref.actionId)); setPrimaryActionId(result.refs.at(-1)?.actionId ?? ""); });
+      return result.project;
+    });
   }
 
   function duplicateAction(actionId: string) {
@@ -485,16 +541,50 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       animationActions: [...layer.animationActions, copy],
     }));
     selectOnly(owner.id);
-    setSelectedActionId(copy.id);
+    setOnlyAction(copy.id);
   }
 
-  function commitTimelineAction(
-    layerId: string,
-    actionId: string,
-    patch: Partial<Pick<AnimationAction, "startTime" | "duration">>,
-  ) {
-    commitAction(layerId, actionId, (action) => ({ ...action, ...patch }));
+  function commitTimelineActions(patches: TimelineActionPatch[]) { commitProject((current) => updateAnimationActions(current, patches)); }
+
+  function copySelectedActions(actionIds = selectedActionIds) {
+    const clipboard = copyAnimationActions(project, refsFromActionIds(project, actionIds));
+    if (clipboard) setAnimationClipboard(clipboard);
   }
+
+  function pasteSelectedActions() {
+    if (!animationClipboard || !selectedLayerIds.length) return;
+    const start = (playerRef.current?.getCurrentFrame() ?? 0) / scene.fps;
+    commitProject((current) => {
+      const result = pasteAnimationActions(current, selectedLayerIds, animationClipboard, start);
+      window.queueMicrotask(() => { setSelectedActionIds(result.refs.map((ref) => ref.actionId)); setPrimaryActionId(result.refs.at(-1)?.actionId ?? ""); setInspectorTab("Animation"); });
+      return result.project;
+    });
+  }
+
+  function staggerSelectedActions(step: number, order: StaggerOrder) { commitProject((current) => staggerAnimationActions(current, refsFromActionIds(current, selectedActionIds), step, order)); }
+  function groupSelectedActions() {
+    const name = window.prompt("Animation group name", "Animation group") ?? "";
+    if (!name.trim()) return;
+    commitProject((current) => createAnimationGroup(current, refsFromActionIds(current, selectedActionIds), name).project);
+  }
+  function ungroupSelectedActions() { commitProject((current) => ungroupAnimationActions(current, refsFromActionIds(current, selectedActionIds))); }
+  function saveSelectedAnimationPreset() {
+    if (!selectedActionIds.length) return;
+    const name = window.prompt("Preset name", "Custom motion") ?? "";
+    if (!name.trim()) return;
+    commitProject((current) => saveCustomAnimationPreset(current, name, refsFromActionIds(current, selectedActionIds)).project);
+  }
+  function applyAnimationPreset(presetId: string) {
+    if (!selectedLayerIds.length) return;
+    const start = (playerRef.current?.getCurrentFrame() ?? 0) / scene.fps;
+    commitProject((current) => {
+      const result = applyCustomAnimationPreset(current, presetId, selectedLayerIds, start);
+      window.queueMicrotask(() => { setSelectedActionIds(result.refs.map((ref) => ref.actionId)); setPrimaryActionId(result.refs.at(-1)?.actionId ?? ""); });
+      return result.project;
+    });
+  }
+  function removeAnimationPreset(presetId: string) { commitProject((current) => deleteCustomAnimationPreset(current, presetId)); }
+  function commitMotionPath(layerId: string, actionId: string, motionPath: MotionPathDefinition) { commitAction(layerId, actionId, (action) => ({ ...action, motionPath })); }
 
   function commitTransform(layerId: string, patch: Partial<Layer>) {
     commitLayer(layerId, (layer) => ({ ...layer, ...patch } as Layer));
@@ -512,7 +602,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         playerRef.current?.pause();
         setPlaying(false);
         selectOnly(active?.layerIds.at(-1) ?? "");
-        setSelectedActionId("");
+        setOnlyAction("");
       });
       return next;
     });
@@ -525,7 +615,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         playerRef.current?.pause();
         setPlaying(false);
         selectOnly("");
-        setSelectedActionId("");
+        setOnlyAction("");
       });
       return result.project;
     });
@@ -538,7 +628,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         playerRef.current?.pause();
         setPlaying(false);
         selectOnly(result.layerIds.at(-1) ?? "");
-        setSelectedActionId("");
+        setOnlyAction("");
       });
       return result.project;
     });
@@ -554,7 +644,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         playerRef.current?.pause();
         setPlaying(false);
         selectOnly(result.layerIds.at(-1) ?? "");
-        setSelectedActionId("");
+        setOnlyAction("");
       });
       return result.project;
     });
@@ -579,7 +669,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         playerRef.current?.pause();
         setPlaying(false);
         selectOnly(result.layerIds.at(-1) ?? "");
-        setSelectedActionId("");
+        setOnlyAction("");
         setSidebarTab("layers");
       });
       return result.project;
@@ -894,12 +984,14 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           playerRef={playerRef}
           selectedLayerId={selectedLayerId}
           selectedLayerIds={selectedLayerIds}
+          selectedActionId={selectedActionId}
           zoom={zoom}
           playing={playing}
           showSafeArea={showSafeArea}
           onSelect={selectLayer}
           onTransformCommit={commitTransform}
           onTextCommit={commitText}
+          onActionCommit={commitMotionPath}
           onZoomChange={setZoom}
           onDuplicateLayer={duplicateLayerById}
           onDeleteLayer={deleteLayerById}
@@ -927,9 +1019,12 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           onPreviewAction={previewAction}
           onCommitAction={commitAction}
           onAddAction={addAction}
-          onSelectAction={setSelectedActionId}
+          onSelectAction={(actionId) => { const owner = findActionOwner(project, actionId); if (owner) selectAction(owner.id, actionId); }}
           onDeleteAction={deleteAction}
           onDuplicateAction={duplicateAction}
+          onSavePreset={saveSelectedAnimationPreset}
+          onApplyCustomPreset={applyAnimationPreset}
+          onDeleteCustomPreset={removeAnimationPreset}
           exportOptions={exportOptions}
           onExportOptionsChange={setExportOptions}
           exporting={exporting}
@@ -942,12 +1037,20 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         project={project}
         playerRef={playerRef}
         selectedLayerId={selectedLayerId}
-        selectedActionId={selectedActionId}
+        selectedLayerIds={selectedLayerIds}
+        selectedActionIds={selectedActionIds}
         onSelectLayer={selectLayer}
         onSelectAction={selectAction}
-        onCommitAction={commitTimelineAction}
-        onDeleteAction={deleteAction}
-        onDuplicateAction={duplicateAction}
+        onCommitActions={commitTimelineActions}
+        onDeleteActions={deleteActions}
+        onDuplicateActions={duplicateActions}
+        onCopyActions={copySelectedActions}
+        onPasteActions={pasteSelectedActions}
+        onStaggerActions={staggerSelectedActions}
+        onGroupActions={groupSelectedActions}
+        onUngroupActions={ungroupSelectedActions}
+        onSavePreset={saveSelectedAnimationPreset}
+        canPaste={Boolean(animationClipboard)}
       />
     </main>
   );

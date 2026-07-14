@@ -62,7 +62,8 @@ export function Icon({ name, size = 18, className, strokeWidth = 1.8 }: { name: 
 
 export function animationIconName(type: string): IconName {
   if (type.startsWith("fade") || type.startsWith("dissolve")) return "fade";
-  if (type.startsWith("move") || type.startsWith("slide") || type.startsWith("drop") || type === "drift" || type === "orbit") return "move";
+  if (type.startsWith("move") || type.startsWith("slide") || type.startsWith("drop") || type === "drift" || type === "orbit" || type === "motionPath") return "move";
+  if (type === "counter") return "text";
   if (type.startsWith("scale") || type.startsWith("pop") || type.startsWith("spring") || type.startsWith("stretch") || type.startsWith("elastic")) return "scale";
   if (type.startsWith("rotate") || type.startsWith("flip") || type.startsWith("roll")) return "rotate";
   if (type.startsWith("blur") || type.startsWith("zoomBlur") || type === "ripple") return "blur";

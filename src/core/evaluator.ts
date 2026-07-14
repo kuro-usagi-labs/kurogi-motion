@@ -1,6 +1,7 @@
 import type {
   AnimationAction,
   AnimationType,
+  CubicBezier,
   EasingName,
   Layer,
   Scene,
@@ -140,6 +141,20 @@ export function splitTextUnits(text: string, unit: TextAnimationUnit): TextUnit[
   return Array.from(text).map((character, index) => ({ key: `character-${index}`, text: character }));
 }
 
+export function evaluateCounterText(layer: Layer, time: number): string | null {
+  if (layer.type !== "text") return null;
+  const action = [...layer.animationActions].reverse().find((candidate) => candidate.type === "counter");
+  if (!action) return null;
+  const progress = applyEasing(action.easing, oneShotProgress(action, time), action.easingCurve);
+  const from = numberParameter(action, "from", 0);
+  const to = numberParameter(action, "to", 100);
+  const decimals = Math.max(0, Math.min(6, Math.round(numberParameter(action, "decimals", 0))));
+  const prefix = stringParameter(action, "prefix", "");
+  const suffix = stringParameter(action, "suffix", "");
+  const value = from + (to - from) * progress;
+  return prefix + value.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + suffix;
+}
+
 export function getTextAnimationUnit(layer: Layer): TextAnimationUnit {
   if (layer.type !== "text") return "layer";
   const staggered = layer.animationActions.find(
@@ -148,8 +163,9 @@ export function getTextAnimationUnit(layer: Layer): TextAnimationUnit {
   return staggered?.stagger?.unit ?? "layer";
 }
 
-export function applyEasing(name: EasingName, progress: number): number {
+export function applyEasing(name: EasingName, progress: number, curve?: CubicBezier): number {
   const t = clamp(progress, 0, 1);
+  if (name === "custom") return cubicBezierProgress(curve ?? { x1: .25, y1: .1, x2: .25, y2: 1 }, t);
   if (name === "linear") return t;
   if (name === "easeIn") return t * t * t;
   if (name === "easeOut") return 1 - Math.pow(1 - t, 3);
@@ -172,20 +188,32 @@ export function applyEasing(name: EasingName, progress: number): number {
 }
 
 function applyActionToLayer(visual: EvaluatedLayerVisual, action: AnimationAction, scene: Scene, time: number) {
+  if (action.type === "motionPath" && action.motionPath?.enabled) {
+    const progress = applyEasing(action.easing, oneShotProgress(action, time), action.easingCurve);
+    const point = cubicPoint(action.motionPath.start, action.motionPath.control1, action.motionPath.control2, action.motionPath.end, progress);
+    visual.x += point.x;
+    visual.y += point.y;
+    if (action.motionPath.orientToPath) {
+      const tangent = cubicTangent(action.motionPath.start, action.motionPath.control1, action.motionPath.control2, action.motionPath.end, progress);
+      visual.rotation += Math.atan2(tangent.y, tangent.x) * 180 / Math.PI;
+    }
+    return;
+  }
+  if (action.type === "counter") return;
   if (action.category === "loop") {
     const progress = loopProgress(action, time);
     if (progress === null) return;
     applyLoop(
       visual,
       action,
-      applyEasing(action.easing, progress),
+      applyEasing(action.easing, progress, action.easingCurve),
       loopEntranceWeight(action, time),
     );
     return;
   }
 
   const raw = oneShotProgress(action, time);
-  const progress = applyEasing(action.easing, raw);
+  const progress = applyEasing(action.easing, raw, action.easingCurve);
   if (action.category === "in") applyIn(visual, action, progress, scene);
   else applyOut(visual, action, progress, scene);
 }
@@ -197,13 +225,13 @@ function applyActionToUnit(visual: EvaluatedUnitVisual, action: AnimationAction,
     applyUnitLoop(
       visual,
       action,
-      applyEasing(action.easing, progress),
+      applyEasing(action.easing, progress, action.easingCurve),
       loopEntranceWeight(action, time),
     );
     return;
   }
 
-  const progress = applyEasing(action.easing, oneShotProgress(action, time));
+  const progress = applyEasing(action.easing, oneShotProgress(action, time), action.easingCurve);
   const distance = numberParameter(action, "distance", Math.min(scene.width, scene.height) * .08);
   const direction = directionVector(stringParameter(action, "direction", "up"), distance);
   const rotation = numberParameter(action, "rotation", 35);
@@ -488,6 +516,44 @@ function staggerRank(index: number, count: number, order: StaggerOrder, seed: nu
   return index;
 }
 
+function cubicBezierProgress(curve: CubicBezier, progress: number) {
+  const x = clamp(progress, 0, 1);
+  let t = x;
+  for (let index = 0; index < 8; index += 1) {
+    const estimate = cubicScalar(0, curve.x1, curve.x2, 1, t) - x;
+    const derivative = cubicScalarDerivative(0, curve.x1, curve.x2, 1, t);
+    if (Math.abs(estimate) < 1e-6 || Math.abs(derivative) < 1e-6) break;
+    t = clamp(t - estimate / derivative, 0, 1);
+  }
+  let low = 0;
+  let high = 1;
+  for (let index = 0; index < 12; index += 1) {
+    const estimate = cubicScalar(0, curve.x1, curve.x2, 1, t);
+    if (Math.abs(estimate - x) < 1e-6) break;
+    if (estimate < x) low = t; else high = t;
+    t = (low + high) / 2;
+  }
+  return cubicScalar(0, curve.y1, curve.y2, 1, t);
+}
+
+function cubicPoint(start: { x: number; y: number }, control1: { x: number; y: number }, control2: { x: number; y: number }, end: { x: number; y: number }, progress: number) {
+  return { x: cubicScalar(start.x, control1.x, control2.x, end.x, progress), y: cubicScalar(start.y, control1.y, control2.y, end.y, progress) };
+}
+
+function cubicTangent(start: { x: number; y: number }, control1: { x: number; y: number }, control2: { x: number; y: number }, end: { x: number; y: number }, progress: number) {
+  return { x: cubicScalarDerivative(start.x, control1.x, control2.x, end.x, progress), y: cubicScalarDerivative(start.y, control1.y, control2.y, end.y, progress) };
+}
+
+function cubicScalar(start: number, control1: number, control2: number, end: number, progress: number) {
+  const inverse = 1 - progress;
+  return inverse * inverse * inverse * start + 3 * inverse * inverse * progress * control1 + 3 * inverse * progress * progress * control2 + progress * progress * progress * end;
+}
+
+function cubicScalarDerivative(start: number, control1: number, control2: number, end: number, progress: number) {
+  const inverse = 1 - progress;
+  return 3 * inverse * inverse * (control1 - start) + 6 * inverse * progress * (control2 - control1) + 3 * progress * progress * (end - control2);
+}
+
 function seededRandom(seed: number) {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
   return value - Math.floor(value);
@@ -509,7 +575,7 @@ function maskClip(direction: string, amount: number) {
 }
 
 function isFadingType(type: AnimationType) {
-  return !["pulse", "float", "shake", "spin", "breathe", "swing", "hover", "wobble", "heartbeat", "drift", "orbit", "wave", "jiggle", "glowPulse", "ripple", "liquid"].includes(type);
+  return !["counter", "motionPath", "pulse", "float", "shake", "spin", "breathe", "swing", "hover", "wobble", "heartbeat", "drift", "orbit", "wave", "jiggle", "glowPulse", "ripple", "liquid"].includes(type);
 }
 
 function isMovingType(type: AnimationType) {

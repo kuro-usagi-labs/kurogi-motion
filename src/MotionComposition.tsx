@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useCurrentFrame, useVideoConfig } from "remotion";
 import {
+  evaluateCounterText,
   evaluateLayer,
   evaluateTextUnit,
   getTextAnimationUnit,
@@ -12,8 +13,9 @@ import { snapLayerPosition, type AlignmentGuide } from "./core/designTools";
 import { getShapeDefinition, getShapeMaskStyle, isBoxShape } from "./core/shapeLibrary";
 import { LayerEffects } from "./renderer/LayerEffects";
 import { StaticLayerTree } from "./renderer/StaticLayerTree";
+import { MotionPathOverlay } from "./editor/MotionPathOverlay";
 import { gradientToCss, layerCompositingStyle, projectFontFaceCss, textPaintStyle } from "./renderer/designStyles";
-import type { KurogiProject, Layer, TextLayer } from "./types";
+import type { KurogiProject, Layer, MotionPathDefinition, TextLayer } from "./types";
 
 type TransformPatch = Partial<
   Pick<Layer, "position" | "size" | "rotation" | "scale" | "anchor">
@@ -23,9 +25,11 @@ type Props = {
   project: KurogiProject;
   selectedId?: string;
   selectedIds?: string[];
+  selectedActionId?: string;
   onSelect?: (id: string, additive?: boolean) => void;
   onTransformCommit?: (id: string, patch: TransformPatch) => void;
   onTextCommit?: (id: string, text: string) => void;
+  onActionCommit?: (layerId: string, actionId: string, motionPath: MotionPathDefinition) => void;
   editable?: boolean;
   showSelection?: boolean;
   showSafeArea?: boolean;
@@ -52,9 +56,11 @@ export const MotionComposition: React.FC<Props> = ({
   project,
   selectedId,
   selectedIds,
+  selectedActionId,
   onSelect,
   onTransformCommit,
   onTextCommit,
+  onActionCommit,
   editable = false,
   showSelection = true,
   showSafeArea = false,
@@ -346,15 +352,17 @@ export const MotionComposition: React.FC<Props> = ({
       {alignmentGuides.map((guide, index) => (
         <div key={`${guide.axis}-${guide.position}-${index}`} className={`alignment-guide alignment-guide-${guide.axis}`} style={guide.axis === "x" ? { left: `${(guide.position / scene.width) * 100}%` } : { top: `${(guide.position / scene.height) * 100}%` }} />
       ))}
+      {editable && selectedActionId ? (() => { const owner = findActionOwner(project, selectedActionId); return owner?.action.type === "motionPath" && owner.action.motionPath ? <MotionPathOverlay scene={scene} layer={owner.layer} action={owner.action} onCommit={onActionCommit} /> : null; })() : null}
     </div>
   );
 };
 
 function AnimatedText({ layer, scene, time }: { layer: TextLayer; scene: ReturnType<typeof getActiveScene>; time: number }) {
+  const displayText = evaluateCounterText(layer, time) ?? layer.text;
   const unit = getTextAnimationUnit(layer);
-  const units = splitTextUnits(layer.text, unit);
+  const units = splitTextUnits(displayText, unit);
   if (unit === "layer") {
-    return <TextFrame layer={layer}><div style={{ ...textStyle(layer), width: "100%" }}>{layer.text}</div></TextFrame>;
+    return <TextFrame layer={layer}><div style={{ ...textStyle(layer), width: "100%" }}>{displayText}</div></TextFrame>;
   }
 
   return (
@@ -417,6 +425,8 @@ function textStyle(layer: TextLayer): React.CSSProperties {
     minWidth: 0,
   };
 }
+
+function findActionOwner(project: KurogiProject, actionId: string) { for (const layer of Object.values(project.layers)) { const action = layer.animationActions.find((candidate) => candidate.id === actionId); if (action) return { layer, action }; } return null; }
 
 function moveCaretToEnd(element: HTMLElement) {
   const selection = window.getSelection();

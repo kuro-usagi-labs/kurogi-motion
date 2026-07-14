@@ -17,6 +17,7 @@ interface EditorMenuBarProps {
   canGroupAnimation: boolean;
   safeAreaEnabled: boolean;
   snapEnabled: boolean;
+  designToolbarVisible: boolean;
   onNewProject: () => void;
   onOpenProject: () => void;
   onSave: () => void;
@@ -38,6 +39,7 @@ interface EditorMenuBarProps {
   onFocusScene: () => void;
   onToggleSafeArea: () => void;
   onToggleSnap: () => void;
+  onToggleDesignToolbar: () => void;
   onCreateScene: () => void;
   onDuplicateScene: () => void;
   onDeleteScene: () => void;
@@ -131,6 +133,9 @@ export function EditorMenuBar(props: EditorMenuBarProps) {
         <MenuSeparator />
         <MenuItem label="Safe Area" checked={props.safeAreaEnabled} onSelect={() => run(props.onToggleSafeArea)} />
         <MenuItem label="Smart Snap" checked={props.snapEnabled} onSelect={() => run(props.onToggleSnap)} />
+        <MenuSeparator />
+        <MenuSection label="Panels" />
+        <MenuItem label="Design Toolbar" checked={props.designToolbarVisible} onSelect={() => run(props.onToggleDesignToolbar)} />
       </Menu>
 
       <Menu label="Scene" open={openMenu === "Scene"} onToggle={() => setOpenMenu(openMenu === "Scene" ? null : "Scene")}>

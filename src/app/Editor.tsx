@@ -67,6 +67,7 @@ import { Inspector, type InspectorTab } from "../editor/InspectorV2";
 import { MultiSceneCanvasStage, type WorkspaceCommand } from "../editor/MultiSceneCanvasStage";
 import { DesignToolsPanel } from "../editor/DesignToolsPanel";
 import { EditorMenuBar } from "../editor/EditorMenuBar";
+import { loadEditorUiPreferences, saveEditorUiPreferences, type EditorUiPreferences } from "../core/editorUiPreferences";
 import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
 import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
@@ -119,6 +120,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [zoom, setZoom] = useState(64);
   const [playing, setPlaying] = useState(false);
   const [showSafeArea, setShowSafeArea] = useState(false);
+  const [uiPreferences, setUiPreferences] = useState<EditorUiPreferences>(() => loadEditorUiPreferences());
   const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand | null>(null);
   const [draggedLayerId, setDraggedLayerId] = useState("");
   const [dragOverLayerId, setDragOverLayerId] = useState("");
@@ -267,6 +269,10 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     const timer = window.setTimeout(() => setExportNotice(null), exportNotice.tone === "success" ? 6500 : 9000);
     return () => window.clearTimeout(timer);
   }, [exportNotice]);
+
+  useEffect(() => {
+    saveEditorUiPreferences(uiPreferences);
+  }, [uiPreferences]);
 
   function setOnlyAction(actionId: string) { setPrimaryActionId(actionId); setSelectedActionIds(actionId ? [actionId] : []); }
 
@@ -715,6 +721,9 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   function toggleSmartSnap() {
     commitProject((current) => touchProject({ ...cloneProject(current), settings: { ...current.settings, snapEnabled: !current.settings.snapEnabled } }));
   }
+  function toggleDesignToolbar() {
+    setUiPreferences((current) => ({ ...current, showDesignToolbar: !current.showDesignToolbar }));
+  }
   async function importFont(file: File) {
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
     if (!["woff", "woff2", "ttf", "otf"].includes(extension) || file.size > 12 * 1024 * 1024) {
@@ -902,6 +911,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           canGroupAnimation={selectedActionIds.length >= 2}
           safeAreaEnabled={showSafeArea}
           snapEnabled={project.settings.snapEnabled}
+          designToolbarVisible={uiPreferences.showDesignToolbar}
           onNewProject={() => void leaveEditor()}
           onOpenProject={() => void leaveEditor()}
           onSave={() => void saveNow()}
@@ -923,6 +933,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           onFocusScene={() => issueWorkspaceCommand("focus-scene")}
           onToggleSafeArea={() => setShowSafeArea((value) => !value)}
           onToggleSnap={toggleSmartSnap}
+          onToggleDesignToolbar={toggleDesignToolbar}
           onCreateScene={addWorkspaceScene}
           onDuplicateScene={() => duplicateActiveWorkspaceScene(scene.id)}
           onDeleteScene={() => deleteWorkspaceScene(scene.id)}
@@ -1068,22 +1079,24 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           ) : null}
         </aside>
 
-        <DesignToolsPanel
-          project={project}
-          selectedLayers={selectedLayers}
-          onAlign={alignSelection}
-          onDistribute={distributeSelection}
-          onGroup={groupSelected}
-          onUngroup={ungroupSelected}
-          onGradient={applySelectionGradient}
-          onBlendMode={(mode) => commitProject((current) => setBlendMode(current, selectedLayerIds, mode))}
-          onBackgroundBlur={(radius) => commitProject((current) => setBackgroundBlur(current, selectedLayerIds, radius))}
-          onApplyMask={applySelectionMask}
-          onClearMask={clearSelectionMask}
-          onFontFamily={(family) => commitProject((current) => setFontFamily(current, selectedLayerIds, family))}
-          onImportFont={(file) => void importFont(file)}
-          onToggleSnap={toggleSmartSnap}
-        />
+        {uiPreferences.showDesignToolbar ? (
+          <DesignToolsPanel
+            project={project}
+            selectedLayers={selectedLayers}
+            onAlign={alignSelection}
+            onDistribute={distributeSelection}
+            onGroup={groupSelected}
+            onUngroup={ungroupSelected}
+            onGradient={applySelectionGradient}
+            onBlendMode={(mode) => commitProject((current) => setBlendMode(current, selectedLayerIds, mode))}
+            onBackgroundBlur={(radius) => commitProject((current) => setBackgroundBlur(current, selectedLayerIds, radius))}
+            onApplyMask={applySelectionMask}
+            onClearMask={clearSelectionMask}
+            onFontFamily={(family) => commitProject((current) => setFontFamily(current, selectedLayerIds, family))}
+            onImportFont={(file) => void importFont(file)}
+            onToggleSnap={toggleSmartSnap}
+          />
+        ) : null}
 
         <MultiSceneCanvasStage
           project={project}

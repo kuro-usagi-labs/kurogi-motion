@@ -37,9 +37,10 @@ jobs:
             echo "--- git status ---"
             git status --short
           } > scripts/clipping-patch-status.log
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/types.ts src/core/designTools.ts src/core/project.ts src/renderer/designStyles.ts src/MotionComposition.tsx src/renderer/StaticLayerTree.tsx src/editor/MultiSceneCanvasStage.tsx src/app/Editor.tsx src/main.tsx package.json scripts/audit-clipping-mask.mjs scripts/clipping-patch-status.log
+          git add -A
           git commit -m "chore: capture clipping mask patch result"
           git pull --rebase origin feat/clipping-mask-context-menu
           git push origin HEAD:feat/clipping-mask-context-menu

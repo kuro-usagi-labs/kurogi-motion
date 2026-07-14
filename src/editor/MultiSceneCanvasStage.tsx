@@ -11,6 +11,11 @@ import type { KurogiProject, Layer, MotionPathDefinition } from "../types";
 import { Icon } from "../ui/Icon";
 import { normalizeWheelDelta, panForZoomAnchor, zoomFromWheel } from "./canvasMath";
 
+export interface WorkspaceCommand {
+  type: "fit-all" | "focus-scene" | "scene-settings";
+  nonce: number;
+}
+
 interface MultiSceneCanvasStageProps {
   project: KurogiProject;
   playerRef: React.RefObject<PlayerRef>;
@@ -20,6 +25,7 @@ interface MultiSceneCanvasStageProps {
   zoom: number;
   playing: boolean;
   showSafeArea: boolean;
+  command?: WorkspaceCommand | null;
   onSelect: (id: string, additive?: boolean) => void;
   onTransformCommit: (id: string, patch: Partial<Layer>) => void;
   onTextCommit: (id: string, text: string) => void;
@@ -29,9 +35,6 @@ interface MultiSceneCanvasStageProps {
   onDuplicateLayer?: (layerId: string) => void;
   onDeleteLayer?: (layerId: string) => void;
   onActivateScene: (sceneId: string) => void;
-  onCreateScene: () => void;
-  onDuplicateScene: (sceneId: string) => void;
-  onDeleteScene: (sceneId: string) => void;
   onRenameScene: (sceneId: string, name: string) => void;
   onUpdateScene: (sceneId: string, patch: SceneUpdatePatch) => void;
   onMoveScene: (sceneId: string, position: SceneWorkspacePosition) => void;
@@ -73,6 +76,7 @@ export function MultiSceneCanvasStage({
   zoom,
   playing: _playing,
   showSafeArea,
+  command,
   onSelect,
   onTransformCommit,
   onTextCommit,
@@ -82,9 +86,6 @@ export function MultiSceneCanvasStage({
   onDuplicateLayer,
   onDeleteLayer,
   onActivateScene,
-  onCreateScene,
-  onDuplicateScene,
-  onDeleteScene,
   onRenameScene,
   onUpdateScene,
   onMoveScene,
@@ -226,6 +227,16 @@ export function MultiSceneCanvasStage({
     const frame = window.requestAnimationFrame(() => fitAllScenes());
     return () => window.cancelAnimationFrame(frame);
   }, [available.height, available.width, project.id, scenes.length]);
+
+  useEffect(() => {
+    if (!command) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (command.type === "fit-all") fitAllScenes();
+      if (command.type === "focus-scene") focusScene(activeScene.id);
+      if (command.type === "scene-settings") setSettingsOpen(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [command?.nonce]);
 
   const stableSelect = useCallback((id: string, additive = false) => callbacksRef.current.onSelect(id, additive), []);
   const stableTransformCommit = useCallback(
@@ -444,12 +455,8 @@ export function MultiSceneCanvasStage({
         }}
       />
 
-      <div className="multi-scene-toolbar">
+      <div className="multi-scene-toolbar is-compact">
         <div className="scene-toolbar-primary">
-          <button type="button" onClick={onCreateScene} title="Create scene"><Icon name="plus" size={15} />Scene</button>
-          <button type="button" onClick={() => onDuplicateScene(activeScene.id)} title="Duplicate active scene"><Icon name="copy" size={15} />Duplicate</button>
-          <button type="button" disabled={scenes.length <= 1} onClick={() => onDeleteScene(activeScene.id)} title="Delete active scene"><Icon name="trash" size={15} /></button>
-          <span className="scene-toolbar-divider" />
           <input
             className="scene-name-input"
             value={settingsDraft.name}

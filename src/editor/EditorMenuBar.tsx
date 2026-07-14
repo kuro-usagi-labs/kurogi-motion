@@ -8,6 +8,7 @@ interface EditorMenuBarProps {
   canDuplicate: boolean;
   canDelete: boolean;
   canGroup: boolean;
+  canDistribute: boolean;
   canUngroup: boolean;
   canDeleteScene: boolean;
   canCopyAnimation: boolean;
@@ -111,8 +112,8 @@ export function EditorMenuBar(props: EditorMenuBarProps) {
         <MenuItem label="Align Top" disabled={!props.canDuplicate} onSelect={() => run(() => props.onAlign("top"))} />
         <MenuItem label="Align Vertical Center" disabled={!props.canDuplicate} onSelect={() => run(() => props.onAlign("middle"))} />
         <MenuItem label="Align Bottom" disabled={!props.canDuplicate} onSelect={() => run(() => props.onAlign("bottom"))} />
-        <MenuItem label="Distribute Horizontally" disabled={!props.canGroup} onSelect={() => run(() => props.onDistribute("horizontal"))} />
-        <MenuItem label="Distribute Vertically" disabled={!props.canGroup} onSelect={() => run(() => props.onDistribute("vertical"))} />
+        <MenuItem label="Distribute Horizontally" disabled={!props.canDistribute} onSelect={() => run(() => props.onDistribute("horizontal"))} />
+        <MenuItem label="Distribute Vertically" disabled={!props.canDistribute} onSelect={() => run(() => props.onDistribute("vertical"))} />
       </Menu>
 
       <Menu label="View" open={openMenu === "View"} onToggle={() => setOpenMenu(openMenu === "View" ? null : "View")}>

@@ -64,8 +64,9 @@ import {
 } from "../core/animationWorkflow";
 import { useProjectHistory } from "../core/useProjectHistory";
 import { Inspector, type InspectorTab } from "../editor/InspectorV2";
-import { MultiSceneCanvasStage } from "../editor/MultiSceneCanvasStage";
+import { MultiSceneCanvasStage, type WorkspaceCommand } from "../editor/MultiSceneCanvasStage";
 import { DesignToolsPanel } from "../editor/DesignToolsPanel";
+import { EditorMenuBar } from "../editor/EditorMenuBar";
 import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
 import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
@@ -118,6 +119,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [zoom, setZoom] = useState(64);
   const [playing, setPlaying] = useState(false);
   const [showSafeArea, setShowSafeArea] = useState(false);
+  const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand | null>(null);
   const [draggedLayerId, setDraggedLayerId] = useState("");
   const [dragOverLayerId, setDragOverLayerId] = useState("");
   const [saveStatus, setSaveStatus] = useState<"Saving draft…" | "Draft saved" | "Saving…" | "Saved" | "Save failed" | "Copied">("Saved");
@@ -215,6 +217,11 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         const current = playerRef.current?.getCurrentFrame() ?? 0;
         playerRef.current?.seekTo(Math.min(scene.duration * scene.fps - 1, current + 1));
       }
+      if (!editable && modifier && event.key.toLowerCase() === "n") { event.preventDefault(); void leaveEditor(); }
+      if (!editable && modifier && event.key.toLowerCase() === "o") { event.preventDefault(); void leaveEditor(); }
+      if (!editable && modifier && event.key.toLowerCase() === "e") { event.preventDefault(); setExportProgress(null); setExportDialogOpen(true); }
+      if (!editable && modifier && event.key.toLowerCase() === "a") { event.preventDefault(); selectAllLayers(); }
+      if (!editable && event.key === "Escape") { deselectAllLayers(); }
       if (modifier && event.key.toLowerCase() === "s") {
         event.preventDefault();
         void saveNow();
@@ -724,6 +731,58 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     } catch { window.alert("The font could not be imported."); }
   }
 
+  function issueWorkspaceCommand(type: WorkspaceCommand["type"]) {
+    setWorkspaceCommand((current) => ({ type, nonce: (current?.nonce ?? 0) + 1 }));
+  }
+
+  function selectAllLayers() {
+    setSelectedLayerIds([...scene.layerIds]);
+    setPrimaryLayerId(scene.layerIds.at(-1) ?? "");
+    setOnlyAction("");
+  }
+
+  function deselectAllLayers() {
+    selectOnly("");
+    setOnlyAction("");
+  }
+
+  function bringSelectedForward() {
+    if (selectedLayerId) commitProject((current) => reorderLayer(current, selectedLayerId, "up"));
+  }
+
+  function sendSelectedBackward() {
+    if (selectedLayerId) commitProject((current) => reorderLayer(current, selectedLayerId, "down"));
+  }
+
+  function toggleSelectedVisibility() {
+    if (!selectedLayerIds.length) return;
+    commitProject((current) => selectedLayerIds.reduce((next, id) => updateLayer(next, id, (layer) => ({ ...layer, visible: !layer.visible })), current));
+  }
+
+  function toggleSelectedLock() {
+    if (!selectedLayerIds.length) return;
+    commitProject((current) => selectedLayerIds.reduce((next, id) => updateLayer(next, id, (layer) => ({ ...layer, locked: !layer.locked })), current));
+  }
+
+  function openAnimationCategory(category: AnimationCategory) {
+    setInspectorTab("Animation");
+    const action = selectedLayer?.animationActions.find((candidate) => candidate.category === category);
+    setOnlyAction(action?.id ?? "");
+  }
+
+  function staggerFromMenu() {
+    if (!selectedActionIds.length) return;
+    const value = window.prompt("Stagger interval in seconds", "0.08");
+    if (value === null) return;
+    const step = Number(value);
+    if (!Number.isFinite(step) || step < 0) { window.alert("Enter a valid stagger interval."); return; }
+    staggerSelectedActions(step, "forward");
+  }
+
+  function showKeyboardShortcuts() {
+    window.alert("Space: Play/Pause\nCtrl+S: Save\nCtrl+Z: Undo\nCtrl+Shift+Z: Redo\nCtrl+D: Duplicate\nCtrl+G: Group\nCtrl+Shift+G: Ungroup\nDelete: Remove selection");
+  }
+
   function togglePlay() {
     if (playing) playerRef.current?.pause();
     else playerRef.current?.play();
@@ -825,24 +884,71 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           event.currentTarget.value = "";
         }}
       />
-      <header className="toolbar editor-toolbar">
+      <header className="toolbar editor-toolbar editor-command-toolbar">
         <button type="button" className="toolbar-brand-button" onClick={() => void leaveEditor()} title="Back to projects">
           <div className="brand"><span className="brand-mark">K</span><span>kurogi<span className="muted">motion</span></span></div>
         </button>
+        <EditorMenuBar
+          canUndo={history.canUndo}
+          canRedo={history.canRedo}
+          canDuplicate={Boolean(selectedLayerId)}
+          canDelete={Boolean(selectedLayerId || selectedActionIds.length)}
+          canGroup={selectedLayerIds.length >= 2}
+          canDistribute={selectedLayerIds.length >= 3}
+          canUngroup={selectedLayer?.type === "group"}
+          canDeleteScene={Object.keys(project.scenes).length > 1}
+          canCopyAnimation={selectedActionIds.length > 0}
+          canPasteAnimation={Boolean(animationClipboard && selectedLayerIds.length)}
+          canGroupAnimation={selectedActionIds.length >= 2}
+          safeAreaEnabled={showSafeArea}
+          snapEnabled={project.settings.snapEnabled}
+          onNewProject={() => void leaveEditor()}
+          onOpenProject={() => void leaveEditor()}
+          onSave={() => void saveNow()}
+          onImportAsset={() => assetInputRef.current?.click()}
+          onCopyProject={() => void copyProjectSnapshot()}
+          onExport={() => { setExportProgress(null); setExportDialogOpen(true); }}
+          onUndo={history.undo}
+          onRedo={history.redo}
+          onDuplicate={() => selectedActionIds.length ? duplicateActions(selectedActionIds) : duplicateSelectedLayer()}
+          onDelete={() => selectedActionIds.length ? deleteActions(selectedActionIds) : deleteSelectedLayer()}
+          onSelectAll={selectAllLayers}
+          onDeselectAll={deselectAllLayers}
+          onAlign={alignSelection}
+          onDistribute={distributeSelection}
+          onZoomIn={() => setZoom((value) => Math.min(250, value + 10))}
+          onZoomOut={() => setZoom((value) => Math.max(5, value - 10))}
+          onResetZoom={() => setZoom(100)}
+          onFitAll={() => issueWorkspaceCommand("fit-all")}
+          onFocusScene={() => issueWorkspaceCommand("focus-scene")}
+          onToggleSafeArea={() => setShowSafeArea((value) => !value)}
+          onToggleSnap={toggleSmartSnap}
+          onCreateScene={addWorkspaceScene}
+          onDuplicateScene={() => duplicateActiveWorkspaceScene(scene.id)}
+          onDeleteScene={() => deleteWorkspaceScene(scene.id)}
+          onSceneSettings={() => issueWorkspaceCommand("scene-settings")}
+          onBringForward={bringSelectedForward}
+          onSendBackward={sendSelectedBackward}
+          onGroup={groupSelected}
+          onUngroup={ungroupSelected}
+          onToggleVisibility={toggleSelectedVisibility}
+          onToggleLock={toggleSelectedLock}
+          onOpenAnimationCategory={openAnimationCategory}
+          onCopyAnimation={() => copySelectedActions()}
+          onPasteAnimation={pasteSelectedActions}
+          onStaggerAnimation={staggerFromMenu}
+          onGroupAnimation={groupSelectedActions}
+          onUngroupAnimation={ungroupSelectedActions}
+          onSaveAnimationPreset={saveSelectedAnimationPreset}
+          onShowShortcuts={showKeyboardShortcuts}
+          onShowAbout={() => window.alert("Kurogi Motion\nLocal-first motion design editor powered by Remotion.")}
+        />
         <div className="project-name">
           <strong>{project.name}</strong>
           <span className={`save-dot status-${saveStatus.toLowerCase().replace(/\W/g, "-")}`}>● {saveStatus}</span>
         </div>
         <div className="toolbar-actions">
-          <button type="button" className="icon-btn" disabled={!history.canUndo} onClick={history.undo} title="Undo"><Icon name="undo" size={16} /></button>
-          <button type="button" className="icon-btn" disabled={!history.canRedo} onClick={history.redo} title="Redo"><Icon name="redo" size={16} /></button>
-          <span className="toolbar-divider" />
-          <button type="button" className="icon-btn" onClick={() => setZoom((value) => Math.max(25, value - 10))} title="Zoom out"><Icon name="minus" size={15} /></button>
-          <span className="zoom">{zoom}%</span>
-          <button type="button" className="icon-btn" onClick={() => setZoom((value) => Math.min(150, value + 10))} title="Zoom in"><Icon name="plus" size={15} /></button>
-          <button type="button" className={showSafeArea ? "icon-btn active" : "icon-btn"} onClick={() => setShowSafeArea((value) => !value)} title="Toggle safe area"><Icon name="frame" size={16} /></button>
           <button type="button" className="preview" onClick={togglePlay}>{playing ? <><Icon name="pause" size={15} />Pause</> : <><Icon name="play" size={15} />Preview</>}</button>
-          <button type="button" className="share-button" onClick={() => void copyProjectSnapshot()}><Icon name="share" size={15} />Share</button>
           <button type="button" className="export" onClick={() => { setExportProgress(null); setExportDialogOpen(true); }}>Export <Icon name="export" size={15} /></button>
         </div>
       </header>
@@ -988,6 +1094,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           zoom={zoom}
           playing={playing}
           showSafeArea={showSafeArea}
+          command={workspaceCommand}
           onSelect={selectLayer}
           onTransformCommit={commitTransform}
           onTextCommit={commitText}
@@ -996,9 +1103,6 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           onDuplicateLayer={duplicateLayerById}
           onDeleteLayer={deleteLayerById}
           onActivateScene={activateWorkspaceScene}
-          onCreateScene={addWorkspaceScene}
-          onDuplicateScene={duplicateActiveWorkspaceScene}
-          onDeleteScene={deleteWorkspaceScene}
           onRenameScene={renameWorkspaceSceneById}
           onUpdateScene={updateWorkspaceSceneById}
           onMoveScene={moveWorkspaceSceneById}

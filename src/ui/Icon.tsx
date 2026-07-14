@@ -8,7 +8,9 @@ export type IconName =
   | "search" | "sparkles" | "fade" | "move" | "scale" | "rotate"
   | "blur" | "mask" | "pulse" | "float" | "shake" | "spin"
   | "breathe" | "swing" | "rectangle" | "circle" | "line"
-  | "polygon" | "arrow" | "restart" | "previous" | "next" | "grip";
+  | "polygon" | "arrow" | "alignLeft" | "alignCenterHorizontal" | "alignRight"
+  | "alignTop" | "alignCenterVertical" | "alignBottom" | "distributeHorizontal" | "distributeVertical"
+  | "restart" | "previous" | "next" | "grip";
 
 const paths: Record<IconName, React.ReactNode> = {
   layers: <><path d="M4 7h16"/><path d="M6 3h12l2 4H4l2-4Z"/><path d="M5 11h14l-2 4H7l-2-4Z"/><path d="M8 19h8"/></>,
@@ -50,6 +52,14 @@ const paths: Record<IconName, React.ReactNode> = {
   rectangle: <rect x="4" y="6" width="16" height="12" rx="2"/>, circle: <circle cx="12" cy="12" r="8"/>,
   line: <path d="M4 12h16"/>, polygon: <path d="m12 3 9 7-3.5 11h-11L3 10l9-7Z"/>,
   arrow: <><path d="M4 12h15"/><path d="m14 7 5 5-5 5"/></>,
+  alignLeft: <><path d="M4 4v16"/><path d="M4 7h12"/><path d="M4 12h16"/><path d="M4 17h9"/></>,
+  alignCenterHorizontal: <><path d="M12 4v16"/><path d="M6 7h12"/><path d="M4 12h16"/><path d="M7.5 17h9"/></>,
+  alignRight: <><path d="M20 4v16"/><path d="M8 7h12"/><path d="M4 12h16"/><path d="M11 17h9"/></>,
+  alignTop: <><path d="M4 4h16"/><path d="M7 4v12"/><path d="M12 4v16"/><path d="M17 4v9"/></>,
+  alignCenterVertical: <><path d="M4 12h16"/><path d="M7 6v12"/><path d="M12 4v16"/><path d="M17 7.5v9"/></>,
+  alignBottom: <><path d="M4 20h16"/><path d="M7 8v12"/><path d="M12 4v16"/><path d="M17 11v9"/></>,
+  distributeHorizontal: <><path d="M4 4v16M20 4v16"/><rect x="7" y="7" width="3" height="10" rx="1"/><rect x="14" y="7" width="3" height="10" rx="1"/></>,
+  distributeVertical: <><path d="M4 4h16M4 20h16"/><rect x="7" y="7" width="10" height="3" rx="1"/><rect x="7" y="14" width="10" height="3" rx="1"/></>,
   restart: <><path d="M4 4v6h6"/><path d="M5.5 16a8 8 0 1 0 .5-8"/></>,
   previous: <><path d="M6 5v14"/><path d="m18 6-8 6 8 6V6Z"/></>,
   next: <><path d="M18 5v14"/><path d="m6 6 8 6-8 6V6Z"/></>,

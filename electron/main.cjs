@@ -1,9 +1,14 @@
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { pathToFileURL } = require("node:url");
+const { createMcpBridge } = require("./mcpBridge.cjs");
 
 let packagedBundlePromise = null;
 let exportInProgress = false;
+let mainWindow = null;
+let mcpBridge = null;
+const mcpMode = process.argv.includes("--mcp");
 
 const createWindow = () => {
   const window = new BrowserWindow({
@@ -21,6 +26,8 @@ const createWindow = () => {
       sandbox: true,
     },
   });
+  mainWindow = window;
+  window.on("closed", () => { if (mainWindow === window) mainWindow = null; });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
@@ -40,13 +47,37 @@ const createWindow = () => {
   }
 };
 
-app.whenReady().then(createWindow);
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
+if (mcpMode) {
+  app.whenReady().then(async () => {
+    const entry = path.join(app.getAppPath(), "mcp", "server.mjs");
+    const module = await import(pathToFileURL(entry).href);
+    await module.startKurogiMcpServer({ bridgeFile: path.join(app.getPath("userData"), "mcp-bridge.json") });
+  }).catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    app.exit(1);
+  });
+} else {
+  app.whenReady().then(async () => {
+    mcpBridge = createMcpBridge({ app, ipcMain, getWindow: () => mainWindow });
+    try { await mcpBridge.start(); } catch (error) { console.error("Unable to start MCP bridge", error); }
+    createWindow();
+  });
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+  app.on("before-quit", () => { void mcpBridge?.stop(); });
+}
+
+ipcMain.handle("mcp-info", async () => ({
+  bridgeRunning: Boolean(mcpBridge?.readConnectionInfo()),
+  bridgeFile: path.join(app.getPath("userData"), "mcp-bridge.json"),
+  command: process.execPath,
+  args: app.isPackaged ? ["--mcp"] : [app.getAppPath(), "--mcp"],
+  packaged: app.isPackaged,
+}));
 
 ipcMain.handle("export-video", async (event, project, rawOptions = {}) => {
   if (exportInProgress) throw new Error("Another export is already running.");

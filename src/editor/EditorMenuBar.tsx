@@ -58,6 +58,7 @@ interface EditorMenuBarProps {
   onUngroupAnimation: () => void;
   onSaveAnimationPreset: () => void;
   onShowShortcuts: () => void;
+  onShowMcpIntegration: () => void;
   onShowAbout: () => void;
 }
 
@@ -173,6 +174,8 @@ export function EditorMenuBar(props: EditorMenuBarProps) {
 
       <Menu label="Help" open={openMenu === "Help"} onToggle={() => setOpenMenu(openMenu === "Help" ? null : "Help")}>
         <MenuItem label="Keyboard Shortcuts" onSelect={() => run(props.onShowShortcuts)} />
+        <MenuItem label="MCP Integration…" onSelect={() => run(props.onShowMcpIntegration)} />
+        <MenuSeparator />
         <MenuItem label="About Kurogi Motion" onSelect={() => run(props.onShowAbout)} />
       </Menu>
     </nav>

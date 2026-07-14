@@ -13,6 +13,7 @@ import "./designTools.css";
 import "./animationWorkflow.css";
 import "./previewRecovery.css";
 import "./editorMenu.css";
+import "./mcp.css";
 import "./uiCleanup.css";
 
 const root = document.getElementById("root");

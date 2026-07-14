@@ -25,6 +25,7 @@ import { persistProjectBeforeExit } from "./core/saveBeforeExit";
 import { ensureSceneWorkspace } from "./core/sceneWorkspace";
 import { createCatalogTemplateProject } from "./core/templateCatalog";
 import type { KurogiProject } from "./types";
+import type { McpBridgeRequest } from "./core/mcpCommands";
 
 export default function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -37,6 +38,26 @@ export default function App() {
   useEffect(() => {
     void initialize();
   }, []);
+
+  useEffect(() => {
+    if (currentProject) return;
+    const unsubscribe = window.kurogi?.onMcpRequest?.((request) => { void handleDashboardMcpRequest(request); });
+    return () => unsubscribe?.();
+  }, [currentProject]);
+
+  async function handleDashboardMcpRequest(request: McpBridgeRequest) {
+    const respond = window.kurogi?.respondMcpRequest;
+    if (!respond) return;
+    try {
+      if (request.method === "library.list_projects") {
+        respond({ id: request.id, ok: true, result: { projects: await listProjectSummaries() } });
+        return;
+      }
+      throw new Error("Open a Kurogi Motion project before using project MCP tools.");
+    } catch (error) {
+      respond({ id: request.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
 
   async function initialize() {
     const minimumSplash = new Promise((resolve) => window.setTimeout(resolve, 950));

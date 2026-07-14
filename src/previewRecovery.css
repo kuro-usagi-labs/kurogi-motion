@@ -1,25 +1,18 @@
-.workspace-pan-shell,
-.workspace-scale-shell {
-  width: 1px !important;
-  height: 1px !important;
+.workspace-world {
+  position: absolute;
+  left: 50%;
+  top: 50%;
   min-width: 1px;
   min-height: 1px;
-  overflow: visible !important;
-  contain: none !important;
-}
-
-.workspace-pan-shell {
-  z-index: 1;
-}
-
-.workspace-scale-shell {
-  isolation: isolate;
-  transform-origin: 0 0 !important;
+  overflow: visible;
+  transform-origin: 0 0;
+  will-change: transform;
+  contain: layout style;
 }
 
 .workspace-artboard {
-  display: block !important;
-  visibility: visible !important;
+  display: block;
+  visibility: visible;
   overflow: visible;
   backface-visibility: visible;
 }
@@ -27,4 +20,21 @@
 .workspace-artboard-canvas {
   min-width: 1px;
   min-height: 1px;
+}
+
+/* Design tools and scene controls are separate rows. */
+.editor-workspace .design-tools-panel {
+  top: 56px;
+  z-index: 55;
+  max-width: calc(100% - 582px);
+}
+
+.editor-workspace .multi-scene-toolbar {
+  margin-bottom: 54px;
+}
+
+@media (max-width: 1200px) {
+  .editor-workspace .design-tools-panel {
+    max-width: calc(100% - 430px);
+  }
 }

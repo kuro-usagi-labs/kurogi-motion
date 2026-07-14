@@ -19,7 +19,7 @@ import {
   updateAction,
   updateLayer,
 } from "../core/project";
-import { clearDraft, prepareProjectForExport, saveDraft, saveProject, storeAssetBlob } from "../core/persistence";
+import { clearDraft, listProjectSummaries, prepareProjectForExport, saveDraft, saveProject, storeAssetBlob } from "../core/persistence";
 import {
   copyLayersToScene,
   createScene as createWorkspaceScene,
@@ -67,6 +67,8 @@ import { Inspector, type InspectorTab } from "../editor/InspectorV2";
 import { MultiSceneCanvasStage, type WorkspaceCommand } from "../editor/MultiSceneCanvasStage";
 import { DesignToolsPanel } from "../editor/DesignToolsPanel";
 import { EditorMenuBar } from "../editor/EditorMenuBar";
+import { McpIntegrationDialog } from "../editor/McpIntegrationDialog";
+import { describeMcpMutation, executeMcpProjectCommand, isMcpMutationMethod, type McpBridgeRequest } from "../core/mcpCommands";
 import { loadEditorUiPreferences, saveEditorUiPreferences, type EditorUiPreferences } from "../core/editorUiPreferences";
 import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
@@ -127,6 +129,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [saveStatus, setSaveStatus] = useState<"Saving draft…" | "Draft saved" | "Saving…" | "Saved" | "Save failed" | "Copied">("Saved");
   const [exporting, setExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
@@ -273,6 +276,65 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   useEffect(() => {
     saveEditorUiPreferences(uiPreferences);
   }, [uiPreferences]);
+
+  useEffect(() => {
+    const unsubscribe = window.kurogi?.onMcpRequest?.((request) => { void handleMcpRequest(request); });
+    return () => unsubscribe?.();
+  });
+
+  async function handleMcpRequest(request: McpBridgeRequest) {
+    const respond = window.kurogi?.respondMcpRequest;
+    if (!respond) return;
+    try {
+      if (request.method === "library.list_projects") {
+        respond({ id: request.id, ok: true, result: { projects: await listProjectSummaries() } });
+        return;
+      }
+      if (request.method === "project.save") {
+        const current = history.projectRef.current;
+        await saveProject(current);
+        await clearDraft(current.id);
+        setSaveStatus("Saved");
+        respond({ id: request.id, ok: true, result: { saved: true, projectId: current.id, updatedAt: current.updatedAt } });
+        return;
+      }
+      if (request.method === "project.export") {
+        if (!window.kurogi) throw new Error("Desktop export is unavailable.");
+        const params = request.params ?? {};
+        const format = ["mp4", "webm", "mov", "gif", "png-sequence"].includes(String(params.format)) ? String(params.format) as ExportOptions["format"] : "mp4";
+        const requestedFps = Number(params.fps);
+        const options: ExportOptions = {
+          format,
+          fps: ([24, 30, 60].includes(requestedFps) ? requestedFps : scene.fps) as 24 | 30 | 60,
+          scale: Math.min(2, Math.max(.1, Number(params.scale) || 1)),
+          quality: (["low", "medium", "high"].includes(String(params.quality)) ? String(params.quality) : "high") as ExportOptions["quality"],
+          transparent: Boolean(params.transparent),
+          gifLoops: null,
+        };
+        const snapshot = await prepareProjectForExport(cloneProject(history.projectRef.current));
+        const result = await window.kurogi.exportVideo(snapshot, options);
+        respond({ id: request.id, ok: true, result: result.canceled ? { canceled: true } : { exported: true, path: result.path } });
+        return;
+      }
+      const params = request.params ?? {};
+      if (isMcpMutationMethod(request.method)) {
+        const allowed = window.confirm(`An MCP client wants to ${describeMcpMutation(request.method, params)}.\n\nAllow this project change?`);
+        if (!allowed) throw new Error("The user denied the MCP project change.");
+      }
+      const outcome = executeMcpProjectCommand(history.projectRef.current, request.method, params);
+      if (outcome.changed) {
+        history.commit(() => outcome.project);
+        window.queueMicrotask(() => {
+          if (outcome.selectedLayerId) selectOnly(outcome.selectedLayerId);
+          else if (outcome.activeSceneId) selectOnly(outcome.project.scenes[outcome.activeSceneId]?.layerIds.at(-1) ?? "");
+          setOnlyAction("");
+        });
+      }
+      respond({ id: request.id, ok: true, result: outcome.result });
+    } catch (error) {
+      respond({ id: request.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
 
   function setOnlyAction(actionId: string) { setPrimaryActionId(actionId); setSelectedActionIds(actionId ? [actionId] : []); }
 
@@ -872,6 +934,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
 
   return (
     <main className="app editor-app">
+      <McpIntegrationDialog open={mcpDialogOpen} onClose={() => setMcpDialogOpen(false)} />
       <ExportDialog
         open={exportDialogOpen}
         project={project}
@@ -952,6 +1015,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           onUngroupAnimation={ungroupSelectedActions}
           onSaveAnimationPreset={saveSelectedAnimationPreset}
           onShowShortcuts={showKeyboardShortcuts}
+          onShowMcpIntegration={() => setMcpDialogOpen(true)}
           onShowAbout={() => window.alert("Kurogi Motion\nLocal-first motion design editor powered by Remotion.")}
         />
         <div className="project-name">

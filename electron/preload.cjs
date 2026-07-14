@@ -6,6 +6,13 @@ contextBridge.exposeInMainWorld("kurogi", {
   saveKuroMotionFile: (envelope, defaultName) => ipcRenderer.invoke("save-kuromotion-file", envelope, defaultName),
   openKuroMotionFile: () => ipcRenderer.invoke("open-kuromotion-file"),
   showItemInFolder: (targetPath) => ipcRenderer.invoke("show-item-in-folder", targetPath),
+  getMcpInfo: () => ipcRenderer.invoke("mcp-info"),
+  onMcpRequest: (listener) => {
+    const handler = (_event, request) => listener(request);
+    ipcRenderer.on("mcp-request", handler);
+    return () => ipcRenderer.removeListener("mcp-request", handler);
+  },
+  respondMcpRequest: (response) => ipcRenderer.send("mcp-response", response),
   onExportProgress: (listener) => {
     const handler = (_event, progress) => listener(progress);
     ipcRenderer.on("export-progress", handler);

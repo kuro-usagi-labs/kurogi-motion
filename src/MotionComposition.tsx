@@ -9,6 +9,7 @@ import {
 } from "./core/evaluator";
 import { getActiveScene, getSceneLayers } from "./core/project";
 import { getLayerRenderTiming } from "./core/layerTiming";
+import { layerSelectionRect, selectionRect, selectionRectsIntersect, type SelectionRect } from "./core/marqueeSelection";
 import { audioClipVolumeAt, getSceneAudioClips } from "./core/audio";
 import { textVerticalJustification } from "./core/textLayout";
 import { snapLayerPosition, type AlignmentGuide } from "./core/designTools";
@@ -30,6 +31,7 @@ type Props = {
   selectedIds?: string[];
   selectedActionId?: string;
   onSelect?: (id: string, additive?: boolean) => void;
+  onMarqueeSelect?: (ids: string[], additive?: boolean) => void;
   onTransformCommit?: (id: string, patch: TransformPatch) => void;
   onTextCommit?: (id: string, text: string) => void;
   onActionCommit?: (layerId: string, actionId: string, motionPath: MotionPathDefinition) => void;
@@ -62,12 +64,22 @@ type TextEdit = {
   original: string;
 };
 
+type MarqueeGesture = {
+  pointerId: number;
+  start: { x: number; y: number };
+  current: { x: number; y: number };
+  startClient: { x: number; y: number };
+  additive: boolean;
+  moved: boolean;
+};
+
 export const MotionComposition: React.FC<Props> = ({
   project,
   selectedId,
   selectedIds,
   selectedActionId,
   onSelect,
+  onMarqueeSelect,
   onTransformCommit,
   onTextCommit,
   onActionCommit,
@@ -84,10 +96,12 @@ export const MotionComposition: React.FC<Props> = ({
   const canvasRef = useRef<HTMLDivElement>(null);
   const textEditorRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<Gesture | null>(null);
+  const marqueeGestureRef = useRef<MarqueeGesture | null>(null);
   const [draftLayer, setDraftLayer] = useState<Layer | null>(null);
   const draftLayerRef = useRef<Layer | null>(null);
   const [textEdit, setTextEdit] = useState<TextEdit | null>(null);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
+  const [marqueeRect, setMarqueeRect] = useState<SelectionRect | null>(null);
 
   useLayoutEffect(() => {
     const editor = textEditorRef.current;
@@ -156,6 +170,16 @@ export const MotionComposition: React.FC<Props> = ({
   }
 
   function moveGesture(event: React.PointerEvent<HTMLDivElement>) {
+    const marquee = marqueeGestureRef.current;
+    if (marquee?.pointerId === event.pointerId) {
+      const point = projectPoint(event);
+      if (!point) return;
+      const moved = marquee.moved || Math.hypot(event.clientX - marquee.startClient.x, event.clientY - marquee.startClient.y) >= 4;
+      const next = { ...marquee, current: point, moved };
+      marqueeGestureRef.current = next;
+      setMarqueeRect(moved ? selectionRect(next.start, next.current) : null);
+      return;
+    }
     const gesture = gestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     const point = projectPoint(event);
@@ -192,6 +216,32 @@ export const MotionComposition: React.FC<Props> = ({
   }
 
   function finishGesture(event?: React.PointerEvent<HTMLDivElement>) {
+    const marquee = marqueeGestureRef.current;
+    if (marquee && (!event || marquee.pointerId === event.pointerId)) {
+      marqueeGestureRef.current = null;
+      setMarqueeRect(null);
+      if (marquee.moved) {
+        const area = selectionRect(marquee.start, marquee.current);
+        const ids = renderedLayers.filter((layer) => {
+          if (!layer.visible || layer.locked || layer.maskSource || layer.parentId) return false;
+          const timing = getLayerRenderTiming(layer, scene);
+          if (time < timing.startTime || time >= timing.startTime + timing.duration) return false;
+          const visual = evaluateLayer(layer, scene, time - timing.animationOffset);
+          return selectionRectsIntersect(area, layerSelectionRect({
+            position: { x: visual.x, y: visual.y },
+            size: { width: visual.width, height: visual.height },
+            scale: { x: visual.scaleX, y: visual.scaleY },
+            anchor: layer.anchor,
+            rotation: visual.rotation,
+          }));
+        }).map((layer) => layer.id);
+        onMarqueeSelect?.(ids, marquee.additive);
+      } else if (!marquee.additive) {
+        onSelect?.("", false);
+      }
+      if (event?.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
     const gesture = gestureRef.current;
     if (!gesture) return;
     if (event && gesture.pointerId !== event.pointerId) return;
@@ -208,6 +258,22 @@ export const MotionComposition: React.FC<Props> = ({
       scale: finalLayer.scale,
       anchor: finalLayer.anchor,
     });
+  }
+
+  function beginCanvasMarquee(event: React.PointerEvent<HTMLDivElement>) {
+    if (!editable || event.button !== 0 || event.target !== event.currentTarget || textEdit) return;
+    const point = projectPoint(event);
+    if (!point) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    marqueeGestureRef.current = {
+      pointerId: event.pointerId,
+      start: point,
+      current: point,
+      startClient: { x: event.clientX, y: event.clientY },
+      additive: event.shiftKey,
+      moved: false,
+    };
   }
 
   function beginTextEditing(event: React.MouseEvent, layer: TextLayer) {
@@ -230,9 +296,7 @@ export const MotionComposition: React.FC<Props> = ({
       onPointerMove={moveGesture}
       onPointerUp={finishGesture}
       onPointerCancel={finishGesture}
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) onSelect?.("", false);
-      }}
+      onPointerDown={beginCanvasMarquee}
       style={{
         width: "100%",
         height: "100%",
@@ -374,6 +438,15 @@ export const MotionComposition: React.FC<Props> = ({
           </ClippedLayerFrame>
         );
       })}
+      {editable && marqueeRect ? <div
+        className="canvas-selection-marquee"
+        style={{
+          left: `${(marqueeRect.left / scene.width) * 100}%`,
+          top: `${(marqueeRect.top / scene.height) * 100}%`,
+          width: `${((marqueeRect.right - marqueeRect.left) / scene.width) * 100}%`,
+          height: `${((marqueeRect.bottom - marqueeRect.top) / scene.height) * 100}%`,
+        }}
+      /> : null}
       {alignmentGuides.map((guide, index) => (
         <div key={`${guide.axis}-${guide.position}-${index}`} className={`alignment-guide alignment-guide-${guide.axis}`} style={guide.axis === "x" ? { left: `${(guide.position / scene.width) * 100}%` } : { top: `${(guide.position / scene.height) * 100}%` }} />
       ))}
@@ -628,7 +701,7 @@ function SelectionHandles({ sceneWidth, onResize, onRotate }: { sceneWidth: numb
 }
 
 function TransparencyGrid() {
-  return <div style={{ position: "absolute", inset: 0, backgroundColor: "#ffffff", backgroundImage: "linear-gradient(45deg,#e7e5eb 25%,transparent 25%),linear-gradient(-45deg,#e7e5eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e7e5eb 75%),linear-gradient(-45deg,transparent 75%,#e7e5eb 75%)", backgroundPosition: "0 0,0 16px,16px -16px,-16px 0", backgroundSize: "32px 32px" }} />;
+  return <div style={{ position: "absolute", inset: 0, pointerEvents: "none", backgroundColor: "#ffffff", backgroundImage: "linear-gradient(45deg,#e7e5eb 25%,transparent 25%),linear-gradient(-45deg,#e7e5eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e7e5eb 75%),linear-gradient(-45deg,transparent 75%,#e7e5eb 75%)", backgroundPosition: "0 0,0 16px,16px -16px,-16px 0", backgroundSize: "32px 32px" }} />;
 }
 
 function SafeArea() {

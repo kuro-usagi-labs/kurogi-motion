@@ -1,0 +1,201 @@
+/* Pro editing interactions. Loaded last so editor behavior stays consistent across legacy themes. */
+html, body, #root, .app,
+button, label, summary, kbd, svg, img {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+input, textarea, [contenteditable="true"], .selectable-text {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.editor-app button,
+.editor-app [role="button"] {
+  touch-action: manipulation;
+}
+
+.editor-app button:not(:disabled) {
+  transition: color .12s ease, background-color .12s ease, border-color .12s ease, opacity .12s ease, transform .12s ease;
+}
+
+.editor-app button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.canvas-selection-marquee {
+  position: absolute;
+  z-index: 10040;
+  pointer-events: none;
+  border: max(1px, .12vw) solid #74e4d4;
+  border-radius: max(2px, .18vw);
+  background: rgba(95, 215, 199, .105);
+  box-shadow: 0 0 0 max(1px, .07vw) rgba(15, 18, 27, .72), 0 0 22px rgba(95, 215, 199, .16);
+}
+
+.timeline-v3 .timeline-head {
+  gap: 10px;
+  padding-inline: 11px;
+}
+
+.timeline-v3 .timeline-transport {
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.timeline-v3 .timeline-transport > span {
+  min-width: 96px;
+  margin-inline: 3px 2px;
+  color: #aeb6c6;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-edit-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 2px;
+  padding-left: 7px;
+  border-left: 1px solid rgba(255,255,255,.08);
+}
+
+.timeline-edit-tools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 31px;
+  height: 28px;
+  gap: 5px;
+  padding: 0 7px;
+  color: #abb3c3;
+  border: 1px solid transparent !important;
+  border-radius: 7px;
+  background: transparent;
+}
+
+.timeline-edit-tools button:hover:not(:disabled) {
+  color: #f3efff;
+  border-color: rgba(160, 135, 235, .24) !important;
+  background: rgba(139, 108, 226, .13);
+}
+
+.timeline-edit-tools button:disabled {
+  opacity: .28;
+  cursor: not-allowed;
+}
+
+.timeline-edit-tools kbd {
+  min-width: 17px;
+  padding: 2px 4px;
+  border: 1px solid rgba(255,255,255,.11);
+  border-bottom-color: rgba(255,255,255,.19);
+  border-radius: 4px;
+  color: #8790a1;
+  background: #20242e;
+  font: 700 8px/1 "DM Mono", monospace;
+  white-space: nowrap;
+}
+
+.timeline-v3 .timeline-selection-actions {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.timeline-v3 .timeline-zoom {
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 8px;
+  background: rgba(8,10,15,.2);
+}
+
+.timeline-v3 .timeline-zoom span {
+  min-width: 43px;
+  color: #aeb6c6;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-edit-notice {
+  position: absolute;
+  z-index: 80;
+  top: 50px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 360px;
+  min-height: 32px;
+  padding: 0 10px;
+  color: #dffbf6;
+  border: 1px solid rgba(95,215,199,.28);
+  border-radius: 9px;
+  background: rgba(22,37,40,.94);
+  box-shadow: 0 10px 30px rgba(0,0,0,.28);
+  font: 650 9px/1.2 Inter,"Segoe UI",sans-serif;
+  animation: timeline-notice-in .16s ease-out both;
+}
+
+.timeline-edit-notice svg { color: #72decf; }
+
+.timeline-selection-marquee {
+  position: absolute;
+  z-index: 25;
+  pointer-events: none;
+  border: 1px solid #70dfd0;
+  border-radius: 3px;
+  background: rgba(95,215,199,.09);
+  box-shadow: 0 0 0 1px rgba(9,13,18,.75), 0 0 18px rgba(95,215,199,.12);
+}
+
+.timeline-v3 .tracks {
+  overscroll-behavior: contain;
+  scroll-behavior: auto;
+}
+
+.timeline-v3 .timeline-lanes {
+  cursor: crosshair;
+}
+
+.timeline-v3 .track > button,
+.timeline-v3 .timeline-layer-span,
+.timeline-v3 .timeline-action,
+.timeline-v3 .audio-clip-block {
+  cursor: default;
+}
+
+.timeline-v3 .timeline-layer-span.is-selected {
+  border-color: rgba(112,223,208,.82) !important;
+  background: rgba(95,215,199,.14) !important;
+  box-shadow: 0 0 0 1px rgba(95,215,199,.14), inset 0 1px rgba(255,255,255,.08);
+}
+
+.timeline-v3 .layer-trim-handle:hover::after {
+  background: #d9fff8;
+  box-shadow: 0 0 8px rgba(95,215,199,.6);
+}
+
+.timeline-v3 .playhead {
+  z-index: 30;
+}
+
+.workspace-help {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+@keyframes timeline-notice-in {
+  from { opacity: 0; transform: translateY(-5px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 1380px) {
+  .timeline-edit-tools kbd { display: none; }
+  .timeline-edit-tools button { min-width: 28px; padding-inline: 5px; }
+  .timeline-v3 .timeline-transport > span { min-width: 84px; font-size: 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-edit-notice { animation: none; }
+}

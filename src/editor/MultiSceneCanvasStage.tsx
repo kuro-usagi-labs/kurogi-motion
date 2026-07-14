@@ -27,6 +27,7 @@ interface MultiSceneCanvasStageProps {
   showSafeArea: boolean;
   command?: WorkspaceCommand | null;
   onSelect: (id: string, additive?: boolean) => void;
+  onMarqueeSelect: (ids: string[], additive?: boolean) => void;
   onTransformCommit: (id: string, patch: Partial<Layer>) => void;
   onTextCommit: (id: string, text: string) => void;
   onActionCommit: (layerId: string, actionId: string, motionPath: MotionPathDefinition) => void;
@@ -78,6 +79,7 @@ export function MultiSceneCanvasStage({
   showSafeArea,
   command,
   onSelect,
+  onMarqueeSelect,
   onTransformCommit,
   onTextCommit,
   onActionCommit,
@@ -110,12 +112,12 @@ export function MultiSceneCanvasStage({
   const panGestureRef = useRef<PanGesture | null>(null);
   const sceneMoveRef = useRef<SceneMoveGesture | null>(null);
   const spacePressedRef = useRef(false);
-  const callbacksRef = useRef({ onSelect, onTransformCommit, onTextCommit, onActionCommit, onLayerContextMenu });
+  const callbacksRef = useRef({ onSelect, onMarqueeSelect, onTransformCommit, onTextCommit, onActionCommit, onLayerContextMenu });
   const zoomChangeRef = useRef(onZoomChange);
   const zoomRef = useRef(zoom);
   const panRef = useRef({ x: 0, y: 0 });
   const initialFitRef = useRef("");
-  callbacksRef.current = { onSelect, onTransformCommit, onTextCommit, onActionCommit, onLayerContextMenu };
+  callbacksRef.current = { onSelect, onMarqueeSelect, onTransformCommit, onTextCommit, onActionCommit, onLayerContextMenu };
   zoomChangeRef.current = onZoomChange;
 
   const [available, setAvailable] = useState({ width: 900, height: 600 });
@@ -238,6 +240,7 @@ export function MultiSceneCanvasStage({
   }, [command?.nonce]);
 
   const stableSelect = useCallback((id: string, additive = false) => callbacksRef.current.onSelect(id, additive), []);
+  const stableMarqueeSelect = useCallback((ids: string[], additive = false) => callbacksRef.current.onMarqueeSelect(ids, additive), []);
   const stableTransformCommit = useCallback(
     (id: string, patch: Partial<Layer>) => callbacksRef.current.onTransformCommit(id, patch),
     [],
@@ -262,6 +265,7 @@ export function MultiSceneCanvasStage({
       selectedIds: selectedLayerIds,
       selectedActionId,
       onSelect: stableSelect,
+      onMarqueeSelect: stableMarqueeSelect,
       onTransformCommit: stableTransformCommit,
       onTextCommit: stableTextCommit,
       onActionCommit: stableActionCommit,
@@ -270,7 +274,7 @@ export function MultiSceneCanvasStage({
       showSelection: true,
       showSafeArea,
     }),
-    [project, selectedActionId, selectedLayerId, selectedLayerIds, showSafeArea, stableActionCommit, stableLayerContextMenu, stableSelect, stableTextCommit, stableTransformCommit],
+    [project, selectedActionId, selectedLayerId, selectedLayerIds, showSafeArea, stableActionCommit, stableLayerContextMenu, stableMarqueeSelect, stableSelect, stableTextCommit, stableTransformCommit],
   );
 
   if (!activeScene) return null;
@@ -547,7 +551,7 @@ export function MultiSceneCanvasStage({
         </div>
       </div>
 
-      <div className="workspace-help">Middle-drag or hold Space to pan · Ctrl/Cmd + wheel to zoom · Drag a scene label to rearrange</div>
+      <div className="workspace-help">Drag empty canvas to select · Shift-drag to add · Space-drag to pan · Ctrl/Cmd + wheel to zoom</div>
 
     </section>
   );

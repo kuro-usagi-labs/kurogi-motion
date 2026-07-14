@@ -78,6 +78,7 @@ import { LayerContextMenu, type LayerContextMenuState } from "../editor/LayerCon
 import { executeMcpProjectCommand, type McpBridgeRequest } from "../core/mcpCommands";
 import { estimateAutoFitFontSize } from "../core/projectValidation";
 import { loadEditorUiPreferences, saveEditorUiPreferences, type EditorUiPreferences } from "../core/editorUiPreferences";
+import { cutTimelineSelection, trimTimelineSelection, type TrimEdge } from "../core/timelineEditing";
 import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
 import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
@@ -148,6 +149,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   const [layerContextMenu, setLayerContextMenu] = useState<LayerContextMenuState | null>(null);
   const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const [timelineEditNotice, setTimelineEditNotice] = useState<{ id: number; message: string } | null>(null);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
     format: "mp4",
     fps: scene.fps as 24 | 30 | 60,
@@ -271,6 +273,9 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
       }
       if (!editable && modifier && event.key.toLowerCase() === "c" && selectedActionIds.length) { event.preventDefault(); copySelectedActions(selectedActionIds); }
       if (!editable && modifier && event.key.toLowerCase() === "v" && animationClipboard && selectedLayerIds.length) { event.preventDefault(); pasteSelectedActions(); }
+      if (!editable && !modifier && !event.altKey && event.code === "KeyQ") { event.preventDefault(); trimSelectionAtPlayhead("start"); }
+      if (!editable && !modifier && !event.altKey && event.code === "KeyW") { event.preventDefault(); trimSelectionAtPlayhead("end"); }
+      if (!editable && modifier && !event.shiftKey && event.code === "KeyB") { event.preventDefault(); cutSelectionAtPlayhead(); }
       if (!editable && modifier && event.key.toLowerCase() === "g") {
         event.preventDefault();
         if (event.shiftKey) ungroupSelected();
@@ -471,6 +476,35 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
       });
     } else selectOnly(layerId);
     if (project.layers[layerId]?.animationActions.every((action) => action.id !== selectedActionId)) setOnlyAction("");
+  }
+
+  function selectLayersByMarquee(layerIds: string[], additive = false) {
+    const valid = [...new Set(layerIds)].filter((id) => project.layers[id]?.sceneId === project.activeSceneId);
+    setSelectedAudioClipId("");
+    setOnlyAction("");
+    setSelectedLayerIds((current) => {
+      const next = additive ? [...new Set([...current, ...valid])] : valid;
+      setPrimaryLayerId(next.at(-1) ?? "");
+      return next;
+    });
+  }
+
+  function selectTimelineMarquee(layerIds: string[], actionRefs: Array<{ layerId: string; actionId: string }>, additive = false) {
+    const actionIds = [...new Set(actionRefs.map((ref) => ref.actionId))];
+    const ownerIds = actionRefs.map((ref) => ref.layerId);
+    const validLayerIds = [...new Set([...layerIds, ...ownerIds])].filter((id) => project.layers[id]?.sceneId === project.activeSceneId);
+    setSelectedAudioClipId("");
+    setSelectedActionIds((current) => {
+      const next = additive ? [...new Set([...current, ...actionIds])] : actionIds;
+      setPrimaryActionId(next.at(-1) ?? "");
+      return next;
+    });
+    setSelectedLayerIds((current) => {
+      const next = additive ? [...new Set([...current, ...validLayerIds])] : validLayerIds;
+      setPrimaryLayerId(next.at(-1) ?? "");
+      return next;
+    });
+    if (actionIds.length) setInspectorTab("Animation");
   }
 
   function selectAction(layerId: string, actionId: string, additive = false) {
@@ -740,6 +774,38 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   function updateLayerTiming(layerId: string, startTime: number, duration: number) {
     commitProject((current) => updateLayer(current, layerId, (layer) => ({ ...layer, startTime, duration })));
   }
+  function trimSelectionAtPlayhead(edge: TrimEdge) {
+    const playhead = (playerRef.current?.getCurrentFrame() ?? 0) / scene.fps;
+    const outcome = trimTimelineSelection(history.projectRef.current, selectedLayerIds, selectedAudioClipId, playhead, edge);
+    if (!outcome.changed) {
+      announceTimelineEdit("Place the playhead inside a selected clip to trim");
+      return;
+    }
+    history.commit(() => outcome.project);
+    announceTimelineEdit(edge === "start" ? `Trimmed in point to ${formatTimelineTime(playhead)}` : `Trimmed out point to ${formatTimelineTime(playhead)}`);
+  }
+  function cutSelectionAtPlayhead() {
+    const playhead = (playerRef.current?.getCurrentFrame() ?? 0) / scene.fps;
+    const outcome = cutTimelineSelection(history.projectRef.current, selectedLayerIds, selectedAudioClipId, playhead);
+    if (!outcome.changed) {
+      announceTimelineEdit("Place the playhead inside an editable selected clip to cut");
+      return;
+    }
+    history.commit(() => outcome.project);
+    if (outcome.createdLayerIds.length) {
+      const ids = [...new Set([...outcome.affectedLayerIds, ...outcome.createdLayerIds])];
+      setSelectedLayerIds(ids);
+      setPrimaryLayerId(outcome.createdLayerIds.at(-1) ?? ids.at(-1) ?? "");
+      setOnlyAction("");
+    }
+    if (outcome.createdAudioClipIds.length) selectAudioClip(outcome.createdAudioClipIds.at(-1) ?? "");
+    announceTimelineEdit(`Cut at ${formatTimelineTime(playhead)}`);
+  }
+  function announceTimelineEdit(message: string) {
+    const id = Date.now();
+    setTimelineEditNotice({ id, message });
+    window.setTimeout(() => setTimelineEditNotice((current) => current?.id === id ? null : current), 1800);
+  }
   function deleteUnusedAssets() { commitProject((current) => executeMcpProjectCommand(current, "asset.delete_unused", {}).project); }
   function reorderWorkspaceSceneById(sceneId: string, targetIndex: number) { commitProject((current) => reorderWorkspaceScene(current, sceneId, targetIndex)); }
   function updateWorkspaceSceneTransition(sceneId: string, transition: NonNullable<KurogiProject["scenes"][string]["transition"]>) { commitProject((current) => setSceneTransition(current, sceneId, transition)); }
@@ -995,7 +1061,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   }
 
   function showKeyboardShortcuts() {
-    window.alert("Space: Play/Pause\nCtrl+S: Save\nCtrl+Z: Undo\nCtrl+Shift+Z: Redo\nCtrl+D: Duplicate\nCtrl+G: Group\nCtrl+Shift+G: Ungroup\nDelete: Remove selection");
+    window.alert("Timeline\nQ: Trim start to playhead\nW: Trim end to playhead\nCtrl+B: Cut at playhead\nCtrl+wheel: Zoom timeline or canvas\n\nPlayback & edit\nSpace: Play/Pause\nArrow keys: Previous/next frame\nShift-drag: Add to marquee selection\nCtrl+S: Save\nCtrl+Z: Undo\nCtrl+Shift+Z: Redo\nCtrl+D: Duplicate\nCtrl+G: Group\nCtrl+Shift+G: Ungroup\nDelete: Remove selection");
   }
 
   function togglePlay() {
@@ -1086,6 +1152,9 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     { id: "focus-scene", label: "Focus active scene", section: "View", run: () => issueWorkspaceCommand("focus-scene") },
     { id: "fit-all", label: "Fit all scenes", section: "View", run: () => issueWorkspaceCommand("fit-all") },
     { id: "duplicate", label: "Duplicate selection", section: "Edit", hint: "Ctrl D", disabled: !selectedLayerId && !selectedActionIds.length, run: () => selectedActionIds.length ? duplicateActions(selectedActionIds) : duplicateSelectedLayer() },
+    { id: "trim-in", label: "Trim start to playhead", section: "Timeline", hint: "Q", disabled: !selectedLayerIds.length && !selectedAudioClipId, run: () => trimSelectionAtPlayhead("start") },
+    { id: "trim-out", label: "Trim end to playhead", section: "Timeline", hint: "W", disabled: !selectedLayerIds.length && !selectedAudioClipId, run: () => trimSelectionAtPlayhead("end") },
+    { id: "cut-playhead", label: "Cut at playhead", section: "Timeline", hint: "Ctrl B", disabled: !selectedLayerIds.length && !selectedAudioClipId, run: cutSelectionAtPlayhead },
     { id: "group", label: "Group selected layers", section: "Arrange", hint: "Ctrl G", disabled: selectedLayerIds.length < 2, run: groupSelected },
     { id: "toggle-snap", label: project.settings.snapEnabled ? "Disable smart snap" : "Enable smart snap", section: "View", run: toggleSmartSnap },
     { id: "toggle-safe", label: showSafeArea ? "Hide safe area" : "Show safe area", section: "View", run: () => setShowSafeArea((value) => !value) },
@@ -1370,6 +1439,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           showSafeArea={showSafeArea}
           command={workspaceCommand}
           onSelect={selectLayer}
+          onMarqueeSelect={selectLayersByMarquee}
           onTransformCommit={commitTransform}
           onTextCommit={commitText}
           onActionCommit={commitMotionPath}
@@ -1421,8 +1491,13 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
         selectedAudioClipId={selectedAudioClipId}
         onSelectLayer={selectLayer}
         onSelectAction={selectAction}
+        onMarqueeSelect={selectTimelineMarquee}
         onCommitActions={commitTimelineActions}
         onUpdateLayerTiming={updateLayerTiming}
+        onTrimStart={() => trimSelectionAtPlayhead("start")}
+        onTrimEnd={() => trimSelectionAtPlayhead("end")}
+        onCut={cutSelectionAtPlayhead}
+        editNotice={timelineEditNotice?.message ?? ""}
         onDeleteActions={deleteActions}
         onDuplicateActions={duplicateActions}
         onCopyActions={copySelectedActions}
@@ -1508,6 +1583,12 @@ function sanitizeSvg(source: string) {
 
 function svgToDataUrl(svg: string) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function formatTimelineTime(seconds: number) {
+  const minutes = Math.floor(Math.max(0, seconds) / 60);
+  const remainder = Math.max(0, seconds - minutes * 60);
+  return `${minutes}:${remainder.toFixed(2).padStart(5, "0")}`;
 }
 
 function clamp(value: number, min: number, max: number) {

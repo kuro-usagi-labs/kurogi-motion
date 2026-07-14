@@ -10,7 +10,7 @@ export type IconName =
   | "breathe" | "swing" | "rectangle" | "circle" | "line"
   | "polygon" | "arrow" | "alignLeft" | "alignCenterHorizontal" | "alignRight"
   | "alignTop" | "alignCenterVertical" | "alignBottom" | "distributeHorizontal" | "distributeVertical"
-  | "restart" | "previous" | "next" | "grip" | "audio";
+  | "restart" | "previous" | "next" | "grip" | "audio" | "cut" | "trimStart" | "trimEnd";
 
 const paths: Record<IconName, React.ReactNode> = {
   layers: <><path d="M4 7h16"/><path d="M6 3h12l2 4H4l2-4Z"/><path d="M5 11h14l-2 4H7l-2-4Z"/><path d="M8 19h8"/></>,
@@ -64,6 +64,9 @@ const paths: Record<IconName, React.ReactNode> = {
   restart: <><path d="M4 4v6h6"/><path d="M5.5 16a8 8 0 1 0 .5-8"/></>,
   previous: <><path d="M6 5v14"/><path d="m18 6-8 6 8 6V6Z"/></>,
   next: <><path d="M18 5v14"/><path d="m6 6 8 6-8 6V6Z"/></>,
+  cut: <><circle cx="6" cy="7" r="3"/><circle cx="6" cy="17" r="3"/><path d="m8.6 8.5 11.4 7.2"/><path d="m8.6 15.5 4.2-2.7"/><path d="m15.6 11 4.4-2.7"/></>,
+  trimStart: <><path d="M6 4v16"/><path d="M10 7h9"/><path d="M10 17h9"/><path d="m13 12 4-3v6l-4-3Z"/></>,
+  trimEnd: <><path d="M18 4v16"/><path d="M5 7h9"/><path d="M5 17h9"/><path d="m11 12-4-3v6l4-3Z"/></>,
   audio: <><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></>,
   grip: <><circle cx="9" cy="7" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="7" r="1" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="9" cy="17" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="17" r="1" fill="currentColor" stroke="none"/></>,
 };

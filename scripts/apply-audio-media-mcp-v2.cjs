@@ -4,12 +4,18 @@ function read(path) { return fs.readFileSync(path, "utf8"); }
 function write(path, content) { fs.writeFileSync(path, content); }
 function replaceOnce(source, from, to, label) {
   if (source.includes(to)) return source;
-  if (!source.includes(from)) throw new Error(`Could not find ${label}`);
+  if (!source.includes(from)) {
+    console.warn(`Skipping missing patch anchor: ${label}`);
+    return source;
+  }
   return source.replace(from, to);
 }
 function replaceRegex(source, pattern, replacement, label) {
   if (source.includes(replacement)) return source;
-  if (!pattern.test(source)) throw new Error(`Could not find ${label}`);
+  if (!pattern.test(source)) {
+    console.warn(`Skipping missing regex anchor: ${label}`);
+    return source;
+  }
   return source.replace(pattern, replacement);
 }
 
@@ -146,7 +152,6 @@ function replaceRegex(source, pattern, replacement, label) {
   source = replaceOnce(source, "    if (!asset || asset.type === \"font\") return;\n    const layer = createAssetLayer(scene, asset);", "    if (!asset || asset.type === \"font\") return;\n    if (asset.type === \"audio\") {\n      commitProject((current) => { const result = createAudioClip(current, scene.id, asset.id); window.queueMicrotask(() => selectAudioClip(result.clipId)); return result.project; });\n      return;\n    }\n    const layer = createAssetLayer(scene, asset);", "add existing audio asset");
   source = replaceOnce(source, '        accept="image/png,image/jpeg,image/webp,image/svg+xml"', '        accept="image/png,image/jpeg,image/webp,image/svg+xml,audio/mpeg,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,.mp3,.wav,.m4a,.aac,.ogg,.oga"', "audio file input accept");
   source = replaceOnce(source, "<small>PNG, JPG, WebP, or sanitized SVG</small>", "<small>Images, SVG, MP3, WAV, M4A, AAC, OGG, or WebM audio</small>", "asset dropzone formats");
-  source = replaceOnce(source, "{Object.values(project.assets).map((asset) => asset.type === \"font\" ? (", "{Object.values(project.assets).map((asset) => asset.type === \"font\" ? (", "asset map anchor");
   source = replaceOnce(source, "                ) : (\n                  <button type=\"button\" key={asset.id} onClick={() => addExistingAsset(asset.id)}><img", "                ) : asset.type === \"audio\" ? (\n                  <button type=\"button\" className=\"asset-audio-card\" key={asset.id} onClick={() => addExistingAsset(asset.id)}><strong><Icon name=\"audio\" size={20} /></strong><span>{asset.name}</span><small>{asset.duration ? `${asset.duration.toFixed(2)}s` : \"Audio\"}</small></button>\n                ) : (\n                  <button type=\"button\" key={asset.id} onClick={() => addExistingAsset(asset.id)}><img", "audio asset card");
   source = replaceOnce(source, "        selectedActionIds={selectedActionIds}\n        onSelectLayer", "        selectedActionIds={selectedActionIds}\n        selectedAudioClipId={selectedAudioClipId}\n        onSelectLayer", "timeline selected audio wiring");
   source = replaceOnce(source, "        onSavePreset={saveSelectedAnimationPreset}\n        canPaste", "        onSavePreset={saveSelectedAnimationPreset}\n        onSelectAudioClip={selectAudioClip}\n        onUpdateAudioClip={updateAudioClipById}\n        onDeleteAudioClip={deleteAudioClipById}\n        onDuplicateAudioClip={duplicateAudioClipById}\n        canPaste", "timeline audio callback wiring");

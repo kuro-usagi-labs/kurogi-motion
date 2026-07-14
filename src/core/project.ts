@@ -306,6 +306,8 @@ export function createTextLayer(
     opacity: 1,
     scale: { x: 1, y: 1 },
     anchor: { x: 0.5, y: 0.5 },
+    startTime: 0,
+    duration: scene.duration,
     blendMode: "normal",
     backgroundBlur: 0,
     animationActions: [],
@@ -319,6 +321,9 @@ export function createTextLayer(
       align: "left",
       verticalAlign: "middle",
       color: options.color ?? "#1b173a",
+      stroke: "#00000000",
+      strokeWidth: 0,
+      autoFit: false,
     },
   };
 }
@@ -348,6 +353,8 @@ export function createShapeLayer(
     opacity: 1,
     scale: { x: 1, y: 1 },
     anchor: { x: 0.5, y: 0.5 },
+    startTime: 0,
+    duration: scene.duration,
     blendMode: "normal",
     backgroundBlur: 0,
     animationActions: [],
@@ -378,6 +385,8 @@ export function createAssetLayer(scene: Scene, asset: ProjectAsset): ImageLayer 
     opacity: 1,
     scale: { x: 1, y: 1 },
     anchor: { x: 0.5, y: 0.5 },
+    startTime: 0,
+    duration: scene.duration,
     blendMode: "normal",
     backgroundBlur: 0,
     animationActions: [],
@@ -543,6 +552,13 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     scene.fps = normalizeFps(scene.fps);
     scene.layerIds = scene.layerIds.filter((id) => Boolean(next.layers[id]));
     scene.audioClipIds = (scene.audioClipIds ?? []).filter((id) => Boolean(next.audioClips[id]));
+    if (scene.transition) {
+      const supported = new Set(["cut", "fade", "slide-left", "slide-right", "zoom"]);
+      scene.transition = {
+        type: supported.has(scene.transition.type) ? scene.transition.type : "cut",
+        duration: clampNumber(scene.transition.duration ?? .4, 0, Math.min(5, scene.duration)),
+      };
+    }
   }
   for (const layer of Object.values(next.layers)) {
     layer.opacity = clampNumber(layer.opacity, 0, 1);
@@ -550,6 +566,9 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     layer.size.height = Math.max(1, layer.size.height);
     layer.blendMode = normalizeBlendMode(layer.blendMode);
     layer.backgroundBlur = clampNumber(layer.backgroundBlur ?? 0, 0, 80);
+    const scene = next.scenes[layer.sceneId];
+    layer.startTime = clampNumber(layer.startTime ?? 0, 0, Math.max(0, (scene?.duration ?? 3600) - .01));
+    layer.duration = clampNumber(layer.duration ?? scene?.duration ?? 5, .01, Math.max(.01, (scene?.duration ?? 3600) - layer.startTime));
     layer.maskSource = false;
     if (layer.mask && !next.layers[layer.mask.sourceLayerId]) layer.mask = undefined;
     if (layer.mask) layer.mask.clipping = Boolean(layer.mask.clipping);
@@ -567,6 +586,9 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     }));
     if (layer.type === "text") {
       layer.style.verticalAlign = normalizeTextVerticalAlign(layer.style.verticalAlign);
+      layer.style.stroke = layer.style.stroke ?? "#00000000";
+      layer.style.strokeWidth = clampNumber(layer.style.strokeWidth ?? 0, 0, 40);
+      layer.style.autoFit = Boolean(layer.style.autoFit);
     }
     if (layer.type === "shape") {
       layer.shape = normalizeShapeType(layer.shape);

@@ -20,10 +20,14 @@ export function layerCompositingStyle(project: KurogiProject, layer: Layer): CSS
 
 export function textPaintStyle(layer: Extract<Layer, { type: "text" }>): CSSProperties {
   const gradient = gradientToCss(layer.style.gradient);
+  const stroke = layer.style.strokeWidth && layer.style.strokeWidth > 0
+    ? { WebkitTextStroke: `${layer.style.strokeWidth}px ${layer.style.stroke ?? "#000000"}` }
+    : {};
   if (!gradient) {
     return {
       color: layer.style.color,
       WebkitTextFillColor: layer.style.color,
+      ...stroke,
     };
   }
   return {
@@ -32,6 +36,7 @@ export function textPaintStyle(layer: Extract<Layer, { type: "text" }>): CSSProp
     backgroundImage: gradient,
     backgroundClip: "text",
     WebkitBackgroundClip: "text",
+    ...stroke,
   };
 }
 

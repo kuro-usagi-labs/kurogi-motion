@@ -19,7 +19,7 @@ import {
   updateAction,
   updateLayer,
 } from "../core/project";
-import { clearDraft, listProjectSummaries, prepareProjectForExport, saveDraft, saveProject, storeAssetBlob } from "../core/persistence";
+import { clearDraft, prepareProjectForExport, saveDraft, saveProject, storeAssetBlob } from "../core/persistence";
 import { createAudioClip, duplicateAudioClip, removeAudioClip, updateAudioClip } from "../core/audio";
 import {
   copyLayersToScene,
@@ -27,9 +27,11 @@ import {
   duplicateScene as duplicateWorkspaceScene,
   ensureSceneWorkspace,
   moveScene as moveWorkspaceScene,
+  reorderScene as reorderWorkspaceScene,
   removeScene as removeWorkspaceScene,
   renameScene as renameWorkspaceScene,
   setActiveScene,
+  setSceneTransition,
   updateScene as updateWorkspaceScene,
   type SceneUpdatePatch,
   type SceneWorkspacePosition,
@@ -73,12 +75,14 @@ import { DesignToolsPanel } from "../editor/DesignToolsPanel";
 import { EditorMenuBar } from "../editor/EditorMenuBar";
 import { McpIntegrationDialog } from "../editor/McpIntegrationDialog";
 import { LayerContextMenu, type LayerContextMenuState } from "../editor/LayerContextMenu";
-import { describeMcpMutation, executeMcpProjectCommand, isMcpMutationMethod, type McpBridgeRequest } from "../core/mcpCommands";
+import { executeMcpProjectCommand, type McpBridgeRequest } from "../core/mcpCommands";
+import { estimateAutoFitFontSize } from "../core/projectValidation";
 import { loadEditorUiPreferences, saveEditorUiPreferences, type EditorUiPreferences } from "../core/editorUiPreferences";
 import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
 import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
 import { Timeline, type TimelineActionPatch } from "../editor/TimelineV3";
+import { CommandPalette, type CommandPaletteAction } from "../editor/CommandPalette";
 import { ExportDialog, ExportToast, type ExportNotice } from "../editor/ExportDialog";
 import type {
   AnimationAction,
@@ -99,6 +103,8 @@ import type {
 
 interface EditorProps {
   initialProject: KurogiProject;
+  onProjectSnapshot: (project: KurogiProject) => void;
+  onMcpReady: () => void;
   onExit: (project: KurogiProject) => void;
 }
 
@@ -112,7 +118,7 @@ const SIDEBAR_TABS: Array<{ id: SidebarTab; icon: IconName; label: string }> = [
   { id: "templates", icon: "templates", label: "Templates" },
 ];
 
-export function Editor({ initialProject, onExit }: EditorProps) {
+export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }: EditorProps) {
   const preparedInitialProject = useMemo(() => ensureSceneWorkspace(initialProject), [initialProject]);
   const history = useProjectHistory(preparedInitialProject);
   const { project } = history;
@@ -125,6 +131,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [selectedAudioClipId, setSelectedAudioClipId] = useState("");
   const [animationClipboard, setAnimationClipboard] = useState<AnimationClipboard | null>(null);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("layers");
+  const [assetQuery, setAssetQuery] = useState("");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("Design");
   const [zoom, setZoom] = useState(64);
   const [playing, setPlaying] = useState(false);
@@ -137,6 +144,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [exporting, setExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [layerContextMenu, setLayerContextMenu] = useState<LayerContextMenuState | null>(null);
   const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
@@ -147,9 +155,11 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     quality: "high",
     transparent: false,
     gifLoops: null,
+    allScenes: false,
   });
   const playerRef = useRef<PlayerRef>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
+  const mcpCheckpointsRef = useRef(new Map<string, { id: string; name: string; createdAt: string; project: KurogiProject }>());
 
   const selectedLayer = selectedLayerId ? project.layers[selectedLayerId] ?? null : null;
   const selectedLayers = useMemo(() => selectedLayerIds.map((id) => project.layers[id]).filter((layer): layer is Layer => Boolean(layer)), [project.layers, selectedLayerIds]);
@@ -205,6 +215,10 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   }, [history.projectRef, initialProject.updatedAt, project, project.settings.autoSave]);
 
   useEffect(() => {
+    onProjectSnapshot(project);
+  }, [onProjectSnapshot, project]);
+
+  useEffect(() => {
     const flushRecovery = () => {
       const current = history.projectRef.current;
       if (document.visibilityState === "hidden" && current.updatedAt !== initialProject.updatedAt) void saveDraft(current);
@@ -232,6 +246,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         playerRef.current?.seekTo(Math.min(scene.duration * scene.fps - 1, current + 1));
       }
       if (!editable && modifier && event.key.toLowerCase() === "n") { event.preventDefault(); void leaveEditor(); }
+      if (!editable && modifier && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandPaletteOpen(true); }
       if (!editable && modifier && event.key.toLowerCase() === "o") { event.preventDefault(); void leaveEditor(); }
       if (!editable && modifier && event.key.toLowerCase() === "e") { event.preventDefault(); setExportProgress(null); setExportDialogOpen(true); }
       if (!editable && modifier && event.key.toLowerCase() === "a") { event.preventDefault(); selectAllLayers(); }
@@ -288,23 +303,86 @@ export function Editor({ initialProject, onExit }: EditorProps) {
 
   useEffect(() => {
     const unsubscribe = window.kurogi?.onMcpRequest?.((request) => { void handleMcpRequest(request); });
+    onMcpReady();
     return () => unsubscribe?.();
   });
 
   async function handleMcpRequest(request: McpBridgeRequest) {
+    if (request.method.startsWith("library.") || request.method.startsWith("render.")) return;
     const respond = window.kurogi?.respondMcpRequest;
     if (!respond) return;
     try {
-      if (request.method === "library.list_projects") {
-        respond({ id: request.id, ok: true, result: { projects: await listProjectSummaries() } });
+      if (request.method === "history.undo" || request.method === "history.redo") {
+        const changed = request.method === "history.undo" ? history.undo() : history.redo();
+        const current = history.projectRef.current;
+        window.queueMicrotask(() => {
+          const active = current.scenes[current.activeSceneId];
+          selectOnly(active?.layerIds.at(-1) ?? "");
+          setOnlyAction("");
+        });
+        respond({ id: request.id, ok: true, result: { changed, ...history.getHistoryState(), projectId: current.id, updatedAt: current.updatedAt } });
+        return;
+      }
+      if (request.method === "history.create_checkpoint") {
+        const params = request.params ?? {};
+        const checkpoint = {
+          id: createId("checkpoint"),
+          name: typeof params.name === "string" && params.name.trim() ? params.name.trim().slice(0, 120) : `Checkpoint ${mcpCheckpointsRef.current.size + 1}`,
+          createdAt: new Date().toISOString(),
+          project: cloneProject(history.projectRef.current),
+        };
+        mcpCheckpointsRef.current.set(checkpoint.id, checkpoint);
+        while (mcpCheckpointsRef.current.size > 20) mcpCheckpointsRef.current.delete(mcpCheckpointsRef.current.keys().next().value as string);
+        respond({ id: request.id, ok: true, result: { checkpoint: { id: checkpoint.id, name: checkpoint.name, createdAt: checkpoint.createdAt }, count: mcpCheckpointsRef.current.size } });
+        return;
+      }
+      if (request.method === "history.list_checkpoints") {
+        const checkpoints = [...mcpCheckpointsRef.current.values()].map(({ project: _project, ...checkpoint }) => checkpoint);
+        respond({ id: request.id, ok: true, result: { checkpoints, count: checkpoints.length } });
+        return;
+      }
+      if (request.method === "history.restore_checkpoint") {
+        const checkpointId = String(request.params?.checkpointId ?? "").trim();
+        const checkpoint = mcpCheckpointsRef.current.get(checkpointId);
+        if (!checkpoint) throw new Error(`Checkpoint ${checkpointId || "(missing)"} does not exist.`);
+        const restored = cloneProject(checkpoint.project);
+        history.commit(() => restored);
+        window.queueMicrotask(() => selectOnly(restored.scenes[restored.activeSceneId]?.layerIds.at(-1) ?? ""));
+        respond({ id: request.id, ok: true, result: { restored: true, checkpoint: { id: checkpoint.id, name: checkpoint.name, createdAt: checkpoint.createdAt }, projectId: restored.id } });
+        return;
+      }
+      if (request.method === "project.preview_frame") {
+        if (!window.kurogi) throw new Error("Desktop preview rendering is unavailable.");
+        const params = request.params ?? {};
+        const snapshot = await prepareProjectForExport(cloneProject(history.projectRef.current));
+        const result = await window.kurogi.renderPreviewFrame(snapshot, { time: Number(params.time) || 0, scale: Number(params.scale) || .5 });
+        respond({ id: request.id, ok: true, result: result });
+        return;
+      }
+      if (request.method === "project.start_render") {
+        if (!window.kurogi) throw new Error("Desktop rendering is unavailable.");
+        const params = request.params ?? {};
+        const format = ["mp4", "webm", "mov", "gif", "png-sequence"].includes(String(params.format)) ? String(params.format) as ExportOptions["format"] : "mp4";
+        const requestedFps = Number(params.fps);
+        const options: ExportOptions = {
+          format,
+          fps: ([24, 30, 60].includes(requestedFps) ? requestedFps : scene.fps) as 24 | 30 | 60,
+          scale: Math.min(2, Math.max(.1, Number(params.scale) || 1)),
+          quality: (["low", "medium", "high"].includes(String(params.quality)) ? String(params.quality) : "high") as ExportOptions["quality"],
+          transparent: Boolean(params.transparent),
+          gifLoops: null,
+          allScenes: Boolean(params.allScenes),
+        };
+        const snapshot = await prepareProjectForExport(cloneProject(history.projectRef.current));
+        const outputPath = typeof params.outputPath === "string" && params.outputPath.trim() ? params.outputPath.trim() : undefined;
+        const result = await window.kurogi.startRenderJob(snapshot, { ...options, outputPath, automatic: params.automatic !== false });
+        respond({ id: request.id, ok: true, result });
         return;
       }
       if (request.method === "asset.import_file") {
         const params = request.params ?? {};
         const filePath = String(params.path ?? "");
         if (!filePath) throw new Error("path is required.");
-        const allowed = window.confirm("An MCP client wants to import media from:\n" + filePath + "\n\nAllow this file to be read and added to the project?");
-        if (!allowed) throw new Error("The user denied the MCP media import.");
         const payload = await window.kurogi?.readMcpMediaFile(filePath);
         if (!payload) throw new Error("Desktop media import is unavailable.");
         const mediaBytes = new Uint8Array(payload.bytes);
@@ -333,19 +411,15 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           quality: (["low", "medium", "high"].includes(String(params.quality)) ? String(params.quality) : "high") as ExportOptions["quality"],
           transparent: Boolean(params.transparent),
           gifLoops: null,
+          allScenes: Boolean(params.allScenes),
         };
         const snapshot = await prepareProjectForExport(cloneProject(history.projectRef.current));
         const outputPath = typeof params.outputPath === "string" && params.outputPath.trim() ? params.outputPath.trim() : undefined;
-        if (outputPath && !window.confirm(`An MCP client wants to export the active project to:\n${outputPath}\n\nAllow this export?`)) throw new Error("The user denied the MCP export.");
-        const result = await window.kurogi.exportVideo(snapshot, { ...options, outputPath });
+        const result = await window.kurogi.exportVideo(snapshot, { ...options, outputPath, automatic: Boolean(params.automatic) || !outputPath });
         respond({ id: request.id, ok: true, result: result.canceled ? { canceled: true } : { exported: true, path: result.path } });
         return;
       }
       const params = request.params ?? {};
-      if (isMcpMutationMethod(request.method)) {
-        const allowed = window.confirm(`An MCP client wants to ${describeMcpMutation(request.method, params)}.\n\nAllow this project change?`);
-        if (!allowed) throw new Error("The user denied the MCP project change.");
-      }
       const outcome = executeMcpProjectCommand(history.projectRef.current, request.method, params);
       if (outcome.changed) {
         history.commit(() => outcome.project);
@@ -663,6 +737,12 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   }
 
   function commitTimelineActions(patches: TimelineActionPatch[]) { commitProject((current) => updateAnimationActions(current, patches)); }
+  function updateLayerTiming(layerId: string, startTime: number, duration: number) {
+    commitProject((current) => updateLayer(current, layerId, (layer) => ({ ...layer, startTime, duration })));
+  }
+  function deleteUnusedAssets() { commitProject((current) => executeMcpProjectCommand(current, "asset.delete_unused", {}).project); }
+  function reorderWorkspaceSceneById(sceneId: string, targetIndex: number) { commitProject((current) => reorderWorkspaceScene(current, sceneId, targetIndex)); }
+  function updateWorkspaceSceneTransition(sceneId: string, transition: NonNullable<KurogiProject["scenes"][string]["transition"]>) { commitProject((current) => setSceneTransition(current, sceneId, transition)); }
 
   function copySelectedActions(actionIds = selectedActionIds) {
     const clipboard = copyAnimationActions(project, refsFromActionIds(project, actionIds));
@@ -705,11 +785,19 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   function commitMotionPath(layerId: string, actionId: string, motionPath: MotionPathDefinition) { commitAction(layerId, actionId, (action) => ({ ...action, motionPath })); }
 
   function commitTransform(layerId: string, patch: Partial<Layer>) {
-    commitLayer(layerId, (layer) => ({ ...layer, ...patch } as Layer));
+    commitLayer(layerId, (layer) => {
+      const next = { ...layer, ...patch } as Layer;
+      if (next.type === "text" && next.style.autoFit) next.style = { ...next.style, fontSize: estimateAutoFitFontSize(next) };
+      return next;
+    });
   }
 
   function commitText(layerId: string, text: string) {
-    commitLayer(layerId, (layer) => layer.type === "text" ? { ...layer, text } : layer);
+    commitLayer(layerId, (layer) => {
+      if (layer.type !== "text") return layer;
+      const next = { ...layer, text };
+      return next.style.autoFit ? { ...next, style: { ...next.style, fontSize: estimateAutoFitFontSize(next) } } : next;
+    });
   }
 
   function activateWorkspaceScene(sceneId: string) {
@@ -956,11 +1044,13 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     setExportProgress({ phase: "preparing", progress: 0, message: "Preparing export" });
     try {
       const snapshot = await prepareProjectForExport(cloneProject(project));
-      const snapshotScene = getActiveScene(snapshot);
-      snapshotScene.fps = effectiveOptions.fps;
-      snapshotScene.background = effectiveOptions.transparent
-        ? { type: "transparent" }
-        : cloneProject(scene.background.type === "transparent" ? { type: "solid", color: "#000000" } : scene.background);
+      const exportScenes = effectiveOptions.allScenes ? Object.values(snapshot.scenes) : [getActiveScene(snapshot)];
+      for (const snapshotScene of exportScenes) {
+        snapshotScene.fps = effectiveOptions.fps;
+        snapshotScene.background = effectiveOptions.transparent
+          ? { type: "transparent" }
+          : cloneProject(snapshotScene.background.type === "transparent" ? { type: "solid", color: "#000000" } : snapshotScene.background);
+      }
       const result = await window.kurogi.exportVideo(snapshot, effectiveOptions);
       if (!result.canceled && result.path) {
         setExportProgress({ phase: "completed", progress: 1, message: result.path });
@@ -988,8 +1078,25 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     }
   }
 
+  const commandPaletteActions: CommandPaletteAction[] = [
+    { id: "add-heading", label: "Add heading text", section: "Create", keywords: "text title", run: () => addText("heading") },
+    { id: "add-shape", label: "Add rectangle", section: "Create", keywords: "shape box", run: () => addShape("rectangle") },
+    { id: "import-media", label: "Import media", section: "Create", keywords: "asset image audio", run: () => assetInputRef.current?.click() },
+    { id: "new-scene", label: "Create scene", section: "Scene", run: addWorkspaceScene },
+    { id: "focus-scene", label: "Focus active scene", section: "View", run: () => issueWorkspaceCommand("focus-scene") },
+    { id: "fit-all", label: "Fit all scenes", section: "View", run: () => issueWorkspaceCommand("fit-all") },
+    { id: "duplicate", label: "Duplicate selection", section: "Edit", hint: "Ctrl D", disabled: !selectedLayerId && !selectedActionIds.length, run: () => selectedActionIds.length ? duplicateActions(selectedActionIds) : duplicateSelectedLayer() },
+    { id: "group", label: "Group selected layers", section: "Arrange", hint: "Ctrl G", disabled: selectedLayerIds.length < 2, run: groupSelected },
+    { id: "toggle-snap", label: project.settings.snapEnabled ? "Disable smart snap" : "Enable smart snap", section: "View", run: toggleSmartSnap },
+    { id: "toggle-safe", label: showSafeArea ? "Hide safe area" : "Show safe area", section: "View", run: () => setShowSafeArea((value) => !value) },
+    { id: "save", label: "Save project", section: "Project", hint: "Ctrl S", run: () => void saveNow() },
+    { id: "export", label: "Export video", section: "Project", hint: "Ctrl E", run: () => { setExportProgress(null); setExportDialogOpen(true); } },
+    { id: "mcp", label: "Open MCP integration", section: "Automation", run: () => setMcpDialogOpen(true) },
+  ];
+
   return (
     <main className="app editor-app">
+      <CommandPalette open={commandPaletteOpen} actions={commandPaletteActions} onClose={() => setCommandPaletteOpen(false)} />
       <McpIntegrationDialog open={mcpDialogOpen} onClose={() => setMcpDialogOpen(false)} />
       <LayerContextMenu
         project={project}
@@ -1098,6 +1205,23 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         </div>
       </header>
 
+      <section className="editor-context-ribbon" aria-label="Editor context">
+        <div className="context-breadcrumbs">
+          <span>{project.name}</span><i>/</i><strong>{scene.name}</strong>
+          {selectedLayer ? <><i>/</i><b>{selectedLayer.name}</b></> : null}
+        </div>
+        <div className="context-readout">
+          <span>{scene.width} × {scene.height}</span><span>{scene.fps} fps</span><span>{scene.duration.toFixed(2)}s</span>
+          {selectedLayers.length > 1 ? <strong>{selectedLayers.length} layers selected</strong> : selectedLayer ? <strong>{(selectedLayer.startTime ?? 0).toFixed(2)}s — {((selectedLayer.startTime ?? 0) + (selectedLayer.duration ?? scene.duration)).toFixed(2)}s</strong> : <strong>No selection</strong>}
+        </div>
+        <div className="context-actions">
+          <button type="button" className="command-palette-trigger" onClick={() => setCommandPaletteOpen(true)} title="Open command palette">Commands <kbd>Ctrl K</kbd></button>
+          <button type="button" className={project.settings.snapEnabled ? "is-active" : ""} onClick={toggleSmartSnap} title="Toggle smart snap">Snap</button>
+          <button type="button" className={showSafeArea ? "is-active" : ""} onClick={() => setShowSafeArea((value) => !value)} title="Toggle safe area">Safe area</button>
+          <button type="button" className="mcp-ready-badge" onClick={() => setMcpDialogOpen(true)} title="Open MCP integration"><i />MCP ready</button>
+        </div>
+      </section>
+
       <section className="workspace editor-workspace">
         <aside className="rail">
           {SIDEBAR_TABS.map((item) => (
@@ -1113,6 +1237,11 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           {sidebarTab === "layers" ? (
             <div className="sidebar-scroll">
               <div className="scene-row"><span>⌄</span><b>{scene.name}</b><small>{scene.width} × {scene.height}</small></div>
+              <div className="layer-quick-add">
+                <button type="button" onClick={() => addText("heading")}><Icon name="text" size={13} />Text</button>
+                <button type="button" onClick={() => addShape("rectangle")}><Icon name="shapes" size={13} />Shape</button>
+                <button type="button" onClick={() => assetInputRef.current?.click()}><Icon name="upload" size={13} />Media</button>
+              </div>
               <div className="layer-list">
                 {[...layers].reverse().map((layer) => (
                   <div
@@ -1191,9 +1320,10 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           ) : null}
           {sidebarTab === "assets" ? (
             <div className="assets-panel sidebar-scroll">
+              <div className="asset-library-tools"><input type="search" value={assetQuery} placeholder="Search assets…" onChange={(event) => setAssetQuery(event.currentTarget.value)} /><button type="button" onClick={deleteUnusedAssets} title="Delete unused assets">Clean up</button></div>
               <button type="button" className="asset-dropzone" onClick={() => assetInputRef.current?.click()}><span><Icon name="upload" size={24} /></span><strong>Import an asset</strong><small>Images, SVG, MP3, WAV, M4A, AAC, OGG, or WebM audio</small></button>
               <div className="asset-grid">
-                {Object.values(project.assets).map((asset) => asset.type === "font" ? (
+                {Object.values(project.assets).filter((asset) => !assetQuery.trim() || `${asset.name} ${asset.type} ${asset.mimeType}`.toLowerCase().includes(assetQuery.trim().toLowerCase())).map((asset) => asset.type === "font" ? (
                   <button type="button" className="font-asset-card" key={asset.id} onClick={() => selectedLayers.some((layer) => layer.type === "text") && commitProject((current) => setFontFamily(current, selectedLayerIds, asset.fontFamily ?? asset.name))}><strong>Aa</strong><span>{asset.fontFamily ?? asset.name}</span></button>
                 ) : asset.type === "audio" ? (
                   <button type="button" className="asset-audio-card" key={asset.id} onClick={() => addExistingAsset(asset.id)}><strong><Icon name="audio" size={20} /></strong><span>{asset.name}</span><small>{asset.duration ? `${asset.duration.toFixed(2)}s` : "Audio"}</small></button>
@@ -1249,6 +1379,8 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           onRenameScene={renameWorkspaceSceneById}
           onUpdateScene={updateWorkspaceSceneById}
           onMoveScene={moveWorkspaceSceneById}
+          onReorderScene={reorderWorkspaceSceneById}
+          onSetSceneTransition={updateWorkspaceSceneTransition}
           onCopyLayerToScene={copyLayerIntoWorkspaceScene}
         />
 
@@ -1290,6 +1422,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         onSelectLayer={selectLayer}
         onSelectAction={selectAction}
         onCommitActions={commitTimelineActions}
+        onUpdateLayerTiming={updateLayerTiming}
         onDeleteActions={deleteActions}
         onDuplicateActions={duplicateActions}
         onCopyActions={copySelectedActions}

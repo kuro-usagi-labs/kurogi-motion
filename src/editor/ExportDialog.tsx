@@ -45,14 +45,16 @@ export function ExportDialog({ open, project, options, exporting, progress, onCh
   const format = FORMAT_DEFINITIONS.find((item) => item.id === options.format) ?? FORMAT_DEFINITIONS[0];
   const outputWidth = Math.round(scene.width * options.scale);
   const outputHeight = Math.round(scene.height * options.scale);
-  const frameCount = Math.max(1, Math.round(scene.duration * options.fps));
+  const renderScenes = options.allScenes ? Object.values(project.scenes) : [scene];
+  const duration = renderScenes.reduce((total, item) => total + item.duration, 0) - renderScenes.slice(1).reduce((total, item) => total + (item.transition?.type && item.transition.type !== "cut" ? item.transition.duration : 0), 0);
+  const frameCount = Math.max(1, Math.round(duration * options.fps));
   const progressLabel = progress ? progress.phase.charAt(0).toUpperCase() + progress.phase.slice(1) : "";
 
   const summary = useMemo(() => ({
     dimensions: `${outputWidth} × ${outputHeight}`,
-    duration: `${scene.duration.toFixed(2)} sec`,
+    duration: `${duration.toFixed(2)} sec`,
     frames: `${frameCount.toLocaleString()} frames`,
-  }), [frameCount, outputHeight, outputWidth, scene.duration]);
+  }), [duration, frameCount, outputHeight, outputWidth]);
 
   useEffect(() => {
     if (!open) return;
@@ -124,6 +126,10 @@ export function ExportDialog({ open, project, options, exporting, progress, onCh
               <span><b>Transparent background</b><small>{format.alpha ? "Export the scene without a solid canvas background." : `${format.label} does not support transparency in this exporter.`}</small></span>
               <span className={`export-alpha-switch ${options.transparent && format.alpha ? "is-on" : ""}`}><input type="checkbox" checked={options.transparent && format.alpha} disabled={!format.alpha || exporting} onChange={(event) => onChange({ ...options, transparent: event.currentTarget.checked })} /><i /></span>
             </label>
+            {Object.keys(project.scenes).length > 1 ? <label className="export-alpha-row">
+              <span><b>Render complete sequence</b><small>Export every scene in order and apply the configured scene transitions.</small></span>
+              <span className={`export-alpha-switch ${options.allScenes ? "is-on" : ""}`}><input type="checkbox" checked={Boolean(options.allScenes)} disabled={exporting} onChange={(event) => onChange({ ...options, allScenes: event.currentTarget.checked })} /><i /></span>
+            </label> : null}
           </section>
 
           <section className="export-summary">

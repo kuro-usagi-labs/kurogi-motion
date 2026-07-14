@@ -4,7 +4,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const MAX_BODY_BYTES = 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 120_000;
+const EXPORT_TIMEOUT_MS = 30 * 60_000;
 
 function createMcpBridge({ app, ipcMain, getWindow }) {
   let server = null;
@@ -116,10 +117,13 @@ function createMcpBridge({ app, ipcMain, getWindow }) {
     }
     const id = `mcp-${process.pid}-${nextRequestId++}`;
     return new Promise((resolve, reject) => {
+      const timeout = method === "project.export" ? EXPORT_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(new Error("Kurogi Motion did not answer the MCP request in time."));
-      }, REQUEST_TIMEOUT_MS);
+        reject(new Error(method === "project.export"
+          ? "Kurogi Motion did not finish the export within 30 minutes."
+          : "Kurogi Motion did not answer the MCP request in time."));
+      }, timeout);
       pending.set(id, { resolve, reject, timer });
       window.webContents.send("mcp-request", { id, method, params });
     });

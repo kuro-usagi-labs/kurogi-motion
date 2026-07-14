@@ -94,8 +94,15 @@ export function useProjectHistory(initialProject: KurogiProject) {
     return true;
   }, []);
 
+  const getHistoryState = useCallback(() => ({
+    canUndo: undoStack.current.length > 0,
+    canRedo: redoStack.current.length > 0,
+    undoDepth: undoStack.current.length,
+    redoDepth: redoStack.current.length,
+  }), []);
+
   return {
-    project, projectRef, replaceProject, commit, beginGesture, preview, finishGesture, cancelGesture, undo, redo,
+    project, projectRef, replaceProject, commit, beginGesture, preview, finishGesture, cancelGesture, undo, redo, getHistoryState,
     canUndo: undoStack.current.length > 0,
     canRedo: redoStack.current.length > 0,
     isGestureActive: gestureBaseline.current !== null,

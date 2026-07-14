@@ -6,6 +6,8 @@ const { createMcpBridge } = require("./mcpBridge.cjs");
 
 let packagedBundlePromise = null;
 let exportInProgress = false;
+let activeRenderJobId = null;
+const renderJobs = new Map();
 let mainWindow = null;
 let mcpBridge = null;
 const mcpMode = process.argv.includes("--mcp");
@@ -75,7 +77,11 @@ ipcMain.handle("mcp-info", async () => ({
   bridgeRunning: Boolean(mcpBridge?.readConnectionInfo()),
   bridgeFile: path.join(app.getPath("userData"), "mcp-bridge.json"),
   command: process.execPath,
-  args: app.isPackaged ? ["--mcp"] : [app.getAppPath(), "--mcp"],
+  args: [
+    path.join(app.getAppPath(), "mcp", "server.mjs"),
+    `--bridge-file=${path.join(app.getPath("userData"), "mcp-bridge.json")}`,
+  ],
+  env: { ELECTRON_RUN_AS_NODE: "1" },
   packaged: app.isPackaged,
 }));
 
@@ -84,122 +90,12 @@ ipcMain.handle("export-video", async (event, project, rawOptions = {}) => {
   const options = normalizeExportOptions(rawOptions);
   validateProject(project);
 
-  const target = await chooseExportTarget(project.name, options.format, options.outputPath);
+  const target = await chooseExportTarget(project.name, options.format, options.outputPath, options.automatic);
   if (!target) return { canceled: true };
 
   exportInProgress = true;
-  sendProgress(event, {
-    phase: "preparing",
-    progress: 0,
-    message: "Preparing the Remotion bundle",
-  });
-
   try {
-    const serveUrl = await getServeUrl();
-    const { selectComposition, renderFrames, renderMedia } = await import("@remotion/renderer");
-    const inputProps = { project };
-    const composition = await selectComposition({
-      serveUrl,
-      id: "KurogiMotion",
-      inputProps,
-    });
-
-    if (options.format === "png-sequence") {
-      const outputDir = path.join(target, safeFileName(project.name || "kurogi-motion"));
-      fs.mkdirSync(outputDir, { recursive: true });
-      let frameCount = composition.durationInFrames;
-      await renderFrames({
-        composition,
-        serveUrl,
-        inputProps,
-        outputDir,
-        imageFormat: "png",
-        imageSequencePattern: "frame-[frame].[ext]",
-        scale: options.scale,
-        logLevel: "warn",
-        onStart: ({ frameCount: count }) => {
-          frameCount = count;
-          sendProgress(event, {
-            phase: "rendering",
-            progress: 0,
-            renderedFrames: 0,
-            frameCount,
-            message: `Rendering 0 / ${frameCount} frames`,
-          });
-        },
-        onFrameUpdate: (renderedFrames) => {
-          sendProgress(event, {
-            phase: "rendering",
-            progress: frameCount > 0 ? renderedFrames / frameCount : 0,
-            renderedFrames,
-            frameCount,
-            message: `Rendering ${renderedFrames} / ${frameCount} frames`,
-          });
-        },
-      });
-      sendProgress(event, {
-        phase: "completed",
-        progress: 1,
-        renderedFrames: frameCount,
-        frameCount,
-        message: outputDir,
-      });
-      return { path: outputDir };
-    }
-
-    const media = mediaSettings(options);
-    let frameCount = composition.durationInFrames;
-    await renderMedia({
-      composition,
-      serveUrl,
-      inputProps,
-      outputLocation: target,
-      codec: media.codec,
-      scale: options.scale,
-      overwrite: true,
-      logLevel: "warn",
-      ...(media.crf === null ? {} : { crf: media.crf }),
-      ...(media.imageFormat ? { imageFormat: media.imageFormat } : {}),
-      ...(media.pixelFormat ? { pixelFormat: media.pixelFormat } : {}),
-      ...(media.proResProfile ? { proResProfile: media.proResProfile } : {}),
-      ...(options.format === "gif" ? { numberOfGifLoops: options.gifLoops } : {}),
-      onStart: ({ frameCount: count }) => {
-        frameCount = count;
-        sendProgress(event, {
-          phase: "rendering",
-          progress: 0,
-          renderedFrames: 0,
-          encodedFrames: 0,
-          frameCount,
-          message: `Rendering 0 / ${frameCount} frames`,
-        });
-      },
-      onProgress: ({ progress, renderedFrames, encodedFrames, stitchStage }) => {
-        const phase = stitchStage === "encoding" || stitchStage === "muxing"
-          ? "encoding"
-          : "rendering";
-        sendProgress(event, {
-          phase,
-          progress,
-          renderedFrames,
-          encodedFrames,
-          frameCount,
-          message: phase === "encoding"
-            ? `Encoding ${encodedFrames} / ${frameCount} frames`
-            : `Rendering ${renderedFrames} / ${frameCount} frames`,
-        });
-      },
-    });
-
-    sendProgress(event, {
-      phase: "completed",
-      progress: 1,
-      renderedFrames: frameCount,
-      encodedFrames: frameCount,
-      frameCount,
-      message: target,
-    });
-    return { path: target };
+    return await renderProject(project, options, target, (progress) => sendProgress(event, progress));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     sendProgress(event, { phase: "failed", progress: 0, message });
@@ -207,6 +103,78 @@ ipcMain.handle("export-video", async (event, project, rawOptions = {}) => {
   } finally {
     exportInProgress = false;
   }
+});
+
+ipcMain.handle("render-preview-frame", async (_event, project, rawOptions = {}) => {
+  validateProject(project);
+  const scene = project.scenes[project.activeSceneId];
+  const time = Math.min(scene.duration, Math.max(0, Number(rawOptions.time) || 0));
+  const scale = Math.min(2, Math.max(0.1, Number(rawOptions.scale) || 0.5));
+  const serveUrl = await getServeUrl();
+  const { selectComposition, renderStill } = await import("@remotion/renderer");
+  const inputProps = { project, renderMode: "active-scene", exportFps: scene.fps };
+  const composition = await selectComposition({ serveUrl, id: "KurogiMotion", inputProps });
+  const frame = Math.min(composition.durationInFrames - 1, Math.max(0, Math.round(time * composition.fps)));
+  const outputDir = path.join(app.getPath("temp"), "kurogi-motion", "previews");
+  await fs.promises.mkdir(outputDir, { recursive: true });
+  const outputPath = path.join(outputDir, `preview-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`);
+  await renderStill({ composition, serveUrl, inputProps, output: outputPath, frame, imageFormat: "png", scale, logLevel: "warn" });
+  return { path: outputPath, mimeType: "image/png", time: frame / composition.fps, frame, width: Math.round(composition.width * scale), height: Math.round(composition.height * scale) };
+});
+
+ipcMain.handle("start-render-job", async (_event, project, rawOptions = {}) => {
+  if (exportInProgress) throw new Error("Another export is already running.");
+  validateProject(project);
+  const options = normalizeExportOptions({ ...rawOptions, automatic: rawOptions.automatic !== false });
+  const target = await chooseExportTarget(project.name, options.format, options.outputPath, options.automatic);
+  if (!target) return { canceled: true };
+  const { makeCancelSignal } = await import("@remotion/renderer");
+  const { cancelSignal, cancel } = makeCancelSignal();
+  const job = {
+    id: `render-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    projectName: project.name,
+    status: "queued",
+    phase: "queued",
+    progress: 0,
+    outputPath: target,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    cancel,
+  };
+  renderJobs.set(job.id, job);
+  pruneRenderJobs();
+  exportInProgress = true;
+  activeRenderJobId = job.id;
+
+  void renderProject(project, options, target, (progress) => updateRenderJob(job, progress), cancelSignal)
+    .then((result) => updateRenderJob(job, { status: "completed", phase: "completed", progress: 1, outputPath: result.path, completedAt: new Date().toISOString() }))
+    .catch((error) => {
+      const canceled = job.status === "canceling" || /cancel/i.test(error instanceof Error ? error.message : String(error));
+      updateRenderJob(job, { status: canceled ? "canceled" : "failed", phase: canceled ? "canceled" : "failed", error: canceled ? undefined : error instanceof Error ? error.message : String(error), completedAt: new Date().toISOString() });
+    })
+    .finally(() => {
+      exportInProgress = false;
+      if (activeRenderJobId === job.id) activeRenderJobId = null;
+    });
+
+  return publicRenderJob(job);
+});
+
+ipcMain.handle("get-render-job", async (_event, jobId) => {
+  const job = renderJobs.get(String(jobId || ""));
+  if (!job) throw new Error(`Render job ${jobId} does not exist.`);
+  return publicRenderJob(job);
+});
+
+ipcMain.handle("cancel-render-job", async (_event, jobId) => {
+  const job = renderJobs.get(String(jobId || ""));
+  if (!job) throw new Error(`Render job ${jobId} does not exist.`);
+  if (["completed", "failed", "canceled"].includes(job.status)) return publicRenderJob(job);
+  job.status = "canceling";
+  job.phase = "canceling";
+  job.updatedAt = new Date().toISOString();
+  job.cancel();
+  return publicRenderJob(job);
 });
 
 ipcMain.handle("show-item-in-folder", async (_event, targetPath) => {
@@ -284,7 +252,7 @@ async function getServeUrl() {
   return packagedBundlePromise;
 }
 
-async function chooseExportTarget(projectName, format, requestedPath) {
+async function chooseExportTarget(projectName, format, requestedPath, automatic = false) {
   if (requestedPath) {
     if (!path.isAbsolute(requestedPath)) throw new Error("Direct export paths must be absolute.");
     if (format === "png-sequence") { await fs.promises.mkdir(requestedPath, { recursive: true }); return requestedPath; }
@@ -294,6 +262,7 @@ async function chooseExportTarget(projectName, format, requestedPath) {
     await fs.promises.mkdir(path.dirname(requestedPath), { recursive: true });
     return requestedPath;
   }
+  if (automatic) return createAutomaticExportTarget(projectName, format);
   if (format === "png-sequence") {
     const selection = await dialog.showOpenDialog({
       title: "Choose a folder for the PNG sequence",
@@ -315,6 +284,113 @@ async function chooseExportTarget(projectName, format, requestedPath) {
     filters: [{ name: formatConfig.label, extensions: [formatConfig.extension] }],
   });
   return target.canceled ? null : target.filePath;
+}
+
+async function createAutomaticExportTarget(projectName, format) {
+  const directory = path.join(app.getPath("videos"), "Kurogi Motion");
+  await fs.promises.mkdir(directory, { recursive: true });
+  const baseName = safeFileName(projectName || "kurogi-motion");
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "").replace("T", "-");
+  if (format === "png-sequence") {
+    let target = path.join(directory, `${baseName}-${stamp}`);
+    for (let suffix = 2; fs.existsSync(target); suffix += 1) target = path.join(directory, `${baseName}-${stamp}-${suffix}`);
+    return target;
+  }
+  const extensions = { mp4: ".mp4", webm: ".webm", mov: ".mov", gif: ".gif" };
+  const extension = extensions[format] || ".mp4";
+  let target = path.join(directory, `${baseName}-${stamp}${extension}`);
+  for (let suffix = 2; fs.existsSync(target); suffix += 1) target = path.join(directory, `${baseName}-${stamp}-${suffix}${extension}`);
+  return target;
+}
+
+async function renderProject(project, options, target, onProgress, cancelSignal) {
+  const report = (progress) => onProgress?.(progress);
+  report({ phase: "preparing", progress: 0, message: "Preparing the Remotion bundle" });
+  const serveUrl = await getServeUrl();
+  const { selectComposition, renderFrames, renderMedia } = await import("@remotion/renderer");
+  const inputProps = { project, renderMode: options.allScenes ? "all-scenes" : "active-scene", exportFps: options.fps };
+  const composition = await selectComposition({ serveUrl, id: "KurogiMotion", inputProps });
+
+  if (options.format === "png-sequence") {
+    const outputDir = path.join(target, safeFileName(project.name || "kurogi-motion"));
+    await fs.promises.mkdir(outputDir, { recursive: true });
+    let frameCount = composition.durationInFrames;
+    await renderFrames({
+      composition,
+      serveUrl,
+      inputProps,
+      outputDir,
+      imageFormat: "png",
+      imageSequencePattern: "frame-[frame].[ext]",
+      scale: options.scale,
+      logLevel: "warn",
+      ...(cancelSignal ? { cancelSignal } : {}),
+      onStart: ({ frameCount: count }) => {
+        frameCount = count;
+        report({ phase: "rendering", progress: 0, renderedFrames: 0, frameCount, message: `Rendering 0 / ${frameCount} frames` });
+      },
+      onFrameUpdate: (renderedFrames) => {
+        report({ phase: "rendering", progress: frameCount > 0 ? renderedFrames / frameCount : 0, renderedFrames, frameCount, message: `Rendering ${renderedFrames} / ${frameCount} frames` });
+      },
+    });
+    report({ phase: "completed", progress: 1, renderedFrames: frameCount, frameCount, message: outputDir });
+    return { path: outputDir };
+  }
+
+  const media = mediaSettings(options);
+  let frameCount = composition.durationInFrames;
+  await renderMedia({
+    composition,
+    serveUrl,
+    inputProps,
+    outputLocation: target,
+    codec: media.codec,
+    scale: options.scale,
+    overwrite: true,
+    logLevel: "warn",
+    ...(cancelSignal ? { cancelSignal } : {}),
+    ...(media.crf === null ? {} : { crf: media.crf }),
+    ...(media.imageFormat ? { imageFormat: media.imageFormat } : {}),
+    ...(media.pixelFormat ? { pixelFormat: media.pixelFormat } : {}),
+    ...(media.proResProfile ? { proResProfile: media.proResProfile } : {}),
+    ...(options.format === "gif" ? { numberOfGifLoops: options.gifLoops } : {}),
+    onStart: ({ frameCount: count }) => {
+      frameCount = count;
+      report({ phase: "rendering", progress: 0, renderedFrames: 0, encodedFrames: 0, frameCount, message: `Rendering 0 / ${frameCount} frames` });
+    },
+    onProgress: ({ progress, renderedFrames, encodedFrames, stitchStage }) => {
+      const phase = stitchStage === "encoding" || stitchStage === "muxing" ? "encoding" : "rendering";
+      report({
+        phase,
+        progress,
+        renderedFrames,
+        encodedFrames,
+        frameCount,
+        message: phase === "encoding" ? `Encoding ${encodedFrames} / ${frameCount} frames` : `Rendering ${renderedFrames} / ${frameCount} frames`,
+      });
+    },
+  });
+  report({ phase: "completed", progress: 1, renderedFrames: frameCount, encodedFrames: frameCount, frameCount, message: target });
+  return { path: target };
+}
+
+function updateRenderJob(job, update) {
+  Object.assign(job, update);
+  if (update.phase && !update.status && !["completed", "failed", "canceled", "canceling"].includes(job.status)) job.status = "running";
+  job.updatedAt = new Date().toISOString();
+}
+
+function publicRenderJob(job) {
+  const { cancel: _cancel, ...result } = job;
+  return result;
+}
+
+function pruneRenderJobs() {
+  if (renderJobs.size <= 50) return;
+  for (const [id, job] of renderJobs) {
+    if (id !== activeRenderJobId && ["completed", "failed", "canceled"].includes(job.status)) renderJobs.delete(id);
+    if (renderJobs.size <= 40) break;
+  }
 }
 
 function mediaSettings(options) {
@@ -354,6 +430,8 @@ function normalizeExportOptions(raw) {
     transparent: alphaFormats.has(format) && Boolean(raw.transparent),
     gifLoops: raw.gifLoops === null ? null : Math.max(0, Number(raw.gifLoops) || 0),
     outputPath: typeof raw.outputPath === "string" && raw.outputPath.trim() ? raw.outputPath.trim() : undefined,
+    automatic: Boolean(raw.automatic),
+    allScenes: Boolean(raw.allScenes),
   };
 }
 

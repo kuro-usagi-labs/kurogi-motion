@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerRef } from "@remotion/player";
 import { getActiveScene, getSceneLayers } from "../core/project";
-import type { AnimationAction, AudioClip, KurogiProject, StaggerOrder } from "../types";
+import type { AnimationAction, AudioClip, KurogiProject, Layer, StaggerOrder } from "../types";
 import { AudioClipToolbar, AudioTimelineTracks } from "./AudioTimeline";
 import { Icon } from "../ui/Icon";
 import { presetFor } from "./animationPresets";
@@ -23,6 +23,7 @@ interface TimelineProps {
   onSelectLayer: (layerId: string, additive?: boolean) => void;
   onSelectAction: (layerId: string, actionId: string, additive?: boolean) => void;
   onCommitActions: (patches: TimelineActionPatch[]) => void;
+  onUpdateLayerTiming: (layerId: string, startTime: number, duration: number) => void;
   onDeleteActions: (actionIds: string[]) => void;
   onDuplicateActions: (actionIds: string[]) => void;
   onCopyActions: (actionIds: string[]) => void;
@@ -55,6 +56,7 @@ type ActionGesture = {
 };
 
 type ActionPreviewMap = Record<string, { startTime: number; duration: number }>;
+type LayerTimingGesture = { mode: "move" | "trim-start" | "trim-end"; layerId: string; clientX: number; laneWidth: number; startTime: number; duration: number };
 
 const LABEL_WIDTH = 188;
 const MIN_HEIGHT = 190;
@@ -72,6 +74,7 @@ export function Timeline({
   onSelectLayer,
   onSelectAction,
   onCommitActions,
+  onUpdateLayerTiming,
   onDeleteActions,
   onDuplicateActions,
   onCopyActions,
@@ -94,6 +97,9 @@ export function Timeline({
   const [height, setHeight] = useState(() => clamp(Number(localStorage.getItem(HEIGHT_KEY)) || DEFAULT_HEIGHT, MIN_HEIGHT, MAX_HEIGHT));
   const [gesture, setGesture] = useState<ActionGesture | null>(null);
   const [preview, setPreview] = useState<ActionPreviewMap>({});
+  const [layerTimingGesture, setLayerTimingGesture] = useState<LayerTimingGesture | null>(null);
+  const [layerTimingPreview, setLayerTimingPreview] = useState<{ startTime: number; duration: number } | null>(null);
+  const layerTimingPreviewRef = useRef<{ startTime: number; duration: number } | null>(null);
   const previewRef = useRef<ActionPreviewMap>({});
   const resizeRef = useRef<{ pointerId: number; startY: number; height: number } | null>(null);
   const [staggerStep, setStaggerStep] = useState(.08);
@@ -190,6 +196,41 @@ export function Timeline({
   }, [frame, gesture, onCommitActions, project, scene.duration, scene.fps]);
 
   useEffect(() => {
+    if (!layerTimingGesture) return;
+    const active = layerTimingGesture;
+    const move = (event: PointerEvent) => {
+      const delta = ((event.clientX - active.clientX) / Math.max(1, active.laneWidth)) * scene.duration;
+      let startTime = active.startTime;
+      let duration = active.duration;
+      if (active.mode === "move") startTime = clamp(active.startTime + delta, 0, Math.max(0, scene.duration - active.duration));
+      if (active.mode === "trim-start") {
+        const end = active.startTime + active.duration;
+        startTime = clamp(active.startTime + delta, 0, end - .01);
+        duration = end - startTime;
+      }
+      if (active.mode === "trim-end") duration = clamp(active.duration + delta, .01, Math.max(.01, scene.duration - active.startTime));
+      const next = { startTime, duration };
+      layerTimingPreviewRef.current = next;
+      setLayerTimingPreview(next);
+    };
+    const finish = () => {
+      const value = layerTimingPreviewRef.current ?? { startTime: active.startTime, duration: active.duration };
+      onUpdateLayerTiming(active.layerId, value.startTime, value.duration);
+      layerTimingPreviewRef.current = null;
+      setLayerTimingPreview(null);
+      setLayerTimingGesture(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointercancel", finish, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+  }, [layerTimingGesture, onUpdateLayerTiming, scene.duration]);
+
+  useEffect(() => {
     const move = (event: PointerEvent) => {
       const active = resizeRef.current;
       if (!active) return;
@@ -249,6 +290,20 @@ export function Timeline({
     setGesture({ mode, clientX: event.clientX, laneWidth: lane.getBoundingClientRect().width, primaryActionId: action.id, snapshots });
   }
 
+  function beginLayerTimingGesture(event: React.PointerEvent<HTMLElement>, layer: Layer, mode: LayerTimingGesture["mode"]) {
+    event.preventDefault();
+    event.stopPropagation();
+    const lane = event.currentTarget.closest(".track-lane") as HTMLElement | null;
+    if (!lane) return;
+    onSelectLayer(layer.id, event.shiftKey);
+    const startTime = clamp(layer.startTime ?? 0, 0, scene.duration);
+    const duration = clamp(layer.duration ?? scene.duration - startTime, .01, Math.max(.01, scene.duration - startTime));
+    const initial = { startTime, duration };
+    layerTimingPreviewRef.current = initial;
+    setLayerTimingPreview(initial);
+    setLayerTimingGesture({ mode, layerId: layer.id, clientX: event.clientX, laneWidth: lane.getBoundingClientRect().width, startTime, duration });
+  }
+
   return (
     <section className="timeline behavior-timeline timeline-v3" style={{ height }}>
       <div
@@ -299,7 +354,15 @@ export function Timeline({
           <AudioTimelineTracks project={project} laneWidth={laneWidth} labelWidth={LABEL_WIDTH} selectedClipId={selectedAudioClipId} onSelect={onSelectAudioClip} onUpdate={onUpdateAudioClip} onDelete={onDeleteAudioClip} onDuplicate={onDuplicateAudioClip} onSeek={seekToTime} />
           {[...layers].reverse().map((layer) => <div className="track" key={layer.id} style={{ gridTemplateColumns: `${LABEL_WIDTH}px ${laneWidth}px` }}>
             <button type="button" onClick={(event) => onSelectLayer(layer.id, event.shiftKey)} className={selectedLayerIds.includes(layer.id) ? "track-selected" : ""}><span className={`layer-thumb ${layer.type}`}><Icon name={layer.type === "text" ? "text" : layer.type === "shape" ? "shapes" : "assets"} size={13} /></span><span className="track-name">{layer.name}</span></button>
-            <div className="track-lane clean-track-lane" onPointerDown={(event) => { if (!(event.target as HTMLElement).closest(".timeline-action")) { event.currentTarget.setPointerCapture(event.pointerId); seekFromPointer(event); } }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) seekFromPointer(event); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}>
+            <div className="track-lane clean-track-lane" onPointerDown={(event) => { if (!(event.target as HTMLElement).closest(".timeline-action,.timeline-layer-span")) { event.currentTarget.setPointerCapture(event.pointerId); seekFromPointer(event); } }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) seekFromPointer(event); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}>
+              {(() => {
+                const timing = layerTimingGesture?.layerId === layer.id && layerTimingPreview ? layerTimingPreview : { startTime: layer.startTime ?? 0, duration: layer.duration ?? scene.duration - (layer.startTime ?? 0) };
+                return <div className={`timeline-layer-span ${selectedLayerIds.includes(layer.id) ? "is-selected" : ""}`} style={{ left: `${(timing.startTime / scene.duration) * 100}%`, width: `${Math.max(.3, (timing.duration / scene.duration) * 100)}%` }} onPointerDown={(event) => beginLayerTimingGesture(event, layer, "move")} title={`${layer.name} · ${timing.startTime.toFixed(2)}s–${(timing.startTime + timing.duration).toFixed(2)}s`}>
+                  <span className="layer-trim-handle is-start" onPointerDown={(event) => beginLayerTimingGesture(event, layer, "trim-start")} />
+                  <span className="layer-span-fill" />
+                  <span className="layer-trim-handle is-end" onPointerDown={(event) => beginLayerTimingGesture(event, layer, "trim-end")} />
+                </div>;
+              })()}
               {layer.animationActions.map((action) => {
                 const activePreview = preview[action.id] ?? action;
                 const effectiveStart = activePreview.startTime + action.delay;

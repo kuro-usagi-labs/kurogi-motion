@@ -1,7 +1,7 @@
 import React from "react";
 import { Composition, registerRoot } from "remotion";
-import { MotionComposition } from "./MotionComposition";
-import { createStarterProject, getActiveScene } from "./core/project";
+import { getProjectRenderMetadata, ProjectComposition } from "./MotionComposition";
+import { createStarterProject } from "./core/project";
 import type { KurogiProject } from "./types";
 
 const defaultProject = createStarterProject();
@@ -9,21 +9,13 @@ const defaultProject = createStarterProject();
 const Root: React.FC = () => (
   <Composition
     id="KurogiMotion"
-    component={MotionComposition}
+    component={ProjectComposition}
     durationInFrames={150}
     fps={30}
     width={1080}
     height={1080}
-    defaultProps={{ project: defaultProject as KurogiProject }}
-    calculateMetadata={({ props }) => {
-      const scene = getActiveScene(props.project);
-      return {
-        durationInFrames: Math.max(1, Math.round(scene.duration * scene.fps)),
-        fps: scene.fps,
-        width: scene.width,
-        height: scene.height,
-      };
-    }}
+    defaultProps={{ project: defaultProject as KurogiProject, renderMode: "active-scene" as const }}
+    calculateMetadata={({ props }) => getProjectRenderMetadata(props)}
   />
 );
 

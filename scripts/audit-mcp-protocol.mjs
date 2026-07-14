@@ -8,6 +8,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const token = "audit-token-0123456789";
 const requests = [];
+let activeProject = { id: "project-audit", name: "Protocol audit", activeSceneId: "scene-audit", audioClipCount: 1 };
+
 const bridge = http.createServer(async (request, response) => {
   try {
     assert.equal(request.method, "POST");
@@ -22,17 +24,41 @@ const bridge = http.createServer(async (request, response) => {
     if (payload.method === "bridge.status") {
       result = { appRunning: true, windowReady: true, pid: process.pid };
     } else if (payload.method === "library.list_projects") {
-      result = { projects: [{ id: "project-audit", name: "Protocol audit" }] };
+      result = { projects: [{ id: activeProject.id, name: activeProject.name }] };
+    } else if (payload.method === "library.create_project") {
+      activeProject = { id: "project-auto", name: payload.params.name, activeSceneId: "scene-auto", audioClipCount: 0 };
+      result = { created: true, projectId: activeProject.id, activeSceneId: activeProject.activeSceneId, name: activeProject.name, templateId: payload.params.templateId };
+    } else if (payload.method === "library.open_project") {
+      activeProject = { id: payload.params.projectId, name: "Opened project", activeSceneId: "scene-opened", audioClipCount: 0 };
+      result = { opened: true, projectId: activeProject.id, activeSceneId: activeProject.activeSceneId, name: activeProject.name };
     } else if (payload.method === "project.get_context") {
       result = {
-        project: { id: "project-audit", name: "Protocol audit", activeSceneId: "scene-audit", audioClipCount: 1 },
-        scenes: [{ id: "scene-audit", name: "Scene 01", layers: [], audioClips: [{ id: "audio-audit", name: "Voice over" }] }],
-        assets: [{ id: "asset-audio", name: "Voice over", type: "audio", duration: 4 }],
+        project: activeProject,
+        scenes: [{ id: activeProject.activeSceneId, name: "Scene 01", layers: [], audioClips: activeProject.audioClipCount ? [{ id: "audio-audit", name: "Voice over" }] : [] }],
+        assets: activeProject.audioClipCount ? [{ id: "asset-audio", name: "Voice over", type: "audio", duration: 4 }] : [],
       };
     } else if (payload.method === "project.apply_edit_plan") {
       result = { applied: payload.params.operations.length, operations: payload.params.operations };
+    } else if (payload.method === "project.apply_workflow") {
+      assert.equal(payload.params.steps[1].params.layerId.$ref, "heading.layer.id", "Atomic workflow references must reach the Editor for transactional resolution.");
+      result = {
+        applied: payload.params.steps.length,
+        rolledBackOnError: true,
+        steps: [
+          { index: 0, method: "project.create_layer", assign: "heading", result: { created: true, layer: { id: "layer-auto", type: "text" } } },
+          { index: 1, method: "project.add_animation", assign: "headingIn", result: { created: true, action: { id: "action-auto", layerId: "layer-auto" } } },
+        ],
+        aliases: { project: activeProject, heading: { layer: { id: "layer-auto" } }, headingIn: { action: { id: "action-auto" } } },
+      };
+    } else if (payload.method === "project.create_layer") {
+      result = { created: true, layer: { id: "layer-auto", type: payload.params.type, text: payload.params.text } };
+    } else if (payload.method === "project.add_animation") {
+      assert.equal(payload.params.layerId, "layer-auto", "Workflow $ref must resolve the assigned layer ID.");
+      result = { created: true, action: { id: "action-auto", layerId: payload.params.layerId, type: payload.params.type } };
+    } else if (payload.method === "project.save") {
+      result = { saved: true, projectId: activeProject.id };
     } else if (payload.method === "project.export") {
-      result = { exported: true, path: payload.params.outputPath ?? "dialog-selected.mp4" };
+      result = { exported: true, path: payload.params.outputPath ?? path.join("Videos", "Kurogi Motion", "protocol-audit.mp4") };
     } else {
       throw new Error(`Unexpected bridge method: ${payload.method}`);
     }
@@ -70,26 +96,44 @@ const transport = new StdioClientTransport({
   args: [path.resolve("mcp/server.mjs"), `--bridge-file=${bridgeFile}`],
   stderr: "pipe",
 });
-const client = new Client({ name: "kurogi-mcp-audit", version: "2.0.0" }, { capabilities: {} });
+const client = new Client({ name: "kurogi-mcp-audit", version: "4.0.0" }, { capabilities: {} });
 
 try {
   await client.connect(transport);
 
   const tools = await client.listTools();
-  assert.ok(tools.tools.length >= 25);
+  assert.ok(tools.tools.length >= 28);
   for (const name of [
     "kurogi_status",
+    "kurogi_create_project",
+    "kurogi_open_project",
     "kurogi_create_layer",
     "kurogi_add_animation",
     "kurogi_import_asset",
     "kurogi_create_audio_clip",
     "kurogi_apply_edit_plan",
+    "kurogi_apply_workflow",
+    "kurogi_render_preview_frame",
+    "kurogi_validate_project",
+    "kurogi_start_render",
+    "kurogi_get_render_progress",
+    "kurogi_cancel_render",
     "kurogi_export_active_project",
+    "kurogi_create_video",
   ]) assert.ok(tools.tools.some((tool) => tool.name === name), `Missing MCP tool ${name}`);
+
+  for (const tool of tools.tools) {
+    for (const annotation of ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"]) {
+      assert.equal(typeof tool.annotations?.[annotation], "boolean", `${tool.name} is missing ${annotation}`);
+    }
+  }
+  const autonomousTool = tools.tools.find((tool) => tool.name === "kurogi_create_video");
+  assert.equal(autonomousTool.annotations.destructiveHint, false);
+  assert.equal(autonomousTool.annotations.readOnlyHint, false);
 
   const status = await client.callTool({ name: "kurogi_status", arguments: {} });
   assert.equal(status.isError, undefined);
-  assert.match(status.content[0].text, /"appRunning": true/);
+  assert.equal(status.structuredContent.appRunning, true);
 
   const plan = await client.callTool({
     name: "kurogi_apply_edit_plan",
@@ -101,14 +145,35 @@ try {
     },
   });
   assert.equal(plan.isError, undefined);
-  assert.match(plan.content[0].text, /"applied": 2/);
+  assert.equal(plan.structuredContent.applied, 2);
 
   const exported = await client.callTool({
     name: "kurogi_export_active_project",
     arguments: { format: "mp4", outputPath: path.join(directory, "result.mp4") },
   });
   assert.equal(exported.isError, undefined);
-  assert.match(exported.content[0].text, /result\.mp4/);
+  assert.match(exported.structuredContent.path, /result\.mp4/);
+
+  const autonomous = await client.callTool({
+    name: "kurogi_create_video",
+    arguments: {
+      project: { name: "Autonomous protocol audit", format: "landscape", duration: 4, fps: 30, templateId: "button-micro" },
+      steps: [
+        { method: "project.create_layer", assign: "heading", params: { type: "text", text: "FULL AUTO" } },
+        { method: "project.add_animation", assign: "headingIn", params: { layerId: { $ref: "heading.layer.id" }, category: "in", type: "moveIn" } },
+      ],
+      export: { format: "mp4", quality: "high", fps: 30, scale: 1 },
+    },
+  });
+  assert.equal(autonomous.isError, undefined);
+  assert.equal(autonomous.structuredContent.created, true);
+  assert.equal(autonomous.structuredContent.project.id, "project-auto");
+  assert.equal(autonomous.structuredContent.steps.length, 2);
+  assert.equal(autonomous.structuredContent.saved.saved, true);
+  assert.match(autonomous.structuredContent.export.path, /protocol-audit\.mp4/);
+
+  const automaticExportRequest = requests.findLast((request) => request.method === "project.export");
+  assert.equal(automaticExportRequest.params.automatic, true, "The one-call workflow must bypass destination dialogs.");
 
   const resources = await client.listResources();
   assert.deepEqual(resources.resources.map((resource) => resource.uri).sort(), [
@@ -119,19 +184,19 @@ try {
 
   const active = await client.readResource({ uri: "kurogi://active-project" });
   assert.equal(active.contents[0].mimeType, "application/json");
-  assert.match(active.contents[0].text, /Voice over/);
+  assert.match(active.contents[0].text, /Autonomous protocol audit/);
 
   const projects = await client.readResource({ uri: "kurogi://projects" });
-  assert.match(projects.contents[0].text, /project-audit/);
+  assert.match(projects.contents[0].text, /project-auto/);
 
   const capabilities = await client.readResource({ uri: "kurogi://capabilities" });
-  assert.match(capabilities.contents[0].text, /transactional edit plans/);
-  assert.match(capabilities.contents[0].text, /audio timeline/);
+  assert.match(capabilities.contents[0].text, /single-call create-save-render/);
+  assert.match(capabilities.contents[0].text, /no in-app confirmation/);
 
   assert.ok(requests.some((request) => request.method === "bridge.status"));
-  assert.ok(requests.some((request) => request.method === "project.get_context"));
-  assert.ok(requests.some((request) => request.method === "library.list_projects"));
+  assert.ok(requests.some((request) => request.method === "library.create_project"));
   assert.ok(requests.some((request) => request.method === "project.apply_edit_plan"));
+  assert.ok(requests.some((request) => request.method === "project.save"));
   assert.ok(requests.some((request) => request.method === "project.export"));
 } finally {
   await client.close().catch(() => undefined);
@@ -139,4 +204,4 @@ try {
   await fs.rm(directory, { recursive: true, force: true });
 }
 
-console.log("MCP V2 protocol smoke audit passed.");
+console.log("MCP V4 autonomous protocol audit passed.");

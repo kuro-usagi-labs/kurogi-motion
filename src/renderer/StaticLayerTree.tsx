@@ -20,7 +20,11 @@ export function StaticLayerTree({
   parentSize: Size;
 }) {
   if (!layer.visible || layer.maskSource) return null;
-  const visual = evaluateLayer(layer, scene, time);
+  const layerStartTime = Math.max(0, layer.startTime ?? 0);
+  const layerDuration = Math.max(.01, layer.duration ?? scene.duration);
+  if (time < layerStartTime || time >= layerStartTime + layerDuration) return null;
+  const layerTime = time - layerStartTime;
+  const visual = evaluateLayer(layer, scene, layerTime);
   const style: React.CSSProperties = {
     position: "absolute",
     left: `${(visual.x / Math.max(1, parentSize.width)) * 100}%`,
@@ -45,15 +49,15 @@ export function StaticLayerTree({
 
   return (
     <div style={style}>
-      <LayerEffects layer={layer} time={time}>
+      <LayerEffects layer={layer} time={layerTime}>
         <div style={{ position: "relative", width: "100%", height: "100%", filter: animatedFilter || undefined }}>
           {layer.type === "group"
             ? layer.childIds.map((childId) => {
                 const child = project.layers[childId];
-                return child ? <StaticLayerTree key={childId} project={project} layer={child} scene={scene} time={time} parentSize={layer.size} /> : null;
+                return child ? <StaticLayerTree key={childId} project={project} layer={child} scene={scene} time={layerTime} parentSize={layer.size} /> : null;
               })
             : layer.type === "text"
-              ? <StaticAnimatedText layer={layer} scene={scene} time={time} />
+              ? <StaticAnimatedText layer={layer} scene={scene} time={layerTime} />
               : layer.type === "shape"
                 ? <StaticShape layer={layer} />
                 : <StaticAsset project={project} layer={layer} />}

@@ -36,6 +36,8 @@ interface MultiSceneCanvasStageProps {
   onRenameScene: (sceneId: string, name: string) => void;
   onUpdateScene: (sceneId: string, patch: SceneUpdatePatch) => void;
   onMoveScene: (sceneId: string, position: SceneWorkspacePosition) => void;
+  onReorderScene: (sceneId: string, targetIndex: number) => void;
+  onSetSceneTransition: (sceneId: string, transition: NonNullable<KurogiProject["scenes"][string]["transition"]>) => void;
   onCopyLayerToScene: (layerId: string, sceneId: string) => void;
 }
 
@@ -85,6 +87,8 @@ export function MultiSceneCanvasStage({
   onRenameScene,
   onUpdateScene,
   onMoveScene,
+  onReorderScene,
+  onSetSceneTransition,
   onCopyLayerToScene,
 }: MultiSceneCanvasStageProps) {
   const activeScene = project.scenes[project.activeSceneId] ?? Object.values(project.scenes)[0];
@@ -432,6 +436,9 @@ export function MultiSceneCanvasStage({
     >
       <div className="multi-scene-toolbar is-compact">
         <div className="scene-toolbar-primary">
+          <span className="scene-sequence-count">Scene {scenes.findIndex((scene) => scene.id === activeScene.id) + 1}/{scenes.length}</span>
+          <button type="button" disabled={scenes.findIndex((scene) => scene.id === activeScene.id) <= 0} onClick={() => onReorderScene(activeScene.id, scenes.findIndex((scene) => scene.id === activeScene.id) - 1)} title="Move scene earlier"><Icon name="previous" size={13} /></button>
+          <button type="button" disabled={scenes.findIndex((scene) => scene.id === activeScene.id) >= scenes.length - 1} onClick={() => onReorderScene(activeScene.id, scenes.findIndex((scene) => scene.id === activeScene.id) + 1)} title="Move scene later"><Icon name="next" size={13} /></button>
           <input
             className="scene-name-input"
             value={settingsDraft.name}
@@ -442,6 +449,13 @@ export function MultiSceneCanvasStage({
               if (event.key === "Enter") event.currentTarget.blur();
             }}
           />
+          <label className="scene-transition-control" title="Transition entering this scene">
+            <span>Transition</span>
+            <select value={activeScene.transition?.type ?? "cut"} onChange={(event) => onSetSceneTransition(activeScene.id, { type: event.currentTarget.value as NonNullable<KurogiProject["scenes"][string]["transition"]>["type"], duration: event.currentTarget.value === "cut" ? 0 : activeScene.transition?.duration || .4 })}>
+              <option value="cut">Cut</option><option value="fade">Fade</option><option value="slide-left">Slide left</option><option value="slide-right">Slide right</option><option value="zoom">Zoom</option>
+            </select>
+            {(activeScene.transition?.type ?? "cut") !== "cut" ? <input type="number" min="0.05" max="10" step="0.05" value={activeScene.transition?.duration ?? .4} onChange={(event) => onSetSceneTransition(activeScene.id, { type: activeScene.transition?.type ?? "fade", duration: Math.max(.05, Number(event.currentTarget.value) || .4) })} aria-label="Transition duration" /> : null}
+          </label>
         </div>
 
         <div className="scene-toolbar-secondary">

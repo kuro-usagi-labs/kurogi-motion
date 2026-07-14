@@ -15,6 +15,7 @@ import { CubicBezierEditor } from "./CubicBezierEditor";
 import { defaultMotionPath } from "./MotionPathOverlay";
 import { EffectsPanel } from "./EffectsPanel";
 import { presetFor } from "./animationPresets";
+import { estimateAutoFitFontSize } from "../core/projectValidation";
 
 export type InspectorTab = "Design" | "Animation" | "Export";
 
@@ -132,7 +133,11 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
       {layer.type === "text" ? (
         <section className="property-section compact-property-section">
           <div className="section-label">Typography</div>
-          <label>Content<textarea value={layer.text} onFocus={onBegin} onChange={(event) => preview((current) => current.type === "text" ? { ...current, text: event.currentTarget.value } : current)} onBlur={onFinish} onKeyDown={(event) => escapeField(event, onCancel)} /></label>
+          <label>Content<textarea value={layer.text} onFocus={onBegin} onChange={(event) => preview((current) => {
+            if (current.type !== "text") return current;
+            const next = { ...current, text: event.currentTarget.value };
+            return next.style.autoFit ? { ...next, style: { ...next.style, fontSize: estimateAutoFitFontSize(next) } } : next;
+          })} onBlur={onFinish} onKeyDown={(event) => escapeField(event, onCancel)} /></label>
           <label>Font family<select value={layer.style.fontFamily} onChange={(event) => commit((current) => current.type === "text" ? { ...current, style: { ...current.style, fontFamily: event.currentTarget.value } } : current)}><option>Inter</option><option>Arial</option><option>Georgia</option><option>Verdana</option><option>Trebuchet MS</option></select></label>
           <div className="property-grid two">
             <NumberField label="Font size" value={layer.style.fontSize} min={1} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, fontSize: Math.max(1, value) } } : current)} />
@@ -145,6 +150,15 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
             <label>Vertical<select value={layer.style.verticalAlign ?? "middle"} onChange={(event) => commit((current) => current.type === "text" ? { ...current, style: { ...current.style, verticalAlign: event.currentTarget.value as "top" | "middle" | "bottom" } } : current)}><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select></label>
           </div>
           <ColorField label="Color" value={layer.style.color} onBegin={onBegin} onFinish={onFinish} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, color: value } } : current)} />
+          <div className="property-grid two">
+            <ColorField label="Text stroke" value={normalizeColor(layer.style.stroke ?? "#000000")} onBegin={onBegin} onFinish={onFinish} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, stroke: value } } : current)} />
+            <NumberField label="Stroke width" value={layer.style.strokeWidth ?? 0} min={0} max={40} step={.5} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, strokeWidth: Math.max(0, value) } } : current)} />
+          </div>
+          <label className="toggle-row"><span>Auto-fit text</span><ToggleSwitch checked={Boolean(layer.style.autoFit)} onChange={(checked) => commit((current) => {
+            if (current.type !== "text") return current;
+            const next = { ...current, style: { ...current.style, autoFit: checked } };
+            return checked ? { ...next, style: { ...next.style, fontSize: estimateAutoFitFontSize(next) } } : next;
+          })} /></label>
         </section>
       ) : null}
 

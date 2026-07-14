@@ -11,7 +11,7 @@ const serverSource = await readFile("mcp/server.mjs", "utf8");
 const main = await readFile("electron/main.cjs", "utf8");
 const preload = await readFile("electron/preload.cjs", "utf8");
 
-assert.match(types, /PROJECT_VERSION = 7/);
+assert.match(types, /PROJECT_VERSION = 8/);
 assert.match(types, /export interface AudioClip/);
 assert.match(types, /audioClips: Record<string, AudioClip>/);
 assert.match(types, /audioClipIds: string\[\]/);
@@ -27,7 +27,7 @@ assert.match(editor, /readMcpMediaFile/);
 assert.match(main, /read-mcp-media-file/);
 assert.match(main, /outputPath/);
 assert.match(preload, /readMcpMediaFile/);
-assert.ok((serverSource.match(/tool\("kurogi_/g) ?? []).length >= 25, "MCP V2 should expose at least 25 focused tools.");
+assert.ok((serverSource.match(/bridgeTool\("kurogi_/g) ?? []).length >= 50, "MCP V4 should expose at least 50 focused tools.");
 assert.match(serverSource, /kurogi_apply_edit_plan/);
 assert.match(serverSource, /kurogi_import_asset/);
 assert.match(serverSource, /kurogi_create_audio_clip/);
@@ -126,4 +126,4 @@ try {
   await vite.close();
 }
 
-console.log("Audio media and MCP V2 audit passed.");
+console.log("Audio media and MCP V4 audit passed.");

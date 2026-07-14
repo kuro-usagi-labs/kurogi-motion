@@ -3,9 +3,12 @@ import type {
   AnimationCategory,
   AnimationType,
   AudioClip,
+  BlendMode,
   EasingName,
+  GradientFill,
   KurogiProject,
   Layer,
+  LayerEffectType,
   ShapeType,
 } from "../types";
 import {
@@ -28,7 +31,9 @@ import {
   duplicateScene,
   ensureSceneWorkspace,
   removeScene,
+  reorderScene,
   setActiveScene,
+  setSceneTransition,
   updateScene,
 } from "./sceneWorkspace";
 import {
@@ -38,6 +43,18 @@ import {
   removeAudioClip,
   updateAudioClip,
 } from "./audio";
+import {
+  alignLayers,
+  createClippingMask,
+  distributeLayers,
+  groupLayers,
+  releaseClippingMask,
+  setBlendMode,
+  setGradient,
+  ungroupLayer,
+} from "./designTools";
+import { createLayerEffect, EFFECT_TYPES, normalizeEffects } from "./effects";
+import { estimateAutoFitFontSize, validateProject } from "./projectValidation";
 
 export interface McpBridgeRequest {
   id: string;
@@ -58,29 +75,6 @@ export interface McpProjectCommandResult {
   activeSceneId?: string;
 }
 
-const MUTATION_METHODS = new Set([
-  "asset.import_file",
-  "project.rename",
-  "project.create_scene",
-  "project.update_scene",
-  "project.duplicate_scene",
-  "project.delete_scene",
-  "project.set_active_scene",
-  "project.create_layer",
-  "project.update_layer",
-  "project.duplicate_layer",
-  "project.delete_layer",
-  "project.reorder_layer",
-  "project.add_animation",
-  "project.update_animation",
-  "project.delete_animation",
-  "project.create_audio_clip",
-  "project.update_audio_clip",
-  "project.duplicate_audio_clip",
-  "project.delete_audio_clip",
-  "project.apply_edit_plan",
-]);
-
 const SHAPE_TYPES = new Set<ShapeType>([
   "rectangle", "circle", "line", "polygon", "arrow", "triangle", "diamond", "star", "heart",
   "hexagon", "octagon", "plus", "cross", "speechBubble", "cloud", "burst", "chevron", "ring",
@@ -98,36 +92,8 @@ const ANIMATION_TYPES = new Set<AnimationType>([
 const EASINGS = new Set<EasingName>([
   "linear", "easeIn", "easeOut", "easeInOut", "backIn", "backOut", "overshoot", "bounce", "elastic", "custom",
 ]);
-
-export function isMcpMutationMethod(method: string): boolean {
-  return MUTATION_METHODS.has(method);
-}
-
-export function describeMcpMutation(method: string, params: Record<string, unknown> = {}): string {
-  switch (method) {
-    case "asset.import_file": return `import media from ${text(params.path) || "a local file"}`;
-    case "project.rename": return `rename the project to “${text(params.name) || "Untitled"}”`;
-    case "project.create_scene": return `create a new scene${text(params.name) ? ` named “${text(params.name)}”` : ""}`;
-    case "project.update_scene": return `update scene ${text(params.sceneId) || "settings"}`;
-    case "project.duplicate_scene": return `duplicate scene ${text(params.sceneId) || "the active scene"}`;
-    case "project.delete_scene": return `delete scene ${text(params.sceneId) || "the requested scene"}`;
-    case "project.set_active_scene": return `switch the active scene to ${text(params.sceneId) || "the requested scene"}`;
-    case "project.create_layer": return `create a ${text(params.type) || "new"} layer`;
-    case "project.update_layer": return `update layer ${text(params.layerId) || "properties"}`;
-    case "project.duplicate_layer": return `duplicate layer ${text(params.layerId) || "the requested layer"}`;
-    case "project.delete_layer": return `delete layer ${text(params.layerId) || "the requested layer"}`;
-    case "project.reorder_layer": return `reorder layer ${text(params.layerId) || "the requested layer"}`;
-    case "project.add_animation": return `add animation ${text(params.type) || "action"}`;
-    case "project.update_animation": return `update animation ${text(params.actionId) || "action"}`;
-    case "project.delete_animation": return `delete animation ${text(params.actionId) || "action"}`;
-    case "project.create_audio_clip": return "add an audio clip to the timeline";
-    case "project.update_audio_clip": return `update audio clip ${text(params.clipId) || "properties"}`;
-    case "project.duplicate_audio_clip": return `duplicate audio clip ${text(params.clipId) || "the requested clip"}`;
-    case "project.delete_audio_clip": return `delete audio clip ${text(params.clipId) || "the requested clip"}`;
-    case "project.apply_edit_plan": return `apply ${Array.isArray(params.operations) ? params.operations.length : "multiple"} project edits as one transaction`;
-    default: return "change the active project";
-  }
-}
+const BLEND_MODES = new Set<BlendMode>(["normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity"]);
+const EFFECT_TYPE_SET = new Set<LayerEffectType>(EFFECT_TYPES);
 
 export function getMcpProjectContext(project: KurogiProject, includeDocument = false) {
   const prepared = ensureSceneWorkspace(project);
@@ -183,6 +149,10 @@ export function executeMcpProjectCommand(
     return { project: prepared, changed: false, result: getMcpProjectContext(prepared, Boolean(params.includeDocument)) };
   }
 
+  if (method === "project.validate") {
+    return { project: prepared, changed: false, result: validateProject(prepared) as unknown as Record<string, unknown> };
+  }
+
   if (method === "project.rename") {
     const name = requiredText(params.name, "name");
     if (prepared.name === name) return { project: prepared, changed: false, result: { renamed: false, name } };
@@ -225,6 +195,24 @@ export function executeMcpProjectCommand(
     return { project: next, changed: next !== prepared, activeSceneId: sceneId, result: { activeSceneId: sceneId, scene: summarizeScene(next.scenes[sceneId]) } };
   }
 
+  if (method === "project.reorder_scene") {
+    const sceneId = requiredText(params.sceneId, "sceneId");
+    const targetIndex = Math.round(requiredNumber(params.targetIndex, "targetIndex"));
+    if (!prepared.scenes[sceneId]) throw new Error(`Scene ${sceneId} does not exist.`);
+    const next = reorderScene(prepared, sceneId, targetIndex);
+    return { project: next, changed: next !== prepared, activeSceneId: sceneId, result: { reordered: next !== prepared, sceneId, targetIndex, sceneOrder: Object.keys(next.scenes) } };
+  }
+
+  if (method === "project.set_scene_transition") {
+    const sceneId = optionalText(params.sceneId) || prepared.activeSceneId;
+    if (!prepared.scenes[sceneId]) throw new Error(`Scene ${sceneId} does not exist.`);
+    const type = requiredText(params.type, "type") as NonNullable<KurogiProject["scenes"][string]["transition"]>["type"];
+    if (!["cut", "fade", "slide-left", "slide-right", "zoom"].includes(type)) throw new Error("type must be cut, fade, slide-left, slide-right, or zoom.");
+    const duration = Math.max(0, optionalNumber(params.duration) ?? .4);
+    const next = setSceneTransition(prepared, sceneId, { type, duration });
+    return { project: next, changed: next !== prepared, activeSceneId: sceneId, result: { updated: next !== prepared, scene: summarizeScene(next.scenes[sceneId]) } };
+  }
+
   if (method === "project.create_layer") {
     const layerType = requiredText(params.type, "type");
     const sceneId = optionalText(params.sceneId) || prepared.activeSceneId;
@@ -264,6 +252,121 @@ export function executeMcpProjectCommand(
     if (!source) throw new Error(`Layer ${layerId} does not exist.`);
     const next = updateLayer(prepared, layerId, (current) => updateLayerFromParams(current, params));
     return { project: next, changed: next !== prepared, selectedLayerId: layerId, activeSceneId: source.sceneId, result: { updated: true, layer: summarizeLayer(next.layers[layerId]) } };
+  }
+
+  if (method === "project.update_layers") {
+    const layerIds = requiredTextArray(params.layerIds, "layerIds");
+    const deltaX = optionalNumber(params.deltaX) ?? 0;
+    const deltaY = optionalNumber(params.deltaY) ?? 0;
+    let next = prepared;
+    const layers: unknown[] = [];
+    for (const layerId of layerIds) {
+      const source = next.layers[layerId];
+      if (!source) throw new Error(`Layer ${layerId} does not exist.`);
+      const patch = { ...params, x: params.x === undefined ? source.position.x + deltaX : params.x, y: params.y === undefined ? source.position.y + deltaY : params.y };
+      next = updateLayer(next, layerId, (current) => updateLayerFromParams(current, patch));
+      layers.push(summarizeLayer(next.layers[layerId]));
+    }
+    return { project: next, changed: next !== prepared, selectedLayerId: layerIds.at(-1), result: { updated: layerIds.length, layers } };
+  }
+
+  if (method === "project.set_layer_timing") {
+    const layerId = requiredText(params.layerId, "layerId");
+    const layer = prepared.layers[layerId];
+    if (!layer) throw new Error(`Layer ${layerId} does not exist.`);
+    const scene = prepared.scenes[layer.sceneId];
+    const startTime = clamp(optionalNumber(params.startTime) ?? layer.startTime ?? 0, 0, Math.max(0, scene.duration - .01));
+    const duration = clamp(optionalNumber(params.duration) ?? layer.duration ?? scene.duration - startTime, .01, Math.max(.01, scene.duration - startTime));
+    const next = updateLayer(prepared, layerId, (current) => ({ ...current, startTime, duration }));
+    return { project: next, changed: next !== prepared, selectedLayerId: layerId, activeSceneId: layer.sceneId, result: { updated: true, layer: summarizeLayer(next.layers[layerId]) } };
+  }
+
+  if (method === "project.group_layers") {
+    const layerIds = requiredTextArray(params.layerIds, "layerIds");
+    const grouped = groupLayers(prepared, layerIds);
+    if (!grouped.groupId) throw new Error("At least two ungrouped layers from the same scene are required.");
+    if (optionalText(params.name)) grouped.project.layers[grouped.groupId].name = optionalText(params.name)!;
+    return { project: grouped.project, changed: true, selectedLayerId: grouped.groupId, result: { grouped: true, group: summarizeLayer(grouped.project.layers[grouped.groupId]) } };
+  }
+
+  if (method === "project.ungroup_layer") {
+    const groupId = requiredText(params.groupId, "groupId");
+    const ungrouped = ungroupLayer(prepared, groupId);
+    if (!ungrouped.layerIds.length) throw new Error(`Group ${groupId} does not exist or has no children.`);
+    return { project: ungrouped.project, changed: true, selectedLayerId: ungrouped.layerIds.at(-1), result: { ungrouped: true, groupId, layerIds: ungrouped.layerIds } };
+  }
+
+  if (method === "project.align_layers") {
+    const layerIds = requiredTextArray(params.layerIds, "layerIds");
+    const mode = requiredText(params.mode, "mode");
+    if (!["left", "center", "right", "top", "middle", "bottom"].includes(mode)) throw new Error("Invalid alignment mode.");
+    const next = alignLayers(prepared, layerIds, mode as Parameters<typeof alignLayers>[2]);
+    return { project: next, changed: next !== prepared, result: { aligned: next !== prepared, layerIds, mode } };
+  }
+
+  if (method === "project.distribute_layers") {
+    const layerIds = requiredTextArray(params.layerIds, "layerIds");
+    const mode = requiredText(params.mode, "mode");
+    if (mode !== "horizontal" && mode !== "vertical") throw new Error("mode must be horizontal or vertical.");
+    const next = distributeLayers(prepared, layerIds, mode);
+    return { project: next, changed: next !== prepared, result: { distributed: next !== prepared, layerIds, mode } };
+  }
+
+  if (method === "project.set_gradient") {
+    const layerIds = requiredTextArray(params.layerIds, "layerIds");
+    const gradient = params.gradient === null || params.gradient === undefined ? undefined : gradientFromParams(params.gradient);
+    const next = setGradient(prepared, layerIds, gradient);
+    return { project: next, changed: next !== prepared, result: { updated: next !== prepared, layerIds, gradient } };
+  }
+
+  if (method === "project.set_blend_mode") {
+    const layerIds = requiredTextArray(params.layerIds, "layerIds");
+    const blendMode = requiredText(params.blendMode, "blendMode") as BlendMode;
+    if (!BLEND_MODES.has(blendMode)) throw new Error(`Unsupported blend mode: ${blendMode}.`);
+    const next = setBlendMode(prepared, layerIds, blendMode);
+    return { project: next, changed: next !== prepared, result: { updated: next !== prepared, layerIds, blendMode } };
+  }
+
+  if (method === "project.create_clipping_mask") {
+    const targetLayerId = requiredText(params.targetLayerId, "targetLayerId");
+    const masked = createClippingMask(prepared, targetLayerId);
+    if (!masked.sourceLayerId) throw new Error("A clipping mask needs an eligible source layer directly below the target.");
+    return { project: masked.project, changed: true, selectedLayerId: targetLayerId, result: { created: true, targetLayerId, sourceLayerId: masked.sourceLayerId } };
+  }
+
+  if (method === "project.release_clipping_mask") {
+    const targetLayerId = requiredText(params.targetLayerId, "targetLayerId");
+    const next = releaseClippingMask(prepared, targetLayerId);
+    return { project: next, changed: next !== prepared, selectedLayerId: targetLayerId, result: { released: next !== prepared, targetLayerId } };
+  }
+
+  if (method === "project.add_effect") {
+    const layerId = requiredText(params.layerId, "layerId");
+    const type = requiredText(params.type, "type") as LayerEffectType;
+    if (!prepared.layers[layerId]) throw new Error(`Layer ${layerId} does not exist.`);
+    if (!EFFECT_TYPE_SET.has(type)) throw new Error(`Unsupported effect type: ${type}.`);
+    const effect = updateEffectFromParams(createLayerEffect(type), params);
+    const next = updateLayer(prepared, layerId, (layer) => ({ ...layer, effects: [...(layer.effects ?? []), effect] }));
+    return { project: next, changed: true, selectedLayerId: layerId, result: { created: true, effect } };
+  }
+
+  if (method === "project.update_effect") {
+    const layerId = requiredText(params.layerId, "layerId");
+    const effectId = requiredText(params.effectId, "effectId");
+    const layer = prepared.layers[layerId];
+    if (!layer) throw new Error(`Layer ${layerId} does not exist.`);
+    if (!(layer.effects ?? []).some((effect) => effect.id === effectId)) throw new Error(`Effect ${effectId} does not exist on layer ${layerId}.`);
+    const next = updateLayer(prepared, layerId, (current) => ({ ...current, effects: normalizeEffects((current.effects ?? []).map((effect) => effect.id === effectId ? updateEffectFromParams(effect, params) : effect)) }));
+    return { project: next, changed: true, selectedLayerId: layerId, result: { updated: true, effect: next.layers[layerId].effects?.find((effect) => effect.id === effectId) } };
+  }
+
+  if (method === "project.delete_effect") {
+    const layerId = requiredText(params.layerId, "layerId");
+    const effectId = requiredText(params.effectId, "effectId");
+    const layer = prepared.layers[layerId];
+    if (!layer) throw new Error(`Layer ${layerId} does not exist.`);
+    const next = updateLayer(prepared, layerId, (current) => ({ ...current, effects: (current.effects ?? []).filter((effect) => effect.id !== effectId) }));
+    return { project: next, changed: next !== prepared, selectedLayerId: layerId, result: { deleted: true, effectId, layerId } };
   }
 
   if (method === "project.duplicate_layer") {
@@ -316,6 +419,48 @@ export function executeMcpProjectCommand(
     return { project: next, changed: true, selectedLayerId: owner.layer.id, activeSceneId: owner.layer.sceneId, result: { deleted: true, actionId, layerId: owner.layer.id } };
   }
 
+  if (method === "asset.search") {
+    const query = optionalText(params.query)?.toLowerCase() ?? "";
+    const type = optionalText(params.type);
+    const limit = Math.round(clamp(optionalNumber(params.limit) ?? 20, 1, 100));
+    const offset = Math.max(0, Math.round(optionalNumber(params.offset) ?? 0));
+    const matches = Object.values(prepared.assets).filter((asset) => (!query || `${asset.name} ${asset.mimeType} ${asset.fontFamily ?? ""}`.toLowerCase().includes(query)) && (!type || asset.type === type));
+    const items = matches.slice(offset, offset + limit).map(summarizeAsset);
+    return { project: prepared, changed: false, result: { total: matches.length, count: items.length, offset, items, hasMore: offset + items.length < matches.length, nextOffset: offset + items.length < matches.length ? offset + items.length : undefined } };
+  }
+
+  if (method === "asset.get") {
+    const assetId = requiredText(params.assetId, "assetId");
+    const asset = prepared.assets[assetId];
+    if (!asset) throw new Error(`Asset ${assetId} does not exist.`);
+    const usedByLayers = Object.values(prepared.layers).filter((layer) => (layer.type === "image" || layer.type === "svg") && layer.assetId === assetId).map((layer) => layer.id);
+    const usedByAudioClips = Object.values(prepared.audioClips).filter((clip) => clip.assetId === assetId).map((clip) => clip.id);
+    return { project: prepared, changed: false, result: { asset: summarizeAsset(asset), usedByLayers, usedByAudioClips } };
+  }
+
+  if (method === "asset.replace_layer") {
+    const layerId = requiredText(params.layerId, "layerId");
+    const assetId = requiredText(params.assetId, "assetId");
+    const layer = prepared.layers[layerId];
+    const asset = prepared.assets[assetId];
+    if (!layer || (layer.type !== "image" && layer.type !== "svg")) throw new Error(`Layer ${layerId} is not an image or SVG layer.`);
+    if (!asset || (asset.type !== "image" && asset.type !== "svg")) throw new Error(`Asset ${assetId} is not a visual asset.`);
+    const next = cloneProject(prepared);
+    const source = next.layers[layerId];
+    next.layers[layerId] = asset.type === "svg"
+      ? { ...source, type: "svg", assetId } as Layer
+      : { ...source, type: "image", assetId, fit: source.type === "image" ? source.fit : "contain" } as Layer;
+    return { project: touchProject(next), changed: true, selectedLayerId: layerId, result: { replaced: true, layer: summarizeLayer(next.layers[layerId]), asset: summarizeAsset(asset) } };
+  }
+
+  if (method === "asset.delete_unused") {
+    const used = referencedAssetIds(prepared);
+    const next = cloneProject(prepared);
+    const deleted: string[] = [];
+    for (const assetId of Object.keys(next.assets)) if (!used.has(assetId)) { delete next.assets[assetId]; deleted.push(assetId); }
+    return { project: deleted.length ? touchProject(next) : prepared, changed: deleted.length > 0, result: { deleted: deleted.length, assetIds: deleted } };
+  }
+
   if (method === "project.create_audio_clip") {
     const sceneId = optionalText(params.sceneId) || prepared.activeSceneId;
     const assetId = requiredText(params.assetId, "assetId");
@@ -358,7 +503,7 @@ export function executeMcpProjectCommand(
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Each edit-plan operation must be an object.");
       const operation = raw as Record<string, unknown>;
       const operationMethod = requiredText(operation.method, "operation.method");
-      if (operationMethod === "project.apply_edit_plan" || operationMethod === "asset.import_file" || operationMethod === "project.save" || operationMethod === "project.export") {
+      if (operationMethod === "project.apply_edit_plan" || operationMethod === "project.apply_workflow" || operationMethod === "asset.import_file" || operationMethod === "project.save" || operationMethod === "project.export") {
         throw new Error(`Method ${operationMethod} is not allowed inside an edit plan.`);
       }
       const operationParams = operation.params && typeof operation.params === "object" && !Array.isArray(operation.params)
@@ -374,7 +519,42 @@ export function executeMcpProjectCommand(
     return { project: working, changed: working !== prepared, selectedLayerId, selectedAudioClipId, activeSceneId, result: { applied: results.length, operations: results } };
   }
 
+  if (method === "project.apply_workflow") {
+    return executeMcpWorkflow(prepared, params.steps);
+  }
+
   throw new Error(`Unsupported MCP project method: ${method}`);
+}
+
+export function executeMcpWorkflow(project: KurogiProject, rawSteps: unknown): McpProjectCommandResult {
+  if (!Array.isArray(rawSteps) || rawSteps.length === 0) throw new Error("steps must be a non-empty array.");
+  if (rawSteps.length > 200) throw new Error("A workflow can contain at most 200 steps.");
+  let working = project;
+  const projectSummary = getMcpProjectContext(project, false).project as Record<string, unknown>;
+  const aliases: Record<string, unknown> = { project: { ...projectSummary, projectId: projectSummary.id } };
+  const steps: Array<Record<string, unknown>> = [];
+  let selectedLayerId: string | undefined;
+  let selectedAudioClipId: string | undefined;
+  let activeSceneId: string | undefined;
+  for (let index = 0; index < rawSteps.length; index += 1) {
+    const raw = rawSteps[index];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`Workflow step ${index + 1} must be an object.`);
+    const step = raw as Record<string, unknown>;
+    const method = requiredText(step.method, `steps[${index}].method`);
+    if (["project.apply_workflow", "project.apply_edit_plan", "asset.import_file", "project.save", "project.export"].includes(method)) throw new Error(`Method ${method} is not allowed inside an atomic workflow.`);
+    const rawParams = step.params && typeof step.params === "object" && !Array.isArray(step.params) ? step.params : {};
+    const resolved = resolveWorkflowReferences(rawParams, aliases) as Record<string, unknown>;
+    const outcome = executeMcpProjectCommand(working, method, resolved);
+    working = outcome.project;
+    const assign = optionalText(step.assign);
+    if (assign && assign in aliases) throw new Error(`Workflow alias ${assign} is already assigned.`);
+    if (assign) aliases[assign] = outcome.result;
+    steps.push({ index, method, assign, result: outcome.result });
+    selectedLayerId = outcome.selectedLayerId ?? selectedLayerId;
+    selectedAudioClipId = outcome.selectedAudioClipId ?? selectedAudioClipId;
+    activeSceneId = outcome.activeSceneId ?? activeSceneId;
+  }
+  return { project: working, changed: working !== project, selectedLayerId, selectedAudioClipId, activeSceneId, result: { applied: steps.length, rolledBackOnError: true, steps, aliases } };
 }
 
 function scenePatch(params: Record<string, unknown>) {
@@ -399,6 +579,8 @@ function updateLayerFromParams(layer: Layer, params: Record<string, unknown>): L
   if (width !== undefined) next.size.width = Math.max(1, width); if (height !== undefined) next.size.height = Math.max(1, height);
   const rotation = optionalNumber(params.rotation); if (rotation !== undefined) next.rotation = rotation;
   const opacity = optionalNumber(params.opacity); if (opacity !== undefined) next.opacity = clamp(opacity, 0, 1);
+  const startTime = optionalNumber(params.startTime); if (startTime !== undefined) next.startTime = Math.max(0, startTime);
+  const duration = optionalNumber(params.duration); if (duration !== undefined) next.duration = Math.max(.01, duration);
   const scaleX = optionalNumber(params.scaleX); const scaleY = optionalNumber(params.scaleY);
   if (scaleX !== undefined) next.scale.x = scaleX; if (scaleY !== undefined) next.scale.y = scaleY;
   if (typeof params.visible === "boolean") next.visible = params.visible;
@@ -410,6 +592,12 @@ function updateLayerFromParams(layer: Layer, params: Record<string, unknown>): L
     const fontWeight = optionalNumber(params.fontWeight); if (fontWeight !== undefined) next.style.fontWeight = clamp(fontWeight, 100, 900);
     const textColor = color(params.color); if (textColor) next.style.color = textColor;
     const align = optionalText(params.align); if (align === "left" || align === "center" || align === "right") next.style.align = align;
+    const lineHeight = optionalNumber(params.lineHeight); if (lineHeight !== undefined) next.style.lineHeight = clamp(lineHeight, .5, 4);
+    const letterSpacing = optionalNumber(params.letterSpacing); if (letterSpacing !== undefined) next.style.letterSpacing = clamp(letterSpacing, -100, 300);
+    const textStroke = color(params.textStroke); if (textStroke) next.style.stroke = textStroke;
+    const textStrokeWidth = optionalNumber(params.textStrokeWidth); if (textStrokeWidth !== undefined) next.style.strokeWidth = clamp(textStrokeWidth, 0, 40);
+    if (typeof params.autoFit === "boolean") next.style.autoFit = params.autoFit;
+    if (next.style.autoFit) next.style.fontSize = estimateAutoFitFontSize(next);
   }
   if (next.type === "shape") {
     const fill = color(params.fill) || color(params.color); if (fill) next.style.fill = fill;
@@ -466,11 +654,11 @@ function audioOptions(params: Record<string, unknown>) {
 }
 
 function summarizeScene(scene: KurogiProject["scenes"][string]) {
-  return { id: scene.id, name: scene.name, width: scene.width, height: scene.height, duration: scene.duration, fps: scene.fps, background: scene.background, layerIds: [...scene.layerIds], audioClipIds: [...(scene.audioClipIds ?? [])] };
+  return { id: scene.id, name: scene.name, width: scene.width, height: scene.height, duration: scene.duration, fps: scene.fps, background: scene.background, transition: scene.transition, layerIds: [...scene.layerIds], audioClipIds: [...(scene.audioClipIds ?? [])] };
 }
 
 function summarizeLayer(layer: Layer) {
-  const common = { id: layer.id, sceneId: layer.sceneId, name: layer.name, type: layer.type, visible: layer.visible, locked: layer.locked, position: layer.position, size: layer.size, rotation: layer.rotation, opacity: layer.opacity, scale: layer.scale, animationActions: layer.animationActions };
+  const common = { id: layer.id, sceneId: layer.sceneId, name: layer.name, type: layer.type, visible: layer.visible, locked: layer.locked, position: layer.position, size: layer.size, rotation: layer.rotation, opacity: layer.opacity, scale: layer.scale, startTime: layer.startTime ?? 0, duration: layer.duration, blendMode: layer.blendMode, backgroundBlur: layer.backgroundBlur, mask: layer.mask, effects: layer.effects ?? [], animationActions: layer.animationActions };
   if (layer.type === "text") return { ...common, text: layer.text, style: layer.style };
   if (layer.type === "shape") return { ...common, shape: layer.shape, style: layer.style };
   if (layer.type === "image" || layer.type === "svg") return { ...common, assetId: layer.assetId };
@@ -481,6 +669,60 @@ function summarizeLayer(layer: Layer) {
 function summarizeAudioClip(project: KurogiProject, clip: AudioClip) {
   const asset = project.assets[clip.assetId];
   return { ...clip, asset: asset ? { id: asset.id, name: asset.name, type: asset.type, mimeType: asset.mimeType, duration: asset.duration } : null };
+}
+
+function summarizeAsset(asset: KurogiProject["assets"][string]) {
+  return { id: asset.id, projectId: asset.projectId, name: asset.name, type: asset.type, mimeType: asset.mimeType, width: asset.width, height: asset.height, duration: asset.duration, byteSize: asset.byteSize, storage: asset.storage, fontFamily: asset.fontFamily, fontWeight: asset.fontWeight, fontStyle: asset.fontStyle, sourceAvailable: Boolean(asset.sourceUrl || asset.blobId) };
+}
+
+function referencedAssetIds(project: KurogiProject) {
+  const used = new Set<string>();
+  for (const layer of Object.values(project.layers)) {
+    if (layer.type === "image" || layer.type === "svg") used.add(layer.assetId);
+    if (layer.type === "text") {
+      const family = layer.style.fontFamily.trim().toLowerCase();
+      for (const asset of Object.values(project.assets)) if (asset.type === "font" && (asset.fontFamily || asset.name).trim().toLowerCase() === family) used.add(asset.id);
+    }
+  }
+  for (const clip of Object.values(project.audioClips)) used.add(clip.assetId);
+  return used;
+}
+
+function gradientFromParams(value: unknown): GradientFill {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("gradient must be an object.");
+  const record = value as Record<string, unknown>;
+  const type = requiredText(record.type, "gradient.type");
+  if (type !== "linear" && type !== "radial") throw new Error("gradient.type must be linear or radial.");
+  return { type, startColor: color(record.startColor) ?? "#000000", endColor: color(record.endColor) ?? "#ffffff", angle: optionalNumber(record.angle) ?? 0 };
+}
+
+function updateEffectFromParams(effect: NonNullable<Layer["effects"]>[number], params: Record<string, unknown>) {
+  const next = cloneProject(effect);
+  if (typeof params.enabled === "boolean") next.enabled = params.enabled;
+  const intensity = optionalNumber(params.intensity); if (intensity !== undefined) next.intensity = intensity;
+  const radius = optionalNumber(params.radius); if (radius !== undefined) next.radius = Math.max(0, radius);
+  const speed = optionalNumber(params.speed); if (speed !== undefined) next.speed = Math.max(0, speed);
+  const effectColor = color(params.color); if (effectColor) next.color = effectColor;
+  const seed = optionalNumber(params.seed); if (seed !== undefined) next.seed = Math.max(0, Math.round(seed));
+  return next;
+}
+
+function resolveWorkflowReferences(value: unknown, aliases: Record<string, unknown>): unknown {
+  if (Array.isArray(value)) return value.map((item) => resolveWorkflowReferences(item, aliases));
+  if (!value || typeof value !== "object") return value;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 1 && entries[0][0] === "$ref") {
+    const reference = requiredText(entries[0][1], "$ref");
+    const [alias, ...segments] = reference.split(".");
+    if (!(alias in aliases)) throw new Error(`Unknown workflow reference alias: ${alias}.`);
+    let resolved = aliases[alias];
+    for (const segment of segments) {
+      if (!resolved || typeof resolved !== "object" || !(segment in resolved)) throw new Error(`Workflow reference ${reference} does not exist.`);
+      resolved = (resolved as Record<string, unknown>)[segment];
+    }
+    return cloneProject(resolved);
+  }
+  return Object.fromEntries(entries.map(([key, item]) => [key, resolveWorkflowReferences(item, aliases)]));
 }
 
 export function sanitizeProjectDocument(project: KurogiProject): KurogiProject {
@@ -520,6 +762,8 @@ function primitiveRecord(value: unknown): Record<string, number | string | boole
 function pointFromParams(params: Record<string, unknown>) { const x = optionalNumber(params.x); const y = optionalNumber(params.y); return x === undefined && y === undefined ? undefined : { x: x ?? 0, y: y ?? 0 }; }
 function sizeFromParams(params: Record<string, unknown>) { const width = optionalNumber(params.width); const height = optionalNumber(params.height); return width === undefined && height === undefined ? undefined : { width: Math.max(1, width ?? 100), height: Math.max(1, height ?? 100) }; }
 function requiredText(value: unknown, name: string): string { const result = text(value); if (!result) throw new Error(`${name} is required.`); return result; }
+function requiredNumber(value: unknown, name: string): number { const result = optionalNumber(value); if (result === undefined) throw new Error(`${name} is required.`); return result; }
+function requiredTextArray(value: unknown, name: string): string[] { if (!Array.isArray(value) || value.length === 0) throw new Error(`${name} must be a non-empty array.`); const result = [...new Set(value.map((item) => requiredText(item, name)))]; return result; }
 function optionalText(value: unknown): string | undefined { return text(value) || undefined; }
 function optionalTextAllowEmpty(value: unknown): string | undefined { return typeof value === "string" ? value : undefined; }
 function text(value: unknown): string { return typeof value === "string" ? value.trim() : ""; }

@@ -195,6 +195,37 @@ export function moveScene(project: KurogiProject, sceneId: string, position: Sce
   return touchProject(next);
 }
 
+export function reorderScene(project: KurogiProject, sceneId: string, targetIndex: number): KurogiProject {
+  const entries = Object.entries(project.scenes);
+  const sourceIndex = entries.findIndex(([id]) => id === sceneId);
+  if (sourceIndex < 0) return project;
+  const destination = Math.max(0, Math.min(entries.length - 1, Math.round(targetIndex)));
+  if (sourceIndex === destination) return project;
+  const next = cloneProject(project);
+  const ordered = Object.entries(next.scenes);
+  const [moved] = ordered.splice(sourceIndex, 1);
+  ordered.splice(destination, 0, moved);
+  next.scenes = Object.fromEntries(ordered);
+  return touchProject(next);
+}
+
+export function setSceneTransition(
+  project: KurogiProject,
+  sceneId: string,
+  transition: NonNullable<Scene["transition"]>,
+): KurogiProject {
+  const scene = project.scenes[sceneId];
+  if (!scene) return project;
+  const supported = new Set<NonNullable<Scene["transition"]>["type"]>(["cut", "fade", "slide-left", "slide-right", "zoom"]);
+  if (!supported.has(transition.type)) return project;
+  const next = cloneProject(project);
+  next.scenes[sceneId].transition = {
+    type: transition.type,
+    duration: Math.max(0, Math.min(5, Math.min(scene.duration, Number.isFinite(transition.duration) ? transition.duration : .4))),
+  };
+  return touchProject(next);
+}
+
 export function copyLayersToScene(project: KurogiProject, layerIds: string[], targetSceneId: string): SceneMutationResult {
   const targetScene = project.scenes[targetSceneId];
   if (!targetScene || layerIds.length === 0) return { project, sceneId: project.activeSceneId, layerIds: [] };

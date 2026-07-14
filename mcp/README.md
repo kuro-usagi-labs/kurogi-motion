@@ -1,121 +1,59 @@
-# Kurogi Motion MCP
+# Kurogi Motion MCP V4
 
-Kurogi Motion ships a local Model Context Protocol server that lets MCP-compatible AI clients inspect, edit, mix, save, and export the project currently open in the desktop app.
+Kurogi Motion ships a local Model Context Protocol server for autonomous video authoring. It can create or open projects, edit scenes and layers, add animations and audio, save, and render without a confirmation or destination dialog inside Kurogi.
 
-## Development setup
+## Required runtime
 
-1. Start the desktop app:
+Keep the Kurogi Motion desktop application open. The visible app owns the project state, authenticated loopback bridge, and Remotion renderer. The MCP stdio subprocess connects to that bridge.
 
-   ```bash
-   npm run dev
-   ```
-
-2. Open a project.
-3. Configure the MCP client with the command shown in **Help → MCP Integration…**.
-
-The generated configuration launches the same Electron application in `--mcp` mode. That process speaks MCP over stdio and connects to the already-running Kurogi Motion window through a loopback-only authenticated bridge.
-
-## Packaged app
-
-A packaged client configuration uses the installed executable:
+Use the exact configuration shown by **Help → MCP Integration…**. A packaged Windows installation uses the same Electron executable as a Node-compatible stdio runtime:
 
 ```json
 {
   "mcpServers": {
     "kurogi-motion": {
-      "command": "C:\\Program Files\\Kurogi Motion\\Kurogi Motion.exe",
-      "args": ["--mcp"]
+      "command": "C:\\Users\\you\\AppData\\Local\\Programs\\kurogi-motion\\Kurogi Motion.exe",
+      "args": [
+        "C:\\Users\\you\\AppData\\Local\\Programs\\kurogi-motion\\resources\\app\\mcp\\server.mjs",
+        "--bridge-file=C:\\Users\\you\\AppData\\Roaming\\kurogi-motion\\mcp-bridge.json"
+      ],
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
     }
   }
 }
 ```
 
-## Agent workflow
+Do not configure the packaged GUI executable with only `args: ["--mcp"]` on Windows. A GUI-subsystem process does not provide the reliable stdio channel required by MCP clients.
 
-An MCP client can now:
+## Recommended workflow
 
-1. Read `kurogi://capabilities` and `kurogi://active-project`.
-2. Import local image or audio files with visible user approval.
-3. Build scenes, visual layers, animation actions, and audio clips.
-4. Submit up to 200 edits through `kurogi_apply_edit_plan` as one undoable transaction.
-5. Save the project.
-6. Export using the native destination dialog, or request an absolute output path that the user explicitly approves.
+Use `kurogi_create_video` for a complete create, edit, save, and render operation. It creates a new project and a unique output under `Videos/Kurogi Motion`.
 
-The transactional edit-plan tool is the preferred route for Codex, Claude Code, and other coding agents because a complete composition can be applied as one project history step.
+For an existing project, prefer `kurogi_apply_workflow`. It applies up to 200 ordered steps as one undo entry, supports `assign` and `{"$ref":"alias.path"}`, and commits nothing when a step fails.
 
-## Audio workflow
+The V4 tool set also includes:
 
-Audio files are reusable project assets. Supported import formats are MP3, WAV, M4A, AAC, OGG, and WebM audio. An audio asset can be added to one or more scene timelines and edited independently with:
-
-- timeline start
-- source trim start
-- clip duration
-- volume up to 200%
-- mute
-- fade in and fade out
-- playback rate from 0.25× to 4×
-- duplicate and delete
-
-The same Remotion composition is used for editor preview and final export, so audio timing and fades remain consistent.
-
-## Security model
-
-- Bridge listens only on `127.0.0.1`.
-- A random 256-bit bearer token is regenerated on every app launch.
-- Bridge metadata is stored in the Electron user-data directory with owner-only permissions where supported.
-- Project-changing tools require confirmation in the visible Kurogi Motion window.
-- Local-path media imports require a visible approval prompt before the file is read.
-- Direct output paths require a visible approval prompt before export begins.
-- Asset data URLs and Blob URLs are removed from MCP project documents.
-- A media file imported by MCP is limited to 250 MB at the Electron boundary.
-
-## MCP V2 tools
-
-### Status and context
-
-- `kurogi_status`
-- `kurogi_list_projects`
 - `kurogi_get_project_context`
-- `kurogi_rename_project`
-
-### Scene authoring
-
-- `kurogi_create_scene`
-- `kurogi_update_scene`
-- `kurogi_duplicate_scene`
-- `kurogi_delete_scene`
-- `kurogi_set_active_scene`
-
-### Visual layers
-
-- `kurogi_create_layer`
-- `kurogi_update_layer`
-- `kurogi_duplicate_layer`
-- `kurogi_delete_layer`
-- `kurogi_reorder_layer`
-
-### Animation
-
-- `kurogi_add_animation`
-- `kurogi_update_animation`
-- `kurogi_delete_animation`
-
-### Media and audio
-
-- `kurogi_import_asset`
-- `kurogi_create_audio_clip`
-- `kurogi_update_audio_clip`
-- `kurogi_duplicate_audio_clip`
-- `kurogi_delete_audio_clip`
-
-### Automation and delivery
-
-- `kurogi_apply_edit_plan`
+- `kurogi_create_project` and `kurogi_open_project`
+- `kurogi_render_preview_frame` and `kurogi_validate_project`
+- `kurogi_start_render`, `kurogi_get_render_progress`, and `kurogi_cancel_render`
+- scene ordering, transitions, layer timing, and multi-layer movement
+- grouping, alignment, distribution, gradients, blend modes, clipping masks, and effects
+- text stroke, line height, letter spacing, and auto-fit
+- asset search, metadata, replacement, reuse, and unused-asset cleanup
+- `kurogi_undo`, `kurogi_redo`, and session checkpoints
+- scene, layer, animation, asset, and audio tools
 - `kurogi_save_project`
 - `kurogi_export_active_project`
 
-## Resources
+The server exposes `kurogi://projects`, `kurogi://active-project`, and `kurogi://capabilities` resources. Tools return both text and `structuredContent` and include complete MCP risk annotations.
 
-- `kurogi://projects`
-- `kurogi://active-project`
-- `kurogi://capabilities`
+## Security and automation
+
+- The bridge listens only on `127.0.0.1`.
+- A random 256-bit bearer token is regenerated on every desktop launch.
+- Local media reads are validated, type-limited, and capped at 250 MB.
+- Automatic exports use unique destinations and do not overwrite prior autonomous renders.
+- Kurogi does not show confirmation dialogs for MCP actions. The MCP host may still enforce its own approval policy.

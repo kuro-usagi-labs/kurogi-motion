@@ -11,6 +11,7 @@ interface McpInfo {
   bridgeFile: string;
   command: string;
   args: string[];
+  env: Record<string, string>;
   packaged: boolean;
 }
 
@@ -39,6 +40,7 @@ export function McpIntegrationDialog({ open, onClose }: McpIntegrationDialogProp
         "kurogi-motion": {
           command: info.command,
           args: info.args,
+          env: info.env,
         },
       },
     }, null, 2);
@@ -58,7 +60,7 @@ export function McpIntegrationDialog({ open, onClose }: McpIntegrationDialogProp
       <section className="mcp-dialog" role="dialog" aria-modal="true" aria-labelledby="mcp-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
         <header>
           <div>
-            <span className="mcp-dialog-eyebrow">MODEL CONTEXT PROTOCOL V2</span>
+            <span className="mcp-dialog-eyebrow">MODEL CONTEXT PROTOCOL V3</span>
             <h2 id="mcp-dialog-title">Let AI agents build videos in Kurogi Motion</h2>
           </div>
           <button type="button" className="mcp-dialog-close" onClick={onClose} aria-label="Close MCP integration"><Icon name="close" size={16} /></button>
@@ -83,12 +85,12 @@ export function McpIntegrationDialog({ open, onClose }: McpIntegrationDialogProp
           </div>
 
           <div className="mcp-permission-note">
-            <Icon name="lock" size={16} />
-            <span><strong>Agent actions remain controlled.</strong> Project edits and local media imports require visible approval. A direct export path also requires approval; otherwise export opens the normal destination dialog.</span>
+            <Icon name="sparkles" size={16} />
+            <span><strong>Autonomous mode is enabled.</strong> MCP edits, media imports, saves, and exports execute immediately without Kurogi confirmation dialogs. The one-call workflow exports to a unique file under Videos; the MCP client may still apply its own host-level policy.</span>
           </div>
 
           <div className="mcp-tools-summary">
-            <h3>Available in V2</h3>
+            <h3>Available in V3</h3>
             <div>
               <span>Read full project context</span>
               <span>Scene CRUD and variations</span>
@@ -97,7 +99,7 @@ export function McpIntegrationDialog({ open, onClose }: McpIntegrationDialogProp
               <span>Import audio and images</span>
               <span>Trim and mix audio</span>
               <span>Transactional edit plans</span>
-              <span>Save and approved export</span>
+              <span>One-call autonomous video</span>
             </div>
           </div>
         </div>

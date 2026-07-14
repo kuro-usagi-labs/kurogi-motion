@@ -141,6 +141,8 @@ export function groupLayers(
     opacity: 1,
     scale: { x: 1, y: 1 },
     anchor: { x: 0.5, y: 0.5 },
+    startTime: Math.min(...layers.map((layer) => layer.startTime ?? 0)),
+    duration: Math.max(...layers.map((layer) => (layer.startTime ?? 0) + (layer.duration ?? scene.duration))) - Math.min(...layers.map((layer) => layer.startTime ?? 0)),
     blendMode: "normal",
     backgroundBlur: 0,
     animationActions: [],

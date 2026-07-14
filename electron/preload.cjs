@@ -3,6 +3,10 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("kurogi", {
   platform: process.platform,
   exportVideo: (project, options) => ipcRenderer.invoke("export-video", project, options),
+  renderPreviewFrame: (project, options) => ipcRenderer.invoke("render-preview-frame", project, options),
+  startRenderJob: (project, options) => ipcRenderer.invoke("start-render-job", project, options),
+  getRenderJob: (jobId) => ipcRenderer.invoke("get-render-job", jobId),
+  cancelRenderJob: (jobId) => ipcRenderer.invoke("cancel-render-job", jobId),
   saveKuroMotionFile: (envelope, defaultName) => ipcRenderer.invoke("save-kuromotion-file", envelope, defaultName),
   openKuroMotionFile: () => ipcRenderer.invoke("open-kuromotion-file"),
   showItemInFolder: (targetPath) => ipcRenderer.invoke("show-item-in-folder", targetPath),

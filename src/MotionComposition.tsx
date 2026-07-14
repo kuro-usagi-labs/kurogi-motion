@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Audio, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, interpolate, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
 import {
   evaluateCounterText,
   evaluateLayer,
@@ -36,6 +36,12 @@ type Props = {
   editable?: boolean;
   showSelection?: boolean;
   showSafeArea?: boolean;
+};
+
+export type ProjectCompositionProps = {
+  project: KurogiProject;
+  renderMode?: "active-scene" | "all-scenes";
+  exportFps?: 24 | 30 | 60;
 };
 
 type Gesture = {
@@ -243,7 +249,11 @@ export const MotionComposition: React.FC<Props> = ({
       {showSafeArea ? <SafeArea /> : null}
       {renderedLayers.map((layer) => {
         if (!layer.visible || layer.maskSource || layer.parentId) return null;
-        const visual = evaluateLayer(layer, scene, time);
+        const layerStartTime = Math.max(0, layer.startTime ?? 0);
+        const layerDuration = Math.max(.01, layer.duration ?? scene.duration);
+        if (time < layerStartTime || time >= layerStartTime + layerDuration) return null;
+        const layerTime = time - layerStartTime;
+        const visual = evaluateLayer(layer, scene, layerTime);
         const selected = editable && showSelection && (selectedIds?.includes(layer.id) ?? selectedId === layer.id);
         const isEditing = textEdit?.layerId === layer.id;
         const transformOrigin = `${layer.anchor.x * 100}% ${layer.anchor.y * 100}%`;
@@ -266,7 +276,7 @@ export const MotionComposition: React.FC<Props> = ({
           pointerEvents: layer.mask?.clipping ? "auto" : undefined,
           ...layerCompositingStyle(project, layer),
         };
-        const clippingStyle = clippingMaskSceneStyle(project, layer, scene, time);
+        const clippingStyle = clippingMaskSceneStyle(project, layer, scene, layerTime);
         const animatedFilter = [
           visual.blur > 0 ? `blur(${visual.blur}px)` : "",
           visual.brightness !== 1 ? `brightness(${visual.brightness})` : "",
@@ -297,12 +307,12 @@ export const MotionComposition: React.FC<Props> = ({
                 : undefined
             }
           >
-            <LayerEffects layer={layer} time={time}>
+            <LayerEffects layer={layer} time={layerTime}>
               <div style={{ width: "100%", height: "100%", filter: animatedFilter || undefined }}>
                 {layer.type === "group" ? (
                   layer.childIds.map((childId) => {
                     const child = project.layers[childId];
-                    return child ? <StaticLayerTree key={childId} project={project} layer={child} scene={scene} time={time} parentSize={layer.size} /> : null;
+                    return child ? <StaticLayerTree key={childId} project={project} layer={child} scene={scene} time={layerTime} parentSize={layer.size} /> : null;
                   })
                 ) : layer.type === "text" ? (
                   isEditing && textEdit ? (
@@ -344,7 +354,7 @@ export const MotionComposition: React.FC<Props> = ({
                       />
                     </TextFrame>
                   ) : (
-                    <AnimatedText layer={layer} scene={scene} time={time} />
+                    <AnimatedText layer={layer} scene={scene} time={layerTime} />
                   )
                 ) : layer.type === "shape" ? (
                   <ShapeVisual layer={layer} />
@@ -371,6 +381,74 @@ export const MotionComposition: React.FC<Props> = ({
     </div>
   );
 };
+
+export const ProjectComposition: React.FC<ProjectCompositionProps> = ({ project, renderMode = "active-scene" }) => {
+  const { fps } = useVideoConfig();
+  const scenes = renderMode === "all-scenes" ? Object.values(project.scenes) : [getActiveScene(project)];
+  let cursor = 0;
+  let previousDurationInFrames = 0;
+  return <AbsoluteFill style={{ backgroundColor: "transparent" }}>
+    {scenes.map((scene, index) => {
+      const durationInFrames = Math.max(1, Math.round(scene.duration * fps));
+      const entering = index === 0 ? undefined : scene.transition;
+      const transitionFrames = entering && entering.type !== "cut" ? Math.min(durationInFrames - 1, Math.max(0, previousDurationInFrames - 1), Math.max(1, Math.round(entering.duration * fps))) : 0;
+      if (index > 0) cursor -= transitionFrames;
+      const from = cursor;
+      cursor += durationInFrames;
+      const nextTransition = scenes[index + 1]?.transition;
+      const outgoingFrames = nextTransition && nextTransition.type !== "cut" ? Math.min(durationInFrames - 1, Math.max(1, Math.round(nextTransition.duration * fps))) : 0;
+      const sceneProject = { ...project, activeSceneId: scene.id };
+      previousDurationInFrames = durationInFrames;
+      return <Sequence key={scene.id} from={from} durationInFrames={durationInFrames} name={scene.name} premountFor={Math.min(30, transitionFrames)}>
+        <SceneTransitionFrame entering={entering} enteringFrames={transitionFrames} outgoing={nextTransition} outgoingFrames={outgoingFrames} durationInFrames={durationInFrames}>
+          <MotionComposition project={sceneProject} showSelection={false} />
+        </SceneTransitionFrame>
+      </Sequence>;
+    })}
+  </AbsoluteFill>;
+};
+
+export function getProjectRenderMetadata({ project, renderMode = "active-scene", exportFps }: ProjectCompositionProps) {
+  const scenes = renderMode === "all-scenes" ? Object.values(project.scenes) : [getActiveScene(project)];
+  const baseScene = scenes[0] ?? getActiveScene(project);
+  const fps = exportFps ?? baseScene.fps;
+  let durationInFrames = scenes.reduce((total, scene) => total + Math.max(1, Math.round(scene.duration * fps)), 0);
+  if (renderMode === "all-scenes") {
+    for (let index = 1; index < scenes.length; index += 1) {
+      const transition = scenes[index].transition;
+      if (transition && transition.type !== "cut") durationInFrames -= Math.min(
+        Math.max(1, Math.round(transition.duration * fps)),
+        Math.max(0, Math.round(scenes[index - 1].duration * fps) - 1),
+        Math.max(0, Math.round(scenes[index].duration * fps) - 1),
+      );
+    }
+  }
+  return { durationInFrames: Math.max(1, durationInFrames), fps, width: baseScene.width, height: baseScene.height };
+}
+
+function SceneTransitionFrame({ entering, enteringFrames, outgoing, outgoingFrames, durationInFrames, children }: {
+  entering?: KurogiProject["scenes"][string]["transition"];
+  enteringFrames: number;
+  outgoing?: KurogiProject["scenes"][string]["transition"];
+  outgoingFrames: number;
+  durationInFrames: number;
+  children: React.ReactNode;
+}) {
+  const frame = useCurrentFrame();
+  const enterProgress = enteringFrames ? interpolate(frame, [0, enteringFrames], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 1;
+  const exitProgress = outgoingFrames ? interpolate(frame, [durationInFrames - outgoingFrames, durationInFrames], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 0;
+  const enterStyle = transitionStyle(entering?.type, enterProgress, true);
+  const exitStyle = transitionStyle(outgoing?.type, exitProgress, false);
+  return <AbsoluteFill style={{ opacity: enterStyle.opacity * exitStyle.opacity, transform: `${enterStyle.transform} ${exitStyle.transform}`.trim() || undefined }}>{children}</AbsoluteFill>;
+}
+
+function transitionStyle(type: NonNullable<KurogiProject["scenes"][string]["transition"]>["type"] | undefined, progress: number, entering: boolean) {
+  if (!type || type === "cut") return { opacity: 1, transform: "" };
+  if (type === "slide-left") return { opacity: 1, transform: `translateX(${entering ? (1 - progress) * 100 : -progress * 28}%)` };
+  if (type === "slide-right") return { opacity: 1, transform: `translateX(${entering ? -(1 - progress) * 100 : progress * 28}%)` };
+  if (type === "zoom") return { opacity: entering ? progress : 1 - progress, transform: `scale(${entering ? .88 + progress * .12 : 1 + progress * .08})` };
+  return { opacity: entering ? progress : 1 - progress, transform: "" };
+}
 
 function ClippedLayerFrame({ maskStyle, children }: { maskStyle?: React.CSSProperties; children: React.ReactNode }) {
   if (!maskStyle) return <>{children}</>;

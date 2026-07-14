@@ -1,4 +1,4 @@
-import type { KurogiProject, Layer, ProjectAsset, Scene } from "../types";
+import type { AnimationGroup, AudioClip, CustomAnimationPreset, KurogiProject, Layer, ProjectAsset, Scene } from "../types";
 
 type Direction = "before" | "after";
 type Change<T> = { before?: T; after?: T };
@@ -9,16 +9,22 @@ export interface ProjectPatch {
   scenes: Record<string, Change<Scene>>;
   layers: Record<string, Change<Layer>>;
   assets: Record<string, Change<ProjectAsset>>;
+  audioClips: Record<string, Change<AudioClip>>;
+  animationGroups: Record<string, Change<AnimationGroup>>;
+  animationPresets: Record<string, Change<CustomAnimationPreset>>;
 }
 
 export function createProjectPatch(before: KurogiProject, after: KurogiProject): ProjectPatch {
-  const patch: ProjectPatch = { root: {}, scenes: {}, layers: {}, assets: {} };
+  const patch: ProjectPatch = { root: {}, scenes: {}, layers: {}, assets: {}, audioClips: {}, animationGroups: {}, animationPresets: {} };
   for (const key of ["name", "version", "createdAt", "updatedAt", "activeSceneId", "settings"] as const) {
     if (!same(before[key], after[key])) patch.root[key] = { before: clone(before[key]), after: clone(after[key]) };
   }
   diffRecord(before.scenes, after.scenes, patch.scenes);
   diffRecord(before.layers, after.layers, patch.layers);
   diffRecord(before.assets, after.assets, patch.assets);
+  diffRecord(before.audioClips, after.audioClips, patch.audioClips);
+  diffRecord(before.animationGroups, after.animationGroups, patch.animationGroups);
+  diffRecord(before.animationPresets, after.animationPresets, patch.animationPresets);
   return patch;
 }
 
@@ -31,6 +37,9 @@ export function applyProjectPatch(project: KurogiProject, patch: ProjectPatch, d
   next.scenes = applyRecord(project.scenes, patch.scenes, direction);
   next.layers = applyRecord(project.layers, patch.layers, direction);
   next.assets = applyRecord(project.assets, patch.assets, direction);
+  next.audioClips = applyRecord(project.audioClips, patch.audioClips, direction);
+  next.animationGroups = applyRecord(project.animationGroups, patch.animationGroups, direction);
+  next.animationPresets = applyRecord(project.animationPresets, patch.animationPresets, direction);
   return next;
 }
 
@@ -38,7 +47,10 @@ export function isProjectPatchEmpty(patch: ProjectPatch): boolean {
   return Object.keys(patch.root).length === 0 &&
     Object.keys(patch.scenes).length === 0 &&
     Object.keys(patch.layers).length === 0 &&
-    Object.keys(patch.assets).length === 0;
+    Object.keys(patch.assets).length === 0 &&
+    Object.keys(patch.audioClips).length === 0 &&
+    Object.keys(patch.animationGroups).length === 0 &&
+    Object.keys(patch.animationPresets).length === 0;
 }
 
 export function estimateProjectPatchBytes(patch: ProjectPatch): number {

@@ -1,4 +1,4 @@
-export const PROJECT_VERSION = 7;
+export const PROJECT_VERSION = 8;
 
 export type LayerType = "text" | "shape" | "image" | "svg" | "group";
 export type ShapeType =
@@ -180,6 +180,8 @@ export interface BaseLayer {
   opacity: number;
   scale: Point;
   anchor: Point;
+  startTime?: number;
+  duration?: number;
   parentId?: string;
   blendMode?: BlendMode;
   backgroundBlur?: number;
@@ -201,6 +203,9 @@ export interface TextLayer extends BaseLayer {
     align: "left" | "center" | "right";
     verticalAlign: TextVerticalAlign;
     color: string;
+    stroke?: string;
+    strokeWidth?: number;
+    autoFit?: boolean;
     gradient?: GradientFill;
   };
 }
@@ -250,6 +255,10 @@ export interface Scene {
   };
   layerIds: string[];
   audioClipIds: string[];
+  transition?: {
+    type: "cut" | "fade" | "slide-left" | "slide-right" | "zoom";
+    duration: number;
+  };
 }
 
 export interface ProjectAsset {
@@ -354,6 +363,7 @@ export interface ExportOptions {
   quality: ExportQuality;
   transparent: boolean;
   gifLoops: number | null;
+  allScenes?: boolean;
 }
 
 export interface ExportProgress {

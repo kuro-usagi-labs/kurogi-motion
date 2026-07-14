@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { DashboardV3 } from "./app/DashboardV3";
 import { Editor } from "./app/Editor";
 import { StartupSplash } from "./app/StartupSplash";
@@ -32,6 +32,8 @@ export default function App() {
   const [templates, setTemplates] = useState<UserTemplateRecord[]>([]);
   const [draft, setDraft] = useState<DraftRecord | null>(null);
   const [currentProject, setCurrentProject] = useState<KurogiProject | null>(null);
+  const activeProjectRef = useRef<KurogiProject | null>(null);
+  const mcpEditorReadyWaitersRef = useRef(new Map<string, { resolve: () => void; reject: (error: Error) => void; timeout: number }>());
   const [loading, setLoading] = useState(true);
   const [bootReady, setBootReady] = useState(false);
 
@@ -40,23 +42,107 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (currentProject) return;
     const unsubscribe = window.kurogi?.onMcpRequest?.((request) => { void handleDashboardMcpRequest(request); });
     return () => unsubscribe?.();
-  }, [currentProject]);
+  }, []);
 
   async function handleDashboardMcpRequest(request: McpBridgeRequest) {
     const respond = window.kurogi?.respondMcpRequest;
     if (!respond) return;
     try {
+      if (request.method === "render.get_job") {
+        if (!window.kurogi) throw new Error("Desktop rendering is unavailable.");
+        const jobId = String(request.params?.jobId ?? "").trim();
+        if (!jobId) throw new Error("jobId is required.");
+        respond({ id: request.id, ok: true, result: await window.kurogi.getRenderJob(jobId) });
+        return;
+      }
+      if (request.method === "render.cancel_job") {
+        if (!window.kurogi) throw new Error("Desktop rendering is unavailable.");
+        const jobId = String(request.params?.jobId ?? "").trim();
+        if (!jobId) throw new Error("jobId is required.");
+        respond({ id: request.id, ok: true, result: await window.kurogi.cancelRenderJob(jobId) });
+        return;
+      }
       if (request.method === "library.list_projects") {
         respond({ id: request.id, ok: true, result: { projects: await listProjectSummaries() } });
         return;
       }
+      if (request.method === "library.create_project") {
+        await persistActiveProjectForMcp();
+        const params = request.params ?? {};
+        const formats: CreateProjectOptions["format"][] = ["square", "vertical", "landscape", "portrait", "custom"];
+        const requestedFormat = String(params.format ?? "square") as CreateProjectOptions["format"];
+        const options: CreateProjectOptions = {
+          name: String(params.name ?? "AI video"),
+          format: formats.includes(requestedFormat) ? requestedFormat : "square",
+          width: finiteNumber(params.width),
+          height: finiteNumber(params.height),
+          duration: finiteNumber(params.duration) ?? 5,
+          fps: finiteNumber(params.fps) ?? 30,
+          background: typeof params.background === "string" ? params.background : "#ffffff",
+          transparent: Boolean(params.transparent),
+        };
+        const templateId = typeof params.templateId === "string" ? params.templateId : undefined;
+        const project = ensureSceneWorkspace(createCatalogTemplateProject(options, templateId));
+        await saveProject(project);
+        setDraft(null);
+        activeProjectRef.current = project;
+        const editorReady = waitForMcpEditorReady(project.id);
+        setCurrentProject(project);
+        await editorReady;
+        respond({ id: request.id, ok: true, result: { created: true, projectId: project.id, activeSceneId: project.activeSceneId, name: project.name, templateId } });
+        return;
+      }
+      if (request.method === "library.open_project") {
+        const projectId = String(request.params?.projectId ?? "").trim();
+        if (!projectId) throw new Error("projectId is required.");
+        await persistActiveProjectForMcp();
+        const loaded = await loadProject(projectId);
+        if (!loaded) throw new Error(`Project ${projectId} does not exist.`);
+        const project = ensureSceneWorkspace(loaded);
+        activeProjectRef.current = project;
+        const editorReady = waitForMcpEditorReady(project.id);
+        setCurrentProject(project);
+        await editorReady;
+        respond({ id: request.id, ok: true, result: { opened: true, projectId: project.id, activeSceneId: project.activeSceneId, name: project.name } });
+        return;
+      }
+      if (activeProjectRef.current) return;
       throw new Error("Open a Kurogi Motion project before using project MCP tools.");
     } catch (error) {
       respond({ id: request.id, ok: false, error: error instanceof Error ? error.message : String(error) });
     }
+  }
+
+  async function persistActiveProjectForMcp() {
+    const active = activeProjectRef.current;
+    if (!active) return;
+    await saveProject(active);
+    await clearDraft(active.id);
+  }
+
+  function waitForMcpEditorReady(projectId: string): Promise<void> {
+    const previous = mcpEditorReadyWaitersRef.current.get(projectId);
+    if (previous) {
+      window.clearTimeout(previous.timeout);
+      previous.reject(new Error(`A newer MCP request replaced the Editor readiness wait for project ${projectId}.`));
+    }
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        mcpEditorReadyWaitersRef.current.delete(projectId);
+        reject(new Error(`Kurogi Editor did not become ready for MCP project ${projectId} within 10 seconds.`));
+      }, 10_000);
+      mcpEditorReadyWaitersRef.current.set(projectId, { resolve, reject, timeout });
+    });
+  }
+
+  function markMcpEditorReady(projectId: string) {
+    const waiter = mcpEditorReadyWaitersRef.current.get(projectId);
+    if (!waiter) return;
+    window.clearTimeout(waiter.timeout);
+    mcpEditorReadyWaitersRef.current.delete(projectId);
+    waiter.resolve();
   }
 
   async function initialize() {
@@ -96,6 +182,7 @@ export default function App() {
       }
       const workspaceProject = ensureSceneWorkspace(project);
       if (workspaceProject !== project) await saveProject(workspaceProject);
+      activeProjectRef.current = workspaceProject;
       setCurrentProject(workspaceProject);
     } catch (error) {
       console.error(`Unable to open project ${projectId}`, error);
@@ -113,6 +200,7 @@ export default function App() {
       }
       const workspaceProject = ensureSceneWorkspace(latest.project);
       if (workspaceProject !== latest.project) await saveProject(workspaceProject);
+      activeProjectRef.current = workspaceProject;
       setCurrentProject(workspaceProject);
     } catch (error) {
       console.error("Unable to open recovery draft", error);
@@ -125,6 +213,7 @@ export default function App() {
     const project = ensureSceneWorkspace(createCatalogTemplateProject(options, templateId));
     await saveProject(project);
     setDraft(null);
+    activeProjectRef.current = project;
     setCurrentProject(project);
   }
 
@@ -133,6 +222,7 @@ export default function App() {
     if (!template) return;
     const project = ensureSceneWorkspace(instantiateProject(template.project, template.name));
     await saveProject(project);
+    activeProjectRef.current = project;
     setCurrentProject(project);
   }
 
@@ -171,6 +261,7 @@ export default function App() {
       }
       const project = ensureSceneWorkspace(await migrateProjectAssets(instantiateProject(imported.project, imported.project.name)));
       await saveProject(project);
+      activeProjectRef.current = project;
       setCurrentProject(project);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "The .kuromotion file could not be imported.");
@@ -187,6 +278,7 @@ export default function App() {
   async function exitEditor(project: KurogiProject) {
     try {
       await persistProjectBeforeExit(project, saveProject, clearDraft);
+      activeProjectRef.current = null;
       setCurrentProject(null);
       await refreshLibrary();
     } catch (error) {
@@ -202,6 +294,8 @@ export default function App() {
       <Editor
         key={currentProject.id}
         initialProject={currentProject}
+        onProjectSnapshot={(project) => { activeProjectRef.current = project; }}
+        onMcpReady={() => markMcpEditorReady(currentProject.id)}
         onExit={(project) => {
           void exitEditor(project);
         }}
@@ -226,4 +320,9 @@ export default function App() {
       onImportProjectFile={(file) => void importProjectFile(file)}
     />
   );
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }

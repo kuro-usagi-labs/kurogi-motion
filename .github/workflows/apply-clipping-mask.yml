@@ -1,0 +1,32 @@
+name: Apply Clipping Mask Feature
+
+on:
+  push:
+    branches:
+      - feat/clipping-mask-context-menu
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/clipping-mask-context-menu
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply feature patch
+        run: node scripts/apply-clipping-mask-feature.cjs
+      - name: Commit feature
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/types.ts src/core/designTools.ts src/core/project.ts src/renderer/designStyles.ts src/MotionComposition.tsx src/renderer/StaticLayerTree.tsx src/editor/MultiSceneCanvasStage.tsx src/app/Editor.tsx src/main.tsx package.json scripts/audit-clipping-mask.mjs
+          git commit -m "feat: add Photoshop-style clipping masks" || exit 0
+          git pull --rebase origin feat/clipping-mask-context-menu
+          git push origin HEAD:feat/clipping-mask-context-menu

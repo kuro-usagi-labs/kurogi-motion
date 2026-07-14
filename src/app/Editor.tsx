@@ -1019,7 +1019,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           onPreviewAction={previewAction}
           onCommitAction={commitAction}
           onAddAction={addAction}
-          onSelectAction={setSelectedActionId}
+          onSelectAction={(actionId) => { const owner = findActionOwner(project, actionId); if (owner) selectAction(owner.id, actionId); }}
           onDeleteAction={deleteAction}
           onDuplicateAction={duplicateAction}
           onSavePreset={saveSelectedAnimationPreset}

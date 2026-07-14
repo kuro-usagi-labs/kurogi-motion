@@ -653,7 +653,7 @@ function normalizeBezier(value: AnimationAction["easingCurve"]): AnimationAction
 
 function normalizeMotionPath(value: AnimationAction["motionPath"]): AnimationAction["motionPath"] {
   if (!value) return undefined;
-  const point = (candidate, fallback) => ({ x: Number.isFinite(candidate?.x) ? candidate.x : fallback.x, y: Number.isFinite(candidate?.y) ? candidate.y : fallback.y });
+  const point = (candidate: { x?: number; y?: number } | undefined, fallback: { x: number; y: number }) => ({ x: Number.isFinite(candidate?.x) ? candidate!.x! : fallback.x, y: Number.isFinite(candidate?.y) ? candidate!.y! : fallback.y });
   return { enabled: value.enabled !== false, start: point(value.start, { x: 0, y: 0 }), control1: point(value.control1, { x: 100, y: -120 }), control2: point(value.control2, { x: 220, y: 120 }), end: point(value.end, { x: 320, y: 0 }), orientToPath: Boolean(value.orientToPath) };
 }
 

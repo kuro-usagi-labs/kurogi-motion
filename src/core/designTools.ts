@@ -36,6 +36,46 @@ export interface SnapResult {
   guides: AlignmentGuide[];
 }
 
+export function getClippingMaskBase(project: KurogiProject, targetLayerId: string): Layer | null {
+  const target = project.layers[targetLayerId];
+  if (!target || target.parentId || target.maskSource || target.type === "group") return null;
+  const scene = project.scenes[target.sceneId];
+  if (!scene) return null;
+  const targetIndex = scene.layerIds.indexOf(targetLayerId);
+  if (targetIndex <= 0) return null;
+  for (let index = targetIndex - 1; index >= 0; index -= 1) {
+    const candidate = project.layers[scene.layerIds[index]];
+    if (!candidate || candidate.parentId || candidate.maskSource || candidate.type === "group") continue;
+    return candidate;
+  }
+  return null;
+}
+
+export function applyClippingMask(
+  project: KurogiProject,
+  targetLayerId: string,
+): { project: KurogiProject; sourceLayerId: string | null } {
+  const target = project.layers[targetLayerId];
+  const source = getClippingMaskBase(project, targetLayerId);
+  if (!target || !source) return { project, sourceLayerId: null };
+  if (target.mask?.type === "clipping" && target.mask.sourceLayerId === source.id) {
+    return { project, sourceLayerId: source.id };
+  }
+  const next = cloneProject(project);
+  const previous = next.layers[targetLayerId].mask;
+  if (previous && previous.type !== "clipping") releaseMaskSource(next, previous.sourceLayerId, targetLayerId);
+  next.layers[targetLayerId].mask = { type: "clipping", sourceLayerId: source.id, inverted: false };
+  return { project: touchProject(next), sourceLayerId: source.id };
+}
+
+export function releaseClippingMask(project: KurogiProject, targetLayerId: string): KurogiProject {
+  const target = project.layers[targetLayerId];
+  if (target?.mask?.type !== "clipping") return project;
+  const next = cloneProject(project);
+  next.layers[targetLayerId].mask = undefined;
+  return touchProject(next);
+}
+
 export function getSelectionBounds(layers: Layer[]): SelectionBounds | null {
   if (layers.length === 0) return null;
   const boxes = layers.map(layerBounds);
@@ -203,7 +243,7 @@ export function applyMask(
   project: KurogiProject,
   targetLayerId: string,
   sourceLayerId: string,
-  type: MaskDefinition["type"],
+  type: Exclude<MaskDefinition["type"], "clipping">,
 ): KurogiProject {
   const target = project.layers[targetLayerId];
   const source = project.layers[sourceLayerId];
@@ -222,9 +262,9 @@ export function clearMask(project: KurogiProject, targetLayerId: string): Kurogi
   const target = project.layers[targetLayerId];
   if (!target?.mask) return project;
   const next = cloneProject(project);
-  const sourceId = next.layers[targetLayerId].mask?.sourceLayerId;
+  const mask = next.layers[targetLayerId].mask;
   next.layers[targetLayerId].mask = undefined;
-  if (sourceId) releaseMaskSource(next, sourceId, targetLayerId);
+  if (mask && mask.type !== "clipping") releaseMaskSource(next, mask.sourceLayerId, targetLayerId);
   return touchProject(next);
 }
 
@@ -366,7 +406,7 @@ function closestSnap(
 }
 
 function releaseMaskSource(project: KurogiProject, sourceId: string, ignoredTargetId: string) {
-  const stillUsed = Object.values(project.layers).some((layer) => layer.id !== ignoredTargetId && layer.mask?.sourceLayerId === sourceId);
+  const stillUsed = Object.values(project.layers).some((layer) => layer.id !== ignoredTargetId && layer.mask?.type !== "clipping" && layer.mask?.sourceLayerId === sourceId);
   if (!stillUsed && project.layers[sourceId]) project.layers[sourceId].maskSource = false;
 }
 

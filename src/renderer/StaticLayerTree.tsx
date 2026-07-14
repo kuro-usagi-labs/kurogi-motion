@@ -34,7 +34,7 @@ export function StaticLayerTree({
     boxSizing: "border-box",
     transformStyle: "preserve-3d",
     pointerEvents: "none",
-    ...layerCompositingStyle(project, layer),
+    ...layerCompositingStyle(project, layer, scene, time, visual),
   };
   const animatedFilter = [
     visual.blur > 0 ? `blur(${visual.blur}px)` : "",

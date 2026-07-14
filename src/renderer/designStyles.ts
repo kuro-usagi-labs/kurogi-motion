@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
+import type { EvaluatedLayerVisual } from "../core/evaluator";
 import { getShapeDefinition, isBoxShape } from "../core/shapeLibrary";
-import type { GradientFill, KurogiProject, Layer, ShapeType } from "../types";
+import type { GradientFill, KurogiProject, Layer, Scene, ShapeType } from "../types";
+import { clippingMaskStyle } from "./clippingMask";
 
 export function gradientToCss(gradient?: GradientFill): string | undefined {
   if (!gradient) return undefined;
@@ -8,13 +10,19 @@ export function gradientToCss(gradient?: GradientFill): string | undefined {
   return `linear-gradient(${gradient.angle}deg, ${gradient.startColor} 0%, ${gradient.endColor} 100%)`;
 }
 
-export function layerCompositingStyle(project: KurogiProject, layer: Layer): CSSProperties {
+export function layerCompositingStyle(
+  project: KurogiProject,
+  layer: Layer,
+  scene?: Scene,
+  time = 0,
+  evaluatedLayer?: EvaluatedLayerVisual,
+): CSSProperties {
   const blur = Math.max(0, layer.backgroundBlur ?? 0);
   return {
     mixBlendMode: layer.blendMode ?? "normal",
     backdropFilter: blur > 0 ? `blur(${blur}px)` : undefined,
     WebkitBackdropFilter: blur > 0 ? `blur(${blur}px)` : undefined,
-    ...maskStyle(project, layer),
+    ...maskStyle(project, layer, scene, time, evaluatedLayer),
   };
 }
 
@@ -47,10 +55,17 @@ export function projectFontFaceCss(project: KurogiProject): string {
     .join("\n");
 }
 
-function maskStyle(project: KurogiProject, layer: Layer): CSSProperties {
+function maskStyle(
+  project: KurogiProject,
+  layer: Layer,
+  scene?: Scene,
+  time = 0,
+  evaluatedLayer?: EvaluatedLayerVisual,
+): CSSProperties {
   if (!layer.mask) return {};
   const source = project.layers[layer.mask.sourceLayerId];
   if (!source) return {};
+  if (layer.mask.type === "clipping") return clippingMaskStyle(project, layer, source, scene, time, evaluatedLayer);
   let image = "";
   if (layer.mask.type === "vector" && source.type === "shape") image = vectorMaskDataUrl(source.shape);
   if (layer.mask.type === "alpha" && (source.type === "image" || source.type === "svg")) image = project.assets[source.assetId]?.sourceUrl ?? "";

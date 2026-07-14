@@ -198,7 +198,12 @@ export function removeLayer(project: KurogiProject, layerId: string): KurogiProj
   for (const candidate of Object.values(next.layers)) {
     if (candidate.parentId === layerId) candidate.parentId = undefined;
     if (candidate.type === "group") candidate.childIds = candidate.childIds.filter((id) => id !== layerId);
+    if (candidate.mask?.sourceLayerId === layerId) candidate.mask = undefined;
   }
+  const activeMaskSources = new Set(Object.values(next.layers)
+    .filter((candidate) => candidate.mask && candidate.mask.type !== "clipping")
+    .map((candidate) => candidate.mask!.sourceLayerId));
+  for (const candidate of Object.values(next.layers)) candidate.maskSource = activeMaskSources.has(candidate.id);
   return touchProject(next);
 }
 
@@ -546,6 +551,7 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     layer.backgroundBlur = clampNumber(layer.backgroundBlur ?? 0, 0, 80);
     layer.maskSource = Boolean(layer.maskSource);
     if (layer.mask && !next.layers[layer.mask.sourceLayerId]) layer.mask = undefined;
+    if (layer.mask && !["vector", "alpha", "clipping"].includes(layer.mask.type)) layer.mask = undefined;
     layer.animationActions = (layer.animationActions ?? []).map((action) => ({
       ...action,
       layerId: layer.id,
@@ -565,6 +571,10 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
       layer.shape = normalizeShapeType(layer.shape);
     }
   }
+  const activeMaskSources = new Set(Object.values(next.layers)
+    .filter((candidate) => candidate.mask && candidate.mask.type !== "clipping")
+    .map((candidate) => candidate.mask!.sourceLayerId));
+  for (const layer of Object.values(next.layers)) layer.maskSource = activeMaskSources.has(layer.id);
   for (const [clipId, clip] of Object.entries(next.audioClips)) {
     const scene = next.scenes[clip.sceneId];
     const asset = next.assets[clip.assetId];

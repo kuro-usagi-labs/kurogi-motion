@@ -23,7 +23,7 @@ export interface GradientFill {
 }
 
 export interface MaskDefinition {
-  type: "vector" | "alpha";
+  type: "vector" | "alpha" | "clipping";
   sourceLayerId: string;
   inverted?: boolean;
 }

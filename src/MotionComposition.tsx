@@ -31,6 +31,7 @@ type Props = {
   onTransformCommit?: (id: string, patch: TransformPatch) => void;
   onTextCommit?: (id: string, text: string) => void;
   onActionCommit?: (layerId: string, actionId: string, motionPath: MotionPathDefinition) => void;
+  onLayerContextMenu?: (layerId: string, point: { x: number; y: number }) => void;
   editable?: boolean;
   showSelection?: boolean;
   showSafeArea?: boolean;
@@ -62,6 +63,7 @@ export const MotionComposition: React.FC<Props> = ({
   onTransformCommit,
   onTextCommit,
   onActionCommit,
+  onLayerContextMenu,
   editable = false,
   showSelection = true,
   showSafeArea = false,
@@ -106,7 +108,7 @@ export const MotionComposition: React.FC<Props> = ({
     layer: Layer,
     mode: Gesture["mode"],
   ) {
-    if (!editable || layer.locked || textEdit) return;
+    if (event.button !== 0 || !editable || layer.locked || textEdit) return;
     const point = projectPoint(event);
     if (!point) return;
     event.preventDefault();
@@ -259,7 +261,7 @@ export const MotionComposition: React.FC<Props> = ({
           boxSizing: "border-box",
           userSelect: "none",
           transformStyle: "preserve-3d",
-          ...layerCompositingStyle(project, layer),
+          ...layerCompositingStyle(project, layer, scene, time, visual),
         };
         const animatedFilter = [
           visual.blur > 0 ? `blur(${visual.blur}px)` : "",
@@ -279,6 +281,12 @@ export const MotionComposition: React.FC<Props> = ({
                 ? (event) => startGesture(event, layer, "move")
                 : undefined
             }
+            onContextMenu={editable ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSelect?.(layer.id, false);
+              onLayerContextMenu?.(layer.id, { x: event.clientX, y: event.clientY });
+            } : undefined}
             onDoubleClick={
               layer.type === "text"
                 ? (event) => beginTextEditing(event, layer)

@@ -23,6 +23,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Repair generated patch syntax
+        run: node scripts/fix-audio-generator-syntax.cjs
       - name: Apply deterministic integration patch
         id: patch
         shell: bash
@@ -41,6 +43,7 @@ jobs:
         run: npm install --package-lock-only
       - name: Commit generated integration
         run: |
+          git checkout -- scripts/apply-audio-media-mcp-v2.cjs
           if git diff --quiet; then
             echo "No generated changes"
             exit 0

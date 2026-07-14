@@ -301,7 +301,8 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         if (!allowed) throw new Error("The user denied the MCP media import.");
         const payload = await window.kurogi?.readMcpMediaFile(filePath);
         if (!payload) throw new Error("Desktop media import is unavailable.");
-        const file = new File([payload.bytes], payload.name, { type: payload.mimeType });
+        const mediaBytes = new Uint8Array(payload.bytes);
+        const file = new File([mediaBytes.buffer as ArrayBuffer], payload.name, { type: payload.mimeType });
         const imported = await importAsset(file, { sceneId: typeof params.sceneId === "string" ? params.sceneId : undefined, addToTimeline: params.addToTimeline !== false });
         respond({ id: request.id, ok: true, result: imported });
         return;
@@ -494,7 +495,8 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     try {
       const blob = mimeType === "image/svg+xml" ? new Blob([sanitizeSvg(await file.text())], { type: mimeType }) : new Blob([file], { type: mimeType });
       temporaryUrl = URL.createObjectURL(blob);
-      const metadata = isAudio ? { duration: await readAudioDuration(temporaryUrl) } : await readImageDimensions(temporaryUrl);
+      const audioDuration = isAudio ? await readAudioDuration(temporaryUrl) : undefined;
+      const imageDimensions = isAudio ? undefined : await readImageDimensions(temporaryUrl);
       URL.revokeObjectURL(temporaryUrl); temporaryUrl = "";
       const current = cloneProject(history.projectRef.current);
       const targetSceneId = options.sceneId && current.scenes[options.sceneId] ? options.sceneId : current.activeSceneId;
@@ -503,7 +505,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       const asset: ProjectAsset = {
         id: assetId, projectId: current.id, name: file.name.replace(/\.[^.]+$/, ""),
         type: isAudio ? "audio" : mimeType === "image/svg+xml" ? "svg" : "image", mimeType,
-        ...(isAudio ? { duration: metadata.duration } : { width: metadata.width, height: metadata.height }),
+        ...(isAudio ? { duration: audioDuration } : { width: imageDimensions!.width, height: imageDimensions!.height }),
         sourceUrl: stored.sourceUrl, storage: "blob", blobId: stored.blobId, byteSize: stored.byteSize,
       };
       current.assets[asset.id] = asset;

@@ -120,6 +120,7 @@ function previewProject(project: KurogiProject, sourceLayer: Layer, type?: Anima
     fps: 30,
     background: previewBackground(sourceLayer),
     layerIds: [layerId],
+    audioClipIds: [],
   };
   const layer = cloneProject(sourceLayer);
   layer.id = layerId;

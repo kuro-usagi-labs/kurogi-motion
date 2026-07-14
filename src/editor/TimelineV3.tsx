@@ -236,9 +236,7 @@ export function Timeline({
     if ((event.target as HTMLElement).closest(".timeline-action")) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const time = clamp(((event.clientX - rect.left) / Math.max(1, rect.width)) * scene.duration, 0, scene.duration);
-    const targetFrame = Math.min(Math.max(0, Math.round(time * scene.fps)), Math.max(0, Math.round(scene.duration * scene.fps) - 1));
-    playerRef.current?.seekTo(targetFrame);
-    setFrame(targetFrame);
+    seekToTime(time);
   }
 
   function beginActionGesture(event: React.PointerEvent<HTMLElement>, layerId: string, action: AnimationAction, mode: ActionGesture["mode"]) {

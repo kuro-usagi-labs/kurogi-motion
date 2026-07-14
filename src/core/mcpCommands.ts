@@ -428,7 +428,12 @@ function animationOverrides(params: Record<string, unknown>) {
   return {
     startTime: optionalNumber(params.startTime), duration: optionalNumber(params.duration), delay: optionalNumber(params.delay),
     easing: easing as EasingName | undefined,
-    easingCurve: Array.isArray(params.easingCurve) && params.easingCurve.length === 4 ? params.easingCurve.map(Number) as [number, number, number, number] : undefined,
+    easingCurve: Array.isArray(params.easingCurve) && params.easingCurve.length === 4 ? {
+      x1: Number(params.easingCurve[0]),
+      y1: Number(params.easingCurve[1]),
+      x2: Number(params.easingCurve[2]),
+      y2: Number(params.easingCurve[3]),
+    } : undefined,
     parameters,
     repeat: repeatCount === undefined ? undefined : { count: repeatCount as number | "infinite", delay: Math.max(0, optionalNumber(params.repeatDelay) ?? 0) },
     motionPath: params.motionPath && typeof params.motionPath === "object" && !Array.isArray(params.motionPath) ? cloneProject(params.motionPath) as AnimationAction["motionPath"] : undefined,

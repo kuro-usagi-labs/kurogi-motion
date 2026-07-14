@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AnimationCategory } from "../types";
 import type { AlignMode, DistributeMode } from "../core/designTools";
 
@@ -66,7 +67,11 @@ export function EditorMenuBar(props: EditorMenuBarProps) {
 
   useEffect(() => {
     const closeFromPointer = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpenMenu(null);
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const insideMenuBar = Boolean(rootRef.current?.contains(target));
+      const insidePopover = target instanceof Element && Boolean(target.closest('[data-editor-menu-popover="true"]'));
+      if (!insideMenuBar && !insidePopover) setOpenMenu(null);
     };
     const closeFromKeyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpenMenu(null);
@@ -170,10 +175,60 @@ export function EditorMenuBar(props: EditorMenuBarProps) {
 }
 
 function Menu({ label, open, onToggle, children }: { label: MenuName; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const menuId = `editor-menu-${label.toLowerCase()}`;
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const dropdownWidth = window.innerWidth <= 900 ? 240 : 260;
+      const left = Math.min(
+        Math.max(8, rect.left),
+        Math.max(8, window.innerWidth - dropdownWidth - 8),
+      );
+      setPosition({ top: rect.bottom + 8, left });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open]);
+
   return (
     <div className={`editor-menu ${open ? "is-open" : ""}`}>
-      <button type="button" className="editor-menu-trigger" aria-haspopup="menu" aria-expanded={open} onClick={onToggle}>{label}</button>
-      {open ? <div className="editor-menu-dropdown" role="menu">{children}</div> : null}
+      <button
+        ref={triggerRef}
+        type="button"
+        className="editor-menu-trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={onToggle}
+      >
+        {label}
+      </button>
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div className="editor-menu-portal-layer" aria-hidden="false">
+              <div
+                id={menuId}
+                className="editor-menu-dropdown editor-menu-dropdown-portal"
+                data-editor-menu-popover="true"
+                role="menu"
+                style={{ top: position.top, left: position.left }}
+              >
+                {children}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

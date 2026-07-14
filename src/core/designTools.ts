@@ -228,6 +228,36 @@ export function clearMask(project: KurogiProject, targetLayerId: string): Kurogi
   return touchProject(next);
 }
 
+export function canCreateClippingMask(project: KurogiProject, targetLayerId: string): boolean {
+  const target = project.layers[targetLayerId];
+  const scene = target ? project.scenes[target.sceneId] : undefined;
+  if (!target || !scene || target.parentId) return false;
+  const index = scene.layerIds.indexOf(target.id);
+  if (index <= 0) return false;
+  const source = project.layers[scene.layerIds[index - 1]];
+  return Boolean(source && !source.parentId && source.id !== target.id);
+}
+
+export function createClippingMask(
+  project: KurogiProject,
+  targetLayerId: string,
+): { project: KurogiProject; sourceLayerId: string | null } {
+  if (!canCreateClippingMask(project, targetLayerId)) return { project, sourceLayerId: null };
+  const target = project.layers[targetLayerId];
+  const scene = project.scenes[target.sceneId];
+  const sourceLayerId = scene.layerIds[scene.layerIds.indexOf(targetLayerId) - 1];
+  const next = cloneProject(project);
+  const previous = next.layers[targetLayerId].mask;
+  if (previous?.sourceLayerId && !previous.clipping) releaseMaskSource(next, previous.sourceLayerId, targetLayerId);
+  next.layers[targetLayerId].mask = { type: "alpha", sourceLayerId, inverted: false, clipping: true };
+  return { project: touchProject(next), sourceLayerId };
+}
+
+export function releaseClippingMask(project: KurogiProject, targetLayerId: string): KurogiProject {
+  if (!project.layers[targetLayerId]?.mask?.clipping) return project;
+  return clearMask(project, targetLayerId);
+}
+
 export function setGradient(
   project: KurogiProject,
   layerIds: string[],

@@ -198,6 +198,12 @@ export function removeLayer(project: KurogiProject, layerId: string): KurogiProj
   for (const candidate of Object.values(next.layers)) {
     if (candidate.parentId === layerId) candidate.parentId = undefined;
     if (candidate.type === "group") candidate.childIds = candidate.childIds.filter((id) => id !== layerId);
+    if (candidate.mask?.sourceLayerId === layerId) candidate.mask = undefined;
+  }
+  for (const candidate of Object.values(next.layers)) candidate.maskSource = false;
+  for (const candidate of Object.values(next.layers)) {
+    const sourceId = candidate.mask?.sourceLayerId;
+    if (sourceId && !candidate.mask?.clipping && next.layers[sourceId]) next.layers[sourceId].maskSource = true;
   }
   return touchProject(next);
 }
@@ -544,8 +550,9 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     layer.size.height = Math.max(1, layer.size.height);
     layer.blendMode = normalizeBlendMode(layer.blendMode);
     layer.backgroundBlur = clampNumber(layer.backgroundBlur ?? 0, 0, 80);
-    layer.maskSource = Boolean(layer.maskSource);
+    layer.maskSource = false;
     if (layer.mask && !next.layers[layer.mask.sourceLayerId]) layer.mask = undefined;
+    if (layer.mask) layer.mask.clipping = Boolean(layer.mask.clipping);
     layer.animationActions = (layer.animationActions ?? []).map((action) => ({
       ...action,
       layerId: layer.id,
@@ -564,6 +571,10 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     if (layer.type === "shape") {
       layer.shape = normalizeShapeType(layer.shape);
     }
+  }
+  for (const target of Object.values(next.layers)) {
+    const sourceId = target.mask?.sourceLayerId;
+    if (sourceId && !target.mask?.clipping && next.layers[sourceId]) next.layers[sourceId].maskSource = true;
   }
   for (const [clipId, clip] of Object.entries(next.audioClips)) {
     const scene = next.scenes[clip.sceneId];

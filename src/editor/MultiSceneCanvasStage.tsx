@@ -30,10 +30,8 @@ interface MultiSceneCanvasStageProps {
   onTransformCommit: (id: string, patch: Partial<Layer>) => void;
   onTextCommit: (id: string, text: string) => void;
   onActionCommit: (layerId: string, actionId: string, motionPath: MotionPathDefinition) => void;
+  onLayerContextMenu: (layerId: string, clientX: number, clientY: number) => void;
   onZoomChange?: (zoom: number) => void;
-  onReplaceAsset?: (layerId: string, file: File) => void;
-  onDuplicateLayer?: (layerId: string) => void;
-  onDeleteLayer?: (layerId: string) => void;
   onActivateScene: (sceneId: string) => void;
   onRenameScene: (sceneId: string, name: string) => void;
   onUpdateScene: (sceneId: string, patch: SceneUpdatePatch) => void;
@@ -81,10 +79,8 @@ export function MultiSceneCanvasStage({
   onTransformCommit,
   onTextCommit,
   onActionCommit,
+  onLayerContextMenu,
   onZoomChange,
-  onReplaceAsset,
-  onDuplicateLayer,
-  onDeleteLayer,
   onActivateScene,
   onRenameScene,
   onUpdateScene,
@@ -110,12 +106,12 @@ export function MultiSceneCanvasStage({
   const panGestureRef = useRef<PanGesture | null>(null);
   const sceneMoveRef = useRef<SceneMoveGesture | null>(null);
   const spacePressedRef = useRef(false);
-  const callbacksRef = useRef({ onSelect, onTransformCommit, onTextCommit, onActionCommit });
+  const callbacksRef = useRef({ onSelect, onTransformCommit, onTextCommit, onActionCommit, onLayerContextMenu });
   const zoomChangeRef = useRef(onZoomChange);
   const zoomRef = useRef(zoom);
   const panRef = useRef({ x: 0, y: 0 });
   const initialFitRef = useRef("");
-  callbacksRef.current = { onSelect, onTransformCommit, onTextCommit, onActionCommit };
+  callbacksRef.current = { onSelect, onTransformCommit, onTextCommit, onActionCommit, onLayerContextMenu };
   zoomChangeRef.current = onZoomChange;
 
   const [available, setAvailable] = useState({ width: 900, height: 600 });
@@ -191,7 +187,6 @@ export function MultiSceneCanvasStage({
     if (!viewport) return;
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
-      setContextMenu(null);
       if (event.ctrlKey || event.metaKey) {
         const rect = viewport.getBoundingClientRect();
         const currentZoom = zoomRef.current;
@@ -251,6 +246,10 @@ export function MultiSceneCanvasStage({
     (layerId: string, actionId: string, motionPath: MotionPathDefinition) => callbacksRef.current.onActionCommit(layerId, actionId, motionPath),
     [],
   );
+  const stableLayerContextMenu = useCallback(
+    (layerId: string, clientX: number, clientY: number) => callbacksRef.current.onLayerContextMenu(layerId, clientX, clientY),
+    [],
+  );
 
   const activePlayerInputProps = useMemo(
     () => ({
@@ -262,11 +261,12 @@ export function MultiSceneCanvasStage({
       onTransformCommit: stableTransformCommit,
       onTextCommit: stableTextCommit,
       onActionCommit: stableActionCommit,
+      onLayerContextMenu: stableLayerContextMenu,
       editable: true,
       showSelection: true,
       showSafeArea,
     }),
-    [project, selectedActionId, selectedLayerId, selectedLayerIds, showSafeArea, stableActionCommit, stableSelect, stableTextCommit, stableTransformCommit],
+    [project, selectedActionId, selectedLayerId, selectedLayerIds, showSafeArea, stableActionCommit, stableLayerContextMenu, stableSelect, stableTextCommit, stableTransformCommit],
   );
 
   if (!activeScene) return null;
@@ -404,17 +404,6 @@ export function MultiSceneCanvasStage({
     setView(scale * 100, { x: -center.x * scale, y: -center.y * scale });
   }
 
-  function openContextMenu(event: React.MouseEvent<HTMLElement>) {
-    if (!selectedLayer || (selectedLayer.type !== "image" && selectedLayer.type !== "svg")) return;
-    event.preventDefault();
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setContextMenu({
-      x: Math.max(8, Math.min(rect.width - 220, event.clientX - rect.left)),
-      y: Math.max(56, Math.min(rect.height - 250, event.clientY - rect.top)),
-    });
-  }
-
   function saveSceneSettings(event: React.FormEvent) {
     event.preventDefault();
     onUpdateScene(activeScene.id, {
@@ -438,23 +427,9 @@ export function MultiSceneCanvasStage({
       onPointerMove={movePointer}
       onPointerUp={finishPointer}
       onPointerCancel={finishPointer}
-      onContextMenu={openContextMenu}
+      onContextMenu={(event) => event.preventDefault()}
       onAuxClick={(event) => event.preventDefault()}
-      onMouseDown={() => contextMenu && setContextMenu(null)}
     >
-      <input
-        ref={replaceInputRef}
-        hidden
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/svg+xml"
-        onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          if (file && selectedLayerId) onReplaceAsset?.(selectedLayerId, file);
-          event.currentTarget.value = "";
-          setContextMenu(null);
-        }}
-      />
-
       <div className="multi-scene-toolbar is-compact">
         <div className="scene-toolbar-primary">
           <input
@@ -560,22 +535,6 @@ export function MultiSceneCanvasStage({
 
       <div className="workspace-help">Middle-drag or hold Space to pan · Ctrl/Cmd + wheel to zoom · Drag a scene label to rearrange</div>
 
-      {contextMenu ? (
-        <div className="asset-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onMouseDown={(event) => event.stopPropagation()}>
-          <strong>{selectedLayer?.name}</strong>
-          <button type="button" onClick={() => replaceInputRef.current?.click()}><Icon name="upload" size={15} />Replace asset</button>
-          {imageLayer ? (
-            <>
-              <button type="button" onClick={() => { onTransformCommit(imageLayer.id, { fit: "cover" } as Partial<Layer>); setContextMenu(null); }}><Icon name="frame" size={15} />Crop to fill</button>
-              <button type="button" onClick={() => { onTransformCommit(imageLayer.id, { fit: "contain" } as Partial<Layer>); setContextMenu(null); }}><Icon name="assets" size={15} />Fit inside</button>
-              <button type="button" onClick={() => { onTransformCommit(imageLayer.id, { fit: "fill" } as Partial<Layer>); setContextMenu(null); }}><Icon name="shapes" size={15} />Stretch to frame</button>
-            </>
-          ) : null}
-          <span />
-          <button type="button" onClick={() => { onDuplicateLayer?.(selectedLayerId); setContextMenu(null); }}><Icon name="copy" size={15} />Duplicate</button>
-          <button type="button" className="danger-text" onClick={() => { onDeleteLayer?.(selectedLayerId); setContextMenu(null); }}><Icon name="trash" size={15} />Delete</button>
-        </div>
-      ) : null}
     </section>
   );
 }

@@ -48,7 +48,7 @@ export function projectFontFaceCss(project: KurogiProject): string {
 }
 
 function maskStyle(project: KurogiProject, layer: Layer): CSSProperties {
-  if (!layer.mask) return {};
+  if (!layer.mask || layer.mask.clipping) return {};
   const source = project.layers[layer.mask.sourceLayerId];
   if (!source) return {};
   let image = "";

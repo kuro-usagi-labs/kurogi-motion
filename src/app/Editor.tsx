@@ -37,9 +37,12 @@ import {
 import {
   alignLayers,
   applyMask,
+  canCreateClippingMask,
   clearMask,
+  createClippingMask,
   distributeLayers,
   groupLayers,
+  releaseClippingMask,
   setBackgroundBlur,
   setBlendMode,
   setFontFamily,
@@ -69,6 +72,7 @@ import { MultiSceneCanvasStage, type WorkspaceCommand } from "../editor/MultiSce
 import { DesignToolsPanel } from "../editor/DesignToolsPanel";
 import { EditorMenuBar } from "../editor/EditorMenuBar";
 import { McpIntegrationDialog } from "../editor/McpIntegrationDialog";
+import { LayerContextMenu, type LayerContextMenuState } from "../editor/LayerContextMenu";
 import { describeMcpMutation, executeMcpProjectCommand, isMcpMutationMethod, type McpBridgeRequest } from "../core/mcpCommands";
 import { loadEditorUiPreferences, saveEditorUiPreferences, type EditorUiPreferences } from "../core/editorUiPreferences";
 import { Icon, type IconName } from "../ui/Icon";
@@ -133,6 +137,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [exporting, setExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
+  const [layerContextMenu, setLayerContextMenu] = useState<LayerContextMenuState | null>(null);
   const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
@@ -148,6 +153,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
 
   const selectedLayer = selectedLayerId ? project.layers[selectedLayerId] ?? null : null;
   const selectedLayers = useMemo(() => selectedLayerIds.map((id) => project.layers[id]).filter((layer): layer is Layer => Boolean(layer)), [project.layers, selectedLayerIds]);
+  const clippingSourceIds = useMemo(() => new Set(Object.values(project.layers).filter((layer) => layer.mask?.clipping).map((layer) => layer.mask!.sourceLayerId)), [project.layers]);
   const selectedAction = useMemo(() => {
     if (!selectedActionId) return null;
     for (const layer of Object.values(project.layers)) {
@@ -817,6 +823,19 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     window.queueMicrotask(() => selectOnly(targetId));
   }
   function clearSelectionMask() { if (selectedLayerId) commitProject((current) => clearMask(current, selectedLayerId)); }
+  function createLayerClippingMask(layerId: string) {
+    if (!canCreateClippingMask(project, layerId)) return;
+    commitProject((current) => createClippingMask(current, layerId).project);
+    selectOnly(layerId);
+  }
+  function releaseLayerClippingMask(layerId: string) {
+    commitProject((current) => releaseClippingMask(current, layerId));
+    selectOnly(layerId);
+  }
+  function openLayerContextMenu(layerId: string, clientX: number, clientY: number) {
+    selectOnly(layerId);
+    setLayerContextMenu({ layerId, x: clientX, y: clientY });
+  }
   function toggleSmartSnap() {
     commitProject((current) => touchProject({ ...cloneProject(current), settings: { ...current.settings, snapEnabled: !current.settings.snapEnabled } }));
   }
@@ -854,13 +873,13 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     setOnlyAction("");
   }
 
-  function bringSelectedForward() {
-    if (selectedLayerId) commitProject((current) => reorderLayer(current, selectedLayerId, "up"));
-  }
+  function bringLayerForwardById(layerId: string) { if (layerId) commitProject((current) => reorderLayer(current, layerId, "up")); }
+  function sendLayerBackwardById(layerId: string) { if (layerId) commitProject((current) => reorderLayer(current, layerId, "down")); }
+  function bringSelectedForward() { bringLayerForwardById(selectedLayerId); }
+  function sendSelectedBackward() { sendLayerBackwardById(selectedLayerId); }
 
-  function sendSelectedBackward() {
-    if (selectedLayerId) commitProject((current) => reorderLayer(current, selectedLayerId, "down"));
-  }
+  function toggleLayerVisibilityById(layerId: string) { if (layerId) commitLayer(layerId, (layer) => ({ ...layer, visible: !layer.visible })); }
+  function toggleLayerLockById(layerId: string) { if (layerId) commitLayer(layerId, (layer) => ({ ...layer, locked: !layer.locked })); }
 
   function toggleSelectedVisibility() {
     if (!selectedLayerIds.length) return;
@@ -972,6 +991,20 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   return (
     <main className="app editor-app">
       <McpIntegrationDialog open={mcpDialogOpen} onClose={() => setMcpDialogOpen(false)} />
+      <LayerContextMenu
+        project={project}
+        state={layerContextMenu}
+        onClose={() => setLayerContextMenu(null)}
+        onCreateClippingMask={createLayerClippingMask}
+        onReleaseClippingMask={releaseLayerClippingMask}
+        onDuplicate={duplicateLayerById}
+        onDelete={deleteLayerById}
+        onBringForward={bringLayerForwardById}
+        onSendBackward={sendLayerBackwardById}
+        onToggleVisibility={toggleLayerVisibilityById}
+        onToggleLock={toggleLayerLockById}
+        onSetImageFit={(layerId, fit) => commitLayer(layerId, (layer) => layer.type === "image" ? { ...layer, fit } : layer)}
+      />
       <ExportDialog
         open={exportDialogOpen}
         project={project}
@@ -1085,8 +1118,9 @@ export function Editor({ initialProject, onExit }: EditorProps) {
                   <div
                     key={layer.id}
                     draggable
-                    className={`layer-row ${selectedLayerIds.includes(layer.id) ? "selected" : ""} ${layer.maskSource ? "is-mask-source" : ""} ${draggedLayerId === layer.id ? "is-dragging" : ""} ${dragOverLayerId === layer.id ? "drag-over" : ""}`}
+                    className={`layer-row ${selectedLayerIds.includes(layer.id) ? "selected" : ""} ${layer.maskSource ? "is-mask-source" : ""} ${layer.mask?.clipping ? "is-clipped" : ""} ${clippingSourceIds.has(layer.id) ? "is-clipping-source" : ""} ${draggedLayerId === layer.id ? "is-dragging" : ""} ${dragOverLayerId === layer.id ? "drag-over" : ""}`}
                     onClick={(event) => selectLayer(layer.id, event.shiftKey)}
+                    onContextMenu={(event) => { event.preventDefault(); openLayerContextMenu(layer.id, event.clientX, event.clientY); }}
                     onDragStart={(event) => { setDraggedLayerId(layer.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", layer.id); }}
                     onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverLayerId(layer.id); }}
                     onDragLeave={() => setDragOverLayerId((current) => current === layer.id ? "" : current)}
@@ -1209,9 +1243,8 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           onTransformCommit={commitTransform}
           onTextCommit={commitText}
           onActionCommit={commitMotionPath}
+          onLayerContextMenu={openLayerContextMenu}
           onZoomChange={setZoom}
-          onDuplicateLayer={duplicateLayerById}
-          onDeleteLayer={deleteLayerById}
           onActivateScene={activateWorkspaceScene}
           onRenameScene={renameWorkspaceSceneById}
           onUpdateScene={updateWorkspaceSceneById}

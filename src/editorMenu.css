@@ -1,1 +1,236 @@
-.editor-command-toolbar{display:grid!important;grid-template-columns:auto auto minmax(140px,1fr) auto;align-items:center;gap:18px;padding:0 14px!important}.editor-command-toolbar .toolbar-brand-button{justify-self:start}.editor-command-toolbar .project-name{position:static!important;margin:0!important;justify-self:center;min-width:0;text-align:center}.editor-command-toolbar .toolbar-actions{justify-self:end}.editor-command-toolbar .toolbar-actions .preview,.editor-command-toolbar .toolbar-actions .export{display:inline-flex;align-items:center;gap:7px}.editor-menu-bar{position:relative;display:flex;align-items:center;gap:2px;min-width:0;-webkit-app-region:no-drag}.editor-menu{position:relative}.editor-menu-trigger{height:30px;padding:0 9px!important;border:0!important;border-radius:6px!important;background:transparent!important;color:#b9b6c6!important;font:600 12px/1 Manrope,system-ui,sans-serif!important}.editor-menu-trigger:hover,.editor-menu.is-open .editor-menu-trigger{background:#292a36!important;color:#f5f3fb!important}.editor-menu-dropdown{position:absolute;z-index:1000;top:calc(100% + 8px);left:0;width:260px;padding:7px;border:1px solid rgba(255,255,255,.11);border-radius:11px;background:#20212b;box-shadow:0 22px 60px rgba(0,0,0,.52);backdrop-filter:blur(20px)}.editor-menu-item{display:grid!important;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:7px;width:100%;min-height:32px;padding:0 9px!important;border:0!important;border-radius:7px!important;background:transparent!important;color:#dedbe8!important;text-align:left!important;font:500 12px/1.2 Manrope,system-ui,sans-serif!important}.editor-menu-item:hover:not(:disabled){background:#302d3d!important;color:#fff!important}.editor-menu-item:disabled{opacity:.38;cursor:not-allowed!important}.editor-menu-item.is-danger{color:#ff9eb2!important}.editor-menu-item kbd{padding:0;border:0;background:transparent;color:#777384;font:500 10px/1 'DM Mono',monospace}.editor-menu-check{display:grid;place-items:center;color:#a78bfa;font-size:12px}.editor-menu-separator{height:1px;margin:6px 5px;background:rgba(255,255,255,.08)}.editor-menu-section-label{padding:8px 9px 4px 34px;color:#777384;font:700 9px/1 Manrope,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase}.design-tools-panel .design-tools-icon-button{width:28px;height:28px;padding:0!important;display:inline-grid;place-items:center}.design-tools-panel .design-tools-icon-button svg{display:block}.design-tools-panel .design-tools-align-section{gap:3px}.multi-scene-toolbar.is-compact .scene-toolbar-primary{flex:1}.multi-scene-toolbar.is-compact .scene-name-input{width:min(260px,38vw)}.multi-scene-toolbar.is-compact .scene-toolbar-secondary{margin-left:auto}@media(max-width:1180px){.editor-command-toolbar{grid-template-columns:auto minmax(0,1fr) auto;gap:8px}.editor-command-toolbar .project-name{display:none}.editor-menu-trigger{padding:0 6px!important}.editor-menu-bar{overflow-x:auto;scrollbar-width:none}.editor-menu-bar::-webkit-scrollbar{display:none}}@media(max-width:900px){.editor-menu-trigger{font-size:11px!important}.editor-command-toolbar .toolbar-actions .preview{display:none}.editor-menu-dropdown{width:240px}}
+.editor-command-toolbar {
+  --window-controls-safe-area: 150px;
+  position: relative;
+  z-index: 200;
+  display: grid !important;
+  grid-template-columns: auto auto minmax(140px, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 0 var(--window-controls-safe-area) 0 14px !important;
+  overflow: visible !important;
+}
+
+.editor-command-toolbar .toolbar-brand-button {
+  justify-self: start;
+  -webkit-app-region: no-drag;
+}
+
+.editor-command-toolbar .project-name {
+  position: static !important;
+  margin: 0 !important;
+  justify-self: center;
+  min-width: 0;
+  text-align: center;
+  -webkit-app-region: no-drag;
+}
+
+.editor-command-toolbar .toolbar-actions {
+  justify-self: end;
+  -webkit-app-region: no-drag;
+}
+
+.editor-command-toolbar .toolbar-actions .preview,
+.editor-command-toolbar .toolbar-actions .export {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.editor-menu-bar {
+  position: relative;
+  z-index: 210;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: visible;
+  -webkit-app-region: no-drag;
+}
+
+.editor-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.editor-menu-trigger {
+  height: 30px;
+  padding: 0 9px !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: #b9b6c6 !important;
+  font: 600 12px/1 Manrope, system-ui, sans-serif !important;
+  -webkit-app-region: no-drag;
+}
+
+.editor-menu-trigger:hover,
+.editor-menu.is-open .editor-menu-trigger {
+  background: #292a36 !important;
+  color: #f5f3fb !important;
+}
+
+.editor-menu-portal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  isolation: isolate;
+}
+
+.editor-menu-dropdown {
+  position: fixed;
+  width: min(260px, calc(100vw - 16px));
+  max-height: min(620px, calc(100vh - 64px));
+  padding: 7px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 11px;
+  background: #20212b;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(20px);
+  transform: translateZ(0);
+  -webkit-app-region: no-drag;
+}
+
+.editor-menu-dropdown-portal {
+  z-index: 1;
+}
+
+.editor-menu-item {
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 9px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  color: #dedbe8 !important;
+  text-align: left !important;
+  font: 500 12px/1.2 Manrope, system-ui, sans-serif !important;
+}
+
+.editor-menu-item:hover:not(:disabled) {
+  background: #302d3d !important;
+  color: #fff !important;
+}
+
+.editor-menu-item:focus-visible {
+  outline: 2px solid rgba(167, 139, 250, 0.72);
+  outline-offset: -2px;
+}
+
+.editor-menu-item:disabled {
+  opacity: 0.38;
+  cursor: not-allowed !important;
+}
+
+.editor-menu-item.is-danger {
+  color: #ff9eb2 !important;
+}
+
+.editor-menu-item kbd {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #777384;
+  font: 500 10px/1 "DM Mono", monospace;
+}
+
+.editor-menu-check {
+  display: grid;
+  place-items: center;
+  color: #a78bfa;
+  font-size: 12px;
+}
+
+.editor-menu-separator {
+  height: 1px;
+  margin: 6px 5px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.editor-menu-section-label {
+  padding: 8px 9px 4px 34px;
+  color: #777384;
+  font: 700 9px/1 Manrope, system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.design-tools-panel .design-tools-icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0 !important;
+  display: inline-grid;
+  place-items: center;
+}
+
+.design-tools-panel .design-tools-icon-button svg {
+  display: block;
+}
+
+.design-tools-panel .design-tools-align-section {
+  gap: 3px;
+}
+
+.multi-scene-toolbar.is-compact .scene-toolbar-primary {
+  flex: 1;
+}
+
+.multi-scene-toolbar.is-compact .scene-name-input {
+  width: min(260px, 38vw);
+}
+
+.multi-scene-toolbar.is-compact .scene-toolbar-secondary {
+  margin-left: auto;
+}
+
+@media (max-width: 1180px) {
+  .editor-command-toolbar {
+    --window-controls-safe-area: 142px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .editor-command-toolbar .project-name {
+    display: none;
+  }
+
+  .editor-menu-trigger {
+    padding: 0 6px !important;
+  }
+
+  .editor-menu-bar {
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: none;
+  }
+
+  .editor-menu-bar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .editor-command-toolbar {
+    --window-controls-safe-area: 132px;
+  }
+
+  .editor-menu-trigger {
+    font-size: 11px !important;
+  }
+
+  .editor-command-toolbar .toolbar-actions .preview {
+    display: none;
+  }
+
+  .editor-menu-dropdown {
+    width: min(240px, calc(100vw - 16px));
+  }
+}

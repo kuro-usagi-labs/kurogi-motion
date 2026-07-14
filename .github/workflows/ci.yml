@@ -77,6 +77,12 @@ jobs:
           set -o pipefail
           npm run audit:design-tools 2>&1 | tee design-tools-audit.log
 
+      - name: Audit clipping masks and layer context menu
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:clipping-mask 2>&1 | tee clipping-mask-audit.log
+
       - name: Audit animation workflow
         shell: bash
         run: |
@@ -152,6 +158,7 @@ jobs:
             recovery-audit.log
             multiscene-audit.log
             design-tools-audit.log
+            clipping-mask-audit.log
             animation-workflow-audit.log
             preview-recovery-audit.log
             editor-command-ui-audit.log

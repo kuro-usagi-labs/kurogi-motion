@@ -7,12 +7,19 @@ on:
     paths:
       - scripts/apply-animation-workflow-v1.cjs
       - .github/workflows/apply-animation-workflow-v1.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/apply-animation-workflow-v1.cjs
+      - .github/workflows/apply-animation-workflow-v1.yml
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.head_ref == '' || github.head_ref == 'feat/animation-workflow-v1'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

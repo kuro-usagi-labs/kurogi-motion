@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feat/layer-context-clipping-mask
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -11,6 +14,7 @@ permissions:
 jobs:
   apply:
     runs-on: ubuntu-latest
+    if: github.head_ref == 'feat/layer-context-clipping-mask' || github.ref_name == 'feat/layer-context-clipping-mask'
     steps:
       - uses: actions/checkout@v4
         with:

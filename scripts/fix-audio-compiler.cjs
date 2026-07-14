@@ -3,8 +3,11 @@ const fs = require("node:fs");
 function patch(path, replacements) {
   let source = fs.readFileSync(path, "utf8");
   for (const [from, to, label] of replacements) {
-    if (source.includes(to)) continue;
-    if (!source.includes(from)) throw new Error(`Missing compiler fix anchor: ${label}`);
+    if (to && source.includes(to)) continue;
+    if (!source.includes(from)) {
+      if (!to) continue;
+      throw new Error(`Missing compiler fix anchor: ${label}`);
+    }
     source = source.replace(from, to);
   }
   fs.writeFileSync(path, source);

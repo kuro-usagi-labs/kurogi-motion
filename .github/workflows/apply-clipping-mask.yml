@@ -30,3 +30,4 @@ jobs:
           git commit -m "feat: add Photoshop-style clipping masks" || exit 0
           git pull --rebase origin feat/clipping-mask-context-menu
           git push origin HEAD:feat/clipping-mask-context-menu
+# trigger

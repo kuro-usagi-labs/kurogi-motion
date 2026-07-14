@@ -1,4 +1,4 @@
-export const PROJECT_VERSION = 6;
+export const PROJECT_VERSION = 7;
 
 export type LayerType = "text" | "shape" | "image" | "svg" | "group";
 export type ShapeType =
@@ -248,16 +248,18 @@ export interface Scene {
     color?: string;
   };
   layerIds: string[];
+  audioClipIds: string[];
 }
 
 export interface ProjectAsset {
   id: string;
   projectId: string;
   name: string;
-  type: "image" | "svg" | "font";
+  type: "image" | "svg" | "font" | "audio";
   mimeType: string;
   width?: number;
   height?: number;
+  duration?: number;
   sourceUrl: string;
   thumbnailUrl?: string;
   storage?: "inline" | "blob";
@@ -266,6 +268,21 @@ export interface ProjectAsset {
   fontFamily?: string;
   fontWeight?: number;
   fontStyle?: "normal" | "italic";
+}
+
+export interface AudioClip {
+  id: string;
+  sceneId: string;
+  assetId: string;
+  name: string;
+  startTime: number;
+  trimStart: number;
+  duration: number;
+  volume: number;
+  muted: boolean;
+  fadeIn: number;
+  fadeOut: number;
+  playbackRate: number;
 }
 
 export interface AnimationGroup {
@@ -314,6 +331,7 @@ export interface KurogiProject {
   scenes: Record<string, Scene>;
   layers: Record<string, Layer>;
   assets: Record<string, ProjectAsset>;
+  audioClips: Record<string, AudioClip>;
   animationGroups: Record<string, AnimationGroup>;
   animationPresets: Record<string, CustomAnimationPreset>;
   settings: {

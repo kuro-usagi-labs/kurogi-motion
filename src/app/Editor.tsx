@@ -20,6 +20,7 @@ import {
   updateLayer,
 } from "../core/project";
 import { clearDraft, listProjectSummaries, prepareProjectForExport, saveDraft, saveProject, storeAssetBlob } from "../core/persistence";
+import { createAudioClip, duplicateAudioClip, removeAudioClip, updateAudioClip } from "../core/audio";
 import {
   copyLayersToScene,
   createScene as createWorkspaceScene,
@@ -78,6 +79,7 @@ import { ExportDialog, ExportToast, type ExportNotice } from "../editor/ExportDi
 import type {
   AnimationAction,
   AnimationCategory,
+  AudioClip,
   AnimationClipboard,
   AnimationType,
   ExportOptions,
@@ -116,6 +118,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>(() => selectedLayerId ? [selectedLayerId] : []);
   const [selectedActionId, setPrimaryActionId] = useState("");
   const [selectedActionIds, setSelectedActionIds] = useState<string[]>([]);
+  const [selectedAudioClipId, setSelectedAudioClipId] = useState("");
   const [animationClipboard, setAnimationClipboard] = useState<AnimationClipboard | null>(null);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("layers");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("Design");
@@ -290,6 +293,19 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         respond({ id: request.id, ok: true, result: { projects: await listProjectSummaries() } });
         return;
       }
+      if (request.method === "asset.import_file") {
+        const params = request.params ?? {};
+        const filePath = String(params.path ?? "");
+        if (!filePath) throw new Error("path is required.");
+        const allowed = window.confirm("An MCP client wants to import media from:\n" + filePath + "\n\nAllow this file to be read and added to the project?");
+        if (!allowed) throw new Error("The user denied the MCP media import.");
+        const payload = await window.kurogi?.readMcpMediaFile(filePath);
+        if (!payload) throw new Error("Desktop media import is unavailable.");
+        const file = new File([payload.bytes], payload.name, { type: payload.mimeType });
+        const imported = await importAsset(file, { sceneId: typeof params.sceneId === "string" ? params.sceneId : undefined, addToTimeline: params.addToTimeline !== false });
+        respond({ id: request.id, ok: true, result: imported });
+        return;
+      }
       if (request.method === "project.save") {
         const current = history.projectRef.current;
         await saveProject(current);
@@ -312,7 +328,9 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           gifLoops: null,
         };
         const snapshot = await prepareProjectForExport(cloneProject(history.projectRef.current));
-        const result = await window.kurogi.exportVideo(snapshot, options);
+        const outputPath = typeof params.outputPath === "string" && params.outputPath.trim() ? params.outputPath.trim() : undefined;
+        if (outputPath && !window.confirm(`An MCP client wants to export the active project to:\n${outputPath}\n\nAllow this export?`)) throw new Error("The user denied the MCP export.");
+        const result = await window.kurogi.exportVideo(snapshot, { ...options, outputPath });
         respond({ id: request.id, ok: true, result: result.canceled ? { canceled: true } : { exported: true, path: result.path } });
         return;
       }
@@ -325,7 +343,8 @@ export function Editor({ initialProject, onExit }: EditorProps) {
       if (outcome.changed) {
         history.commit(() => outcome.project);
         window.queueMicrotask(() => {
-          if (outcome.selectedLayerId) selectOnly(outcome.selectedLayerId);
+          if (outcome.selectedAudioClipId) selectAudioClip(outcome.selectedAudioClipId);
+          else if (outcome.selectedLayerId) selectOnly(outcome.selectedLayerId);
           else if (outcome.activeSceneId) selectOnly(outcome.project.scenes[outcome.activeSceneId]?.layerIds.at(-1) ?? "");
           setOnlyAction("");
         });
@@ -339,8 +358,22 @@ export function Editor({ initialProject, onExit }: EditorProps) {
   function setOnlyAction(actionId: string) { setPrimaryActionId(actionId); setSelectedActionIds(actionId ? [actionId] : []); }
 
   function selectOnly(layerId: string) {
+    setSelectedAudioClipId("");
     setPrimaryLayerId(layerId);
     setSelectedLayerIds(layerId ? [layerId] : []);
+  }
+
+  function selectAudioClip(clipId: string) {
+    setPrimaryLayerId("");
+    setSelectedLayerIds([]);
+    setOnlyAction("");
+    setSelectedAudioClipId(clipId);
+  }
+
+  function updateAudioClipById(clipId: string, patch: Partial<AudioClip>) { commitProject((current) => updateAudioClip(current, clipId, patch)); }
+  function deleteAudioClipById(clipId: string) { commitProject((current) => removeAudioClip(current, clipId)); setSelectedAudioClipId((current) => current === clipId ? "" : current); }
+  function duplicateAudioClipById(clipId: string) {
+    commitProject((current) => { const result = duplicateAudioClip(current, clipId); window.queueMicrotask(() => selectAudioClip(result.clipId)); return result.project; });
   }
 
   function selectLayer(layerId: string, additive = false) {
@@ -445,62 +478,64 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     setInspectorTab("Design");
   }
 
-  async function importAsset(file?: File) {
-    if (!file) return;
-    const accepted = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
-    if (!accepted.includes(file.type)) {
-      window.alert("Use PNG, JPG, WebP, or SVG files.");
-      return;
+  async function importAsset(file?: File, options: { sceneId?: string; addToTimeline?: boolean } = {}) {
+    if (!file) return { imported: false };
+    const mimeType = normalizeMediaMime(file.name, file.type);
+    const accepted = ["image/png", "image/jpeg", "image/webp", "image/svg+xml", "audio/mpeg", "audio/wav", "audio/mp4", "audio/aac", "audio/ogg", "audio/webm"];
+    if (!accepted.includes(mimeType)) {
+      window.alert("Use PNG, JPG, WebP, SVG, MP3, WAV, M4A, AAC, OGG, or WebM audio files.");
+      return { imported: false };
     }
-    const maximum = file.type === "image/svg+xml" ? 10 : 20;
-    if (file.size > maximum * 1024 * 1024) {
-      window.alert(`This file is larger than ${maximum} MB.`);
-      return;
-    }
+    const isAudio = mimeType.startsWith("audio/");
+    const maximum = isAudio ? 120 : mimeType === "image/svg+xml" ? 10 : 20;
+    if (file.size > maximum * 1024 * 1024) { window.alert("This file is larger than " + maximum + " MB."); return { imported: false }; }
 
     let temporaryUrl = "";
     try {
-      const blob = file.type === "image/svg+xml"
-        ? new Blob([sanitizeSvg(await file.text())], { type: "image/svg+xml" })
-        : file;
+      const blob = mimeType === "image/svg+xml" ? new Blob([sanitizeSvg(await file.text())], { type: mimeType }) : new Blob([file], { type: mimeType });
       temporaryUrl = URL.createObjectURL(blob);
-      const dimensions = await readImageDimensions(temporaryUrl);
-      URL.revokeObjectURL(temporaryUrl);
-      temporaryUrl = "";
+      const metadata = isAudio ? { duration: await readAudioDuration(temporaryUrl) } : await readImageDimensions(temporaryUrl);
+      URL.revokeObjectURL(temporaryUrl); temporaryUrl = "";
+      const current = cloneProject(history.projectRef.current);
+      const targetSceneId = options.sceneId && current.scenes[options.sceneId] ? options.sceneId : current.activeSceneId;
       const assetId = createId("asset");
-      const stored = await storeAssetBlob(project.id, assetId, blob);
+      const stored = await storeAssetBlob(current.id, assetId, blob);
       const asset: ProjectAsset = {
-        id: assetId,
-        projectId: project.id,
-        name: file.name.replace(/\.[^.]+$/, ""),
-        type: file.type === "image/svg+xml" ? "svg" : "image",
-        mimeType: file.type,
-        width: dimensions.width,
-        height: dimensions.height,
-        sourceUrl: stored.sourceUrl,
-        storage: "blob",
-        blobId: stored.blobId,
-        byteSize: stored.byteSize,
+        id: assetId, projectId: current.id, name: file.name.replace(/\.[^.]+$/, ""),
+        type: isAudio ? "audio" : mimeType === "image/svg+xml" ? "svg" : "image", mimeType,
+        ...(isAudio ? { duration: metadata.duration } : { width: metadata.width, height: metadata.height }),
+        sourceUrl: stored.sourceUrl, storage: "blob", blobId: stored.blobId, byteSize: stored.byteSize,
       };
-      const layer = createAssetLayer(getActiveScene(project), asset);
-      layer.animationActions.push(createAnimationAction(layer.id, "in", "scaleIn", { duration: 0.65, easing: "backOut" }));
-      commitProject((current) => {
-        const next = cloneProject(current);
-        next.assets[asset.id] = asset;
-        return addLayers(next, [layer]);
-      });
-      selectOnly(layer.id);
-      setOnlyAction(layer.animationActions[0]?.id ?? "");
+      current.assets[asset.id] = asset;
+      if (isAudio) {
+        if (options.addToTimeline === false) { history.commit(() => touchProject(current)); setSidebarTab("assets"); return { imported: true, assetId }; }
+        const result = createAudioClip(current, targetSceneId, assetId);
+        history.commit(() => result.project);
+        window.queueMicrotask(() => selectAudioClip(result.clipId));
+        setSidebarTab("assets");
+        return { imported: true, assetId, audioClipId: result.clipId, sceneId: targetSceneId };
+      }
+      const layer = createAssetLayer(current.scenes[targetSceneId], asset);
+      layer.animationActions.push(createAnimationAction(layer.id, "in", "scaleIn", { duration: .65, easing: "backOut" }));
+      const next = addLayers(current, [layer]);
+      history.commit(() => next);
+      window.queueMicrotask(() => selectOnly(layer.id));
       setSidebarTab("layers");
-    } catch {
+      return { imported: true, assetId, layerId: layer.id, sceneId: targetSceneId };
+    } catch (error) {
       if (temporaryUrl) URL.revokeObjectURL(temporaryUrl);
-      window.alert("The asset could not be imported.");
+      window.alert(error instanceof Error ? error.message : "The asset could not be imported.");
+      return { imported: false };
     }
   }
 
   function addExistingAsset(assetId: string) {
     const asset = project.assets[assetId];
     if (!asset || asset.type === "font") return;
+    if (asset.type === "audio") {
+      commitProject((current) => { const result = createAudioClip(current, scene.id, asset.id); window.queueMicrotask(() => selectAudioClip(result.clipId)); return result.project; });
+      return;
+    }
     const layer = createAssetLayer(scene, asset);
     commitProject((current) => addLayers(current, [layer]));
     selectOnly(layer.id);
@@ -950,7 +985,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         ref={assetInputRef}
         hidden
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+        accept="image/png,image/jpeg,image/webp,image/svg+xml,audio/mpeg,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,.mp3,.wav,.m4a,.aac,.ogg,.oga"
         onChange={(event) => {
           void importAsset(event.currentTarget.files?.[0]);
           event.currentTarget.value = "";
@@ -1120,10 +1155,12 @@ export function Editor({ initialProject, onExit }: EditorProps) {
           ) : null}
           {sidebarTab === "assets" ? (
             <div className="assets-panel sidebar-scroll">
-              <button type="button" className="asset-dropzone" onClick={() => assetInputRef.current?.click()}><span><Icon name="upload" size={24} /></span><strong>Import an asset</strong><small>PNG, JPG, WebP, or sanitized SVG</small></button>
+              <button type="button" className="asset-dropzone" onClick={() => assetInputRef.current?.click()}><span><Icon name="upload" size={24} /></span><strong>Import an asset</strong><small>Images, SVG, MP3, WAV, M4A, AAC, OGG, or WebM audio</small></button>
               <div className="asset-grid">
                 {Object.values(project.assets).map((asset) => asset.type === "font" ? (
                   <button type="button" className="font-asset-card" key={asset.id} onClick={() => selectedLayers.some((layer) => layer.type === "text") && commitProject((current) => setFontFamily(current, selectedLayerIds, asset.fontFamily ?? asset.name))}><strong>Aa</strong><span>{asset.fontFamily ?? asset.name}</span></button>
+                ) : asset.type === "audio" ? (
+                  <button type="button" className="asset-audio-card" key={asset.id} onClick={() => addExistingAsset(asset.id)}><strong><Icon name="audio" size={20} /></strong><span>{asset.name}</span><small>{asset.duration ? `${asset.duration.toFixed(2)}s` : "Audio"}</small></button>
                 ) : (
                   <button type="button" key={asset.id} onClick={() => addExistingAsset(asset.id)}><img src={asset.thumbnailUrl ?? asset.sourceUrl} alt="" /><span>{asset.name}</span></button>
                 ))}
@@ -1214,6 +1251,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         selectedLayerId={selectedLayerId}
         selectedLayerIds={selectedLayerIds}
         selectedActionIds={selectedActionIds}
+        selectedAudioClipId={selectedAudioClipId}
         onSelectLayer={selectLayer}
         onSelectAction={selectAction}
         onCommitActions={commitTimelineActions}
@@ -1225,6 +1263,10 @@ export function Editor({ initialProject, onExit }: EditorProps) {
         onGroupActions={groupSelectedActions}
         onUngroupActions={ungroupSelectedActions}
         onSavePreset={saveSelectedAnimationPreset}
+        onSelectAudioClip={selectAudioClip}
+        onUpdateAudioClip={updateAudioClipById}
+        onDeleteAudioClip={deleteAudioClipById}
+        onDuplicateAudioClip={duplicateAudioClipById}
         canPaste={Boolean(animationClipboard)}
       />
     </main>
@@ -1253,6 +1295,22 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("File could not be read."));
     reader.readAsDataURL(file);
   });
+}
+
+function readAudioDuration(sourceUrl: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const audio = new Audio();
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => resolve(Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 1);
+    audio.onerror = () => reject(new Error("Audio metadata could not be read."));
+    audio.src = sourceUrl;
+  });
+}
+
+function normalizeMediaMime(name: string, supplied: string) {
+  if (supplied && supplied !== "application/octet-stream") return supplied;
+  const extension = name.split(".").pop()?.toLowerCase();
+  return ({ png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", svg: "image/svg+xml", mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4", aac: "audio/aac", ogg: "audio/ogg", oga: "audio/ogg", webm: "audio/webm" } as Record<string, string>)[extension ?? ""] ?? supplied;
 }
 
 function readImageDimensions(sourceUrl: string): Promise<{ width: number; height: number }> {

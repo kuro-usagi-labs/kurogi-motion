@@ -14,6 +14,7 @@ import "./animationWorkflow.css";
 import "./previewRecovery.css";
 import "./editorMenu.css";
 import "./mcp.css";
+import "./audio.css";
 import "./uiCleanup.css";
 
 const root = document.getElementById("root");

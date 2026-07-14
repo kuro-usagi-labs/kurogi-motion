@@ -64,6 +64,7 @@ export function createProject(options: CreateProjectOptions): KurogiProject {
       ? { type: "transparent" }
       : { type: "solid", color: options.background ?? "#ffffff" },
     layerIds: [],
+    audioClipIds: [],
   };
 
   return {
@@ -76,6 +77,7 @@ export function createProject(options: CreateProjectOptions): KurogiProject {
     scenes: { [sceneId]: scene },
     layers: {},
     assets: {},
+    audioClips: {},
     animationGroups: {},
     animationPresets: {},
     settings: {
@@ -356,7 +358,7 @@ export function createShapeLayer(
 }
 
 export function createAssetLayer(scene: Scene, asset: ProjectAsset): ImageLayer | SvgLayer {
-  if (asset.type === "font") throw new Error("Font assets cannot be placed as visual layers.");
+  if (asset.type === "font" || asset.type === "audio") throw new Error("Font and audio assets cannot be placed as visual layers.");
   const size = fitInside(scene, asset.width ?? 600, asset.height ?? 400, 0.55);
   const base: Omit<ImageLayer, "type" | "fit"> = {
     id: createId("layer"),
@@ -522,6 +524,7 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
   next.version = PROJECT_VERSION;
   next.animationGroups = next.animationGroups ?? {};
   next.animationPresets = next.animationPresets ?? {};
+  next.audioClips = next.audioClips ?? {};
   next.settings = {
     autoSave: next.settings?.autoSave !== false,
     snapEnabled: next.settings?.snapEnabled !== false,
@@ -533,6 +536,7 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     scene.duration = clampNumber(scene.duration, 0.1, 3600);
     scene.fps = normalizeFps(scene.fps);
     scene.layerIds = scene.layerIds.filter((id) => Boolean(next.layers[id]));
+    scene.audioClipIds = (scene.audioClipIds ?? []).filter((id) => Boolean(next.audioClips[id]));
   }
   for (const layer of Object.values(next.layers)) {
     layer.opacity = clampNumber(layer.opacity, 0, 1);
@@ -561,6 +565,25 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
       layer.shape = normalizeShapeType(layer.shape);
     }
   }
+  for (const [clipId, clip] of Object.entries(next.audioClips)) {
+    const scene = next.scenes[clip.sceneId];
+    const asset = next.assets[clip.assetId];
+    if (!scene || !asset || asset.type !== "audio") {
+      delete next.audioClips[clipId];
+      continue;
+    }
+    clip.name = clip.name?.trim() || asset.name || "Audio clip";
+    clip.startTime = clampNumber(clip.startTime ?? 0, 0, Math.max(0, scene.duration - .05));
+    clip.trimStart = clampNumber(clip.trimStart ?? 0, 0, Math.max(0, (asset.duration ?? 0) - .01));
+    clip.playbackRate = clampNumber(clip.playbackRate ?? 1, .25, 4);
+    const sourceDuration = asset.duration && asset.duration > clip.trimStart ? (asset.duration - clip.trimStart) / clip.playbackRate : scene.duration - clip.startTime;
+    clip.duration = clampNumber(clip.duration ?? sourceDuration, .05, Math.max(.05, Math.min(scene.duration - clip.startTime, sourceDuration)));
+    clip.volume = clampNumber(clip.volume ?? 1, 0, 2);
+    clip.muted = Boolean(clip.muted);
+    clip.fadeIn = clampNumber(clip.fadeIn ?? 0, 0, clip.duration);
+    clip.fadeOut = clampNumber(clip.fadeOut ?? 0, 0, clip.duration);
+  }
+  for (const scene of Object.values(next.scenes)) scene.audioClipIds = (scene.audioClipIds ?? []).filter((id) => Boolean(next.audioClips[id]));
   return next;
 }
 

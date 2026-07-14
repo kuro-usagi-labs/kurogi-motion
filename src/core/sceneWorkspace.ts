@@ -1,4 +1,4 @@
-import type { KurogiProject, Layer, Scene } from "../types";
+import type { AudioClip, KurogiProject, Layer, Scene } from "../types";
 import { cloneProject, createId, touchProject } from "./project";
 
 export interface SceneWorkspacePosition {
@@ -98,6 +98,7 @@ export function createScene(project: KurogiProject): SceneMutationResult {
     fps: source?.fps ?? next.settings.defaultFps,
     background: cloneProject(source?.background ?? { type: "solid", color: "#ffffff" }),
     layerIds: [],
+    audioClipIds: [],
     workspace: { x: right + SCENE_GAP, y: source ? getSceneWorkspacePosition(source).y : 0 },
   };
   next.scenes[id] = scene;
@@ -114,17 +115,25 @@ export function duplicateScene(project: KurogiProject, sceneId: string): SceneMu
   const id = createId("scene");
   const sourcePosition = getSceneWorkspacePosition(sourceScene);
   const layerMap = new Map<string, string>();
+  const audioMap = new Map<string, string>();
   const sourceLayers = Object.values(prepared.layers).filter((layer) => layer.sceneId === sceneId);
   for (const layer of sourceLayers) layerMap.set(layer.id, createId("layer"));
+  const sourceAudio = (sourceScene.audioClipIds ?? []).map((clipId) => prepared.audioClips[clipId]).filter((clip): clip is AudioClip => Boolean(clip));
+  for (const clip of sourceAudio) audioMap.set(clip.id, createId("audio"));
 
   const copiedLayers: Layer[] = sourceLayers.map((layer) => cloneLayerForScene(layer, id, layerMap));
   for (const layer of copiedLayers) next.layers[layer.id] = layer;
+  for (const clip of sourceAudio) {
+    const clipId = audioMap.get(clip.id)!;
+    next.audioClips[clipId] = { ...cloneProject(clip), id: clipId, sceneId: id };
+  }
 
   const copiedScene: WorkspaceScene = {
     ...cloneProject(sourceScene),
     id,
     name: uniqueSceneName(next, `${sourceScene.name} copy`),
     layerIds: sourceScene.layerIds.map((layerId) => layerMap.get(layerId)).filter(Boolean) as string[],
+    audioClipIds: (sourceScene.audioClipIds ?? []).map((clipId) => audioMap.get(clipId)).filter(Boolean) as string[],
     workspace: { x: sourcePosition.x + sourceScene.width + SCENE_GAP, y: sourcePosition.y },
   };
   next.scenes[id] = copiedScene;
@@ -141,6 +150,9 @@ export function removeScene(project: KurogiProject, sceneId: string): SceneMutat
   const removedIndex = sceneIds.indexOf(sceneId);
   for (const [layerId, layer] of Object.entries(next.layers)) {
     if (layer.sceneId === sceneId) delete next.layers[layerId];
+  }
+  for (const [clipId, clip] of Object.entries(next.audioClips)) {
+    if (clip.sceneId === sceneId) delete next.audioClips[clipId];
   }
   delete next.scenes[sceneId];
   const remaining = Object.keys(next.scenes);

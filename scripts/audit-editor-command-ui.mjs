@@ -16,6 +16,7 @@ assert.ok(menu.includes('label="File"') && menu.includes('label="Edit"') && menu
 assert.ok(menu.includes('label="Scene"') && menu.includes('label="Layer"') && menu.includes('label="Animation"'), "Domain command menus must exist.");
 assert.ok(menu.includes('label="New Project…"') && menu.includes('label="Open Project…"'), "File menu must expose project entry points.");
 assert.ok(menu.includes('label="Align Left"') && menu.includes('label="Distribute Horizontally"'), "Edit menu must expose alignment commands.");
+assert.ok(menu.includes('label="Scene Settings…"') && menu.includes('label="Copy Animation"'), "Scene and animation commands must be routed through menus.");
 assert.ok(design.includes("ALIGNMENT_ICONS") && design.includes("design-tools-icon-button"), "Alignment toolbar must use icon-only controls.");
 assert.ok(!design.includes("alignmentLabel(mode)"), "Letter-based alignment buttons must be removed.");
 assert.ok(icons.includes('"alignLeft"') && icons.includes('"alignCenterVertical"') && icons.includes('"distributeHorizontal"'), "Alignment SVG icons must be registered.");
@@ -25,5 +26,6 @@ assert.ok(stage.includes('command.type === "fit-all"') && stage.includes('comman
 assert.ok(main.includes('import "./editorMenu.css";'), "Editor menu stylesheet must be loaded.");
 assert.match(css, /grid-template-columns:auto auto minmax\(140px,1fr\) auto/);
 assert.match(css, /\.design-tools-panel \.design-tools-icon-button/);
+assert.match(css, /\.editor-menu-dropdown/);
 
 console.log("Editor command UI audit passed: menus are functional, duplicate controls are removed, and alignment uses SVG icons.");

@@ -31,19 +31,23 @@ jobs:
         run: |
           set -o pipefail
           node scripts/apply-audio-media-mcp-v2.cjs 2>&1 | tee audio-patch.log
-      - name: Upload patch diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: audio-patch-diagnostics-${{ github.run_id }}
-          path: audio-patch.log
-          if-no-files-found: error
-          retention-days: 3
       - name: Refresh lockfile
         run: npm install --package-lock-only
-      - name: Commit generated integration
+      - name: Prepare generated patch
         run: |
           git checkout -- scripts/apply-audio-media-mcp-v2.cjs
+          git diff --binary > audio-generated.patch
+      - name: Upload generated integration
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-generated-integration-${{ github.run_id }}
+          path: |
+            audio-generated.patch
+            audio-patch.log
+          if-no-files-found: error
+          retention-days: 3
+      - name: Commit generated integration
+        run: |
           if git diff --quiet; then
             echo "No generated changes"
             exit 0

@@ -9,10 +9,11 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  clipping-mask-diagnostic:
+  apply-clipping-mask:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,26 +23,37 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Apply and capture feature patch
+      - name: Normalize known source formatting
         shell: bash
         run: |
-          set +e
-          node scripts/apply-clipping-mask-feature.cjs > clipping-patch.log 2>&1
-          status=$?
-          {
-            echo "exit_status=$status"
-            echo "--- output ---"
-            tail -100 clipping-patch.log
-            echo "--- git status ---"
-            git status --short
-          } > clipping-patch-status.log
-          exit 0
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/editor/MultiSceneCanvasStage.tsx')
+          source = path.read_text()
+          source = source.replace(
+              '      onActionCommit: stableActionCommit,\n      editable: true,',
+              '       onActionCommit: stableActionCommit,\n       editable: true,',
+          )
+          path.write_text(source)
+          PY
+      - name: Apply feature patch
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/apply-clipping-mask-feature.cjs 2>&1 | tee clipping-patch.log
       - name: Upload patch diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: clipping-mask-patch-diagnostics-${{ github.run_id }}
-          path: |
-            clipping-patch.log
-            clipping-patch-status.log
-          if-no-files-found: error
+          path: clipping-patch.log
+          if-no-files-found: ignore
           retention-days: 1
+      - name: Commit feature
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/types.ts src/core/designTools.ts src/core/project.ts src/renderer/designStyles.ts src/MotionComposition.tsx src/renderer/StaticLayerTree.tsx src/editor/MultiSceneCanvasStage.tsx src/app/Editor.tsx src/main.tsx package.json scripts/audit-clipping-mask.mjs
+          git commit -m "feat: add Photoshop-style clipping masks"
+          git pull --rebase origin feat/clipping-mask-context-menu
+          git push origin HEAD:feat/clipping-mask-context-menu

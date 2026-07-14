@@ -101,6 +101,13 @@ jobs:
           set -o pipefail
           npm run audit:ui-cleanup 2>&1 | tee ui-cleanup-audit.log
 
+      - name: Audit MCP integration
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:mcp 2>&1 | tee mcp-audit.log
+          node -e "import('./mcp/server.mjs').then(() => console.log('MCP SDK import passed.'))" 2>&1 | tee -a mcp-audit.log
+
       - name: Audit effect renderer
         shell: bash
         run: |
@@ -142,6 +149,7 @@ jobs:
             preview-recovery-audit.log
             editor-command-ui-audit.log
             ui-cleanup-audit.log
+            mcp-audit.log
             effect-audit.log
             loop-audit.log
             text-canvas-audit.log

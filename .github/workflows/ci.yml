@@ -9,11 +9,10 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-clipping-mask:
-    if: github.actor != 'github-actions[bot]'
+  clipping-mask-diagnostic:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,18 +28,20 @@ jobs:
           set +e
           node scripts/apply-clipping-mask-feature.cjs > clipping-patch.log 2>&1
           status=$?
-          mkdir -p scripts
           {
             echo "exit_status=$status"
             echo "--- output ---"
             tail -100 clipping-patch.log
             echo "--- git status ---"
             git status --short
-          } > scripts/clipping-patch-status.log
-          set -e
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "chore: capture clipping mask patch result"
-          git pull --rebase origin feat/clipping-mask-context-menu
-          git push origin HEAD:feat/clipping-mask-context-menu
+          } > clipping-patch-status.log
+          exit 0
+      - name: Upload patch diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipping-mask-patch-diagnostics-${{ github.run_id }}
+          path: |
+            clipping-patch.log
+            clipping-patch-status.log
+          if-no-files-found: error
+          retention-days: 1

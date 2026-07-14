@@ -36,7 +36,7 @@ try {
   assert.equal(created.sourceLayerId, base.id);
   assert.equal(project.layers[target.id].mask.sourceLayerId, base.id);
   assert.equal(project.layers[target.id].mask.clipping, true);
-  assert.equal(project.layers[base.id].maskSource, false, "A Photoshop-style clipping base remains visible.");
+  assert.equal(Boolean(project.layers[base.id].maskSource), false, "A Photoshop-style clipping base remains visible.");
 
   const style = clipping.clippingMaskSceneStyle(project, project.layers[target.id], scene, 0);
   assert.ok(String(style.maskImage).includes("data:image/svg+xml"), "The clipping renderer should create a scene-space alpha mask.");

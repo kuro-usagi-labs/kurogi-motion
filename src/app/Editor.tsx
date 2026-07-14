@@ -776,7 +776,7 @@ export function Editor({ initialProject, onExit }: EditorProps) {
     if (value === null) return;
     const step = Number(value);
     if (!Number.isFinite(step) || step < 0) { window.alert("Enter a valid stagger interval."); return; }
-    staggerSelectedActions(step, "forward");
+    staggerSelectedActions(step, "normal");
   }
 
   function showKeyboardShortcuts() {

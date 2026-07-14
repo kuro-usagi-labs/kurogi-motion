@@ -63,7 +63,7 @@ try {
     [composition, "clippingMaskSceneStyle", "Clipping masks are not mounted in the renderer."],
     [stage, "onLayerContextMenu", "The multi-scene stage does not forward context-menu events."],
     [editor, "LayerContextMenu", "The editor does not mount the layer context menu."],
-    [editor, "Create Clipping Mask", "The editor wiring is missing clipping-mask commands."],
+    [menu, "Create Clipping Mask", "The layer context menu is missing clipping-mask creation."],
     [menu, "Release Clipping Mask", "The context menu cannot release clipping masks."],
     [menu, "Bring Forward", "Expected layer commands are missing from the context menu."],
     [css, "z-index:2147483200", "The context menu is not protected from editor stacking contexts."],

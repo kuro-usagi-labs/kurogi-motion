@@ -27,7 +27,7 @@ assert.match(editor, /readMcpMediaFile/);
 assert.match(main, /read-mcp-media-file/);
 assert.match(main, /outputPath/);
 assert.match(preload, /readMcpMediaFile/);
-assert.ok((serverSource.match(/name: "kurogi_/g) ?? []).length >= 25, "MCP V2 should expose at least 25 focused tools.");
+assert.ok((serverSource.match(/tool\("kurogi_/g) ?? []).length >= 25, "MCP V2 should expose at least 25 focused tools.");
 assert.match(serverSource, /kurogi_apply_edit_plan/);
 assert.match(serverSource, /kurogi_import_asset/);
 assert.match(serverSource, /kurogi_create_audio_clip/);

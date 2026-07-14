@@ -24,7 +24,19 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply deterministic integration patch
-        run: node scripts/apply-audio-media-mcp-v2.cjs
+        id: patch
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/apply-audio-media-mcp-v2.cjs 2>&1 | tee audio-patch.log
+      - name: Upload patch diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-patch-diagnostics-${{ github.run_id }}
+          path: audio-patch.log
+          if-no-files-found: error
+          retention-days: 3
       - name: Refresh lockfile
         run: npm install --package-lock-only
       - name: Commit generated integration

@@ -1,7 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import type { AnimationCategory, AnimationType, KurogiProject, Layer } from "../types";
+import { Player } from "@remotion/player";
+import { MotionComposition } from "../MotionComposition";
+import { cloneProject, createAnimationAction, createId } from "../core/project";
+import type { AnimationCategory, AnimationPresetAction, AnimationType, CustomAnimationPreset, KurogiProject, Layer } from "../types";
 import { Icon, animationIconName } from "../ui/Icon";
-import { ANIMATION_PRESETS } from "./animationPresets";
+import { ANIMATION_PRESETS, presetFor } from "./animationPresets";
+import { defaultMotionPath } from "./MotionPathOverlay";
 
 interface AnimationPresetDialogProps {
   project: KurogiProject;
@@ -9,14 +13,22 @@ interface AnimationPresetDialogProps {
   initialCategory: AnimationCategory;
   onClose: () => void;
   onChoose: (category: AnimationCategory, type: AnimationType) => void;
+  onChooseCustom: (presetId: string) => void;
+  onDeleteCustom: (presetId: string) => void;
 }
 
-export function AnimationPresetDialog({ project, layer, initialCategory, onClose, onChoose }: AnimationPresetDialogProps) {
+export function AnimationPresetDialog({ project, layer, initialCategory, onClose, onChoose, onChooseCustom, onDeleteCustom }: AnimationPresetDialogProps) {
   const [category, setCategory] = useState<AnimationCategory>(initialCategory);
   const [query, setQuery] = useState("");
   const presets = useMemo(() => ANIMATION_PRESETS.filter((preset) =>
-    preset.category === category && `${preset.label} ${preset.description}`.toLowerCase().includes(query.toLowerCase()),
-  ), [category, query]);
+    preset.category === category &&
+    (preset.type !== "counter" || layer.type === "text") &&
+    `${preset.label} ${preset.description}`.toLowerCase().includes(query.toLowerCase()),
+  ), [category, layer.type, query]);
+  const customPresets = useMemo(() => Object.values(project.animationPresets ?? {}).filter((preset) =>
+    preset.name.toLowerCase().includes(query.toLowerCase()) &&
+    (layer.type === "text" || preset.actions.every((action) => action.type !== "counter")),
+  ), [layer.type, project.animationPresets, query]);
 
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && onClose();
@@ -39,10 +51,26 @@ export function AnimationPresetDialog({ project, layer, initialCategory, onClose
           <label className="preset-search"><Icon name="search" size={16} /><input autoFocus placeholder="Search presets" value={query} onChange={(event) => setQuery(event.currentTarget.value)} /></label>
         </div>
 
+        {customPresets.length ? (
+          <section className="custom-preset-section">
+            <header><h3>My presets</h3><small>{customPresets.length} reusable</small></header>
+            <div className="custom-preset-grid">
+              {customPresets.map((preset) => (
+                <button type="button" className="custom-preset-card" key={preset.id} onClick={() => onChooseCustom(preset.id)}>
+                  <AccuratePresetPreview project={project} layer={layer} customPreset={preset} />
+                  <strong>{preset.name}</strong>
+                  <small>{preset.actions.length} action{preset.actions.length === 1 ? "" : "s"}</small>
+                  <button type="button" className="custom-preset-delete" title="Delete custom preset" onClick={(event) => { event.stopPropagation(); onDeleteCustom(preset.id); }}><Icon name="trash" size={13} /></button>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <div className="preset-browser-grid">
           {presets.map((preset) => (
             <button type="button" className={`preset-browser-card preset-card-${category}`} key={preset.type} onClick={() => onChoose(category, preset.type)}>
-              <PresetPreview project={project} layer={layer} type={preset.type} />
+              <AccuratePresetPreview project={project} layer={layer} type={preset.type} />
               <span className="preset-browser-copy">
                 <span className={`preset-browser-icon preset-${category}`}><Icon name={animationIconName(preset.type)} size={17} /></span>
                 <span><strong>{preset.label}</strong><small>{preset.description}</small></span>
@@ -56,39 +84,102 @@ export function AnimationPresetDialog({ project, layer, initialCategory, onClose
   );
 }
 
-function PresetPreview({ project, layer, type }: { project: KurogiProject; layer: Layer; type: AnimationType }) {
-  const style: React.CSSProperties = {
-    width: `${Math.max(34, Math.min(72, layer.size.width / 8))}%`,
-    height: `${Math.max(28, Math.min(62, layer.size.height / 6))}%`,
-    transformOrigin: `${layer.anchor.x * 100}% ${layer.anchor.y * 100}%`,
-  };
-  const backdrop = previewBackdrop(layer);
-
+function AccuratePresetPreview({ project, layer, type, customPreset }: { project: KurogiProject; layer: Layer; type?: AnimationType; customPreset?: CustomAnimationPreset }) {
+  const preview = useMemo(() => previewProject(project, layer, type, customPreset), [customPreset, layer, project, type]);
+  const scene = preview.scenes[preview.activeSceneId];
   return (
-    <div className="preset-live-preview contrast-preview" style={{ background: backdrop.background, color: backdrop.foreground }}>
-      <div className="preset-preview-grid" />
-      <div className={`preset-live-element preview-${type}`} style={style}>
-        {layer.type === "text" ? (
-          <span style={{ fontFamily: layer.style.fontFamily, fontWeight: layer.style.fontWeight, color: layer.style.color, textShadow: backdrop.textShadow }}>{layer.text.replace(/\n/g, " ").slice(0, 28) || "Text"}</span>
-        ) : layer.type === "shape" ? (
-          <i style={{ display: "block", width: "100%", height: "100%", background: layer.style.fill, border: layer.style.strokeWidth ? `${Math.min(3, layer.style.strokeWidth)}px solid ${layer.style.stroke}` : undefined, borderRadius: layer.shape === "circle" ? "50%" : Math.min(14, layer.style.borderRadius), boxShadow: "0 14px 30px rgba(0,0,0,.2)" }} />
-        ) : layer.type === "image" || layer.type === "svg" ? (
-          <img src={project.assets[layer.assetId]?.thumbnailUrl ?? project.assets[layer.assetId]?.sourceUrl} alt="" />
-        ) : (
-          <span>{layer.name}</span>
-        )}
-      </div>
-      <span className="preset-preview-floor" />
+    <div className="preset-live-preview contrast-preview">
+      <Player
+        className="remotion-player"
+        component={MotionComposition}
+        inputProps={{ project: preview }}
+        durationInFrames={Math.max(1, Math.round(scene.duration * scene.fps))}
+        compositionWidth={scene.width}
+        compositionHeight={scene.height}
+        fps={scene.fps}
+        autoPlay
+        loop
+        controls={false}
+        style={{ width: "100%", height: "100%" }}
+      />
     </div>
   );
 }
 
-function previewBackdrop(layer: Layer) {
+function previewProject(project: KurogiProject, sourceLayer: Layer, type?: AnimationType, customPreset?: CustomAnimationPreset): KurogiProject {
+  const next = cloneProject(project);
+  const sceneId = createId("preview-scene");
+  const layerId = createId("preview-layer");
+  const duration = customPreset ? Math.max(2.4, presetSpan(customPreset.actions) + .8) : 2.6;
+  const scene = {
+    id: sceneId,
+    name: "Preset preview",
+    width: 360,
+    height: 220,
+    duration,
+    fps: 30,
+    background: previewBackground(sourceLayer),
+    layerIds: [layerId],
+  };
+  const layer = cloneProject(sourceLayer);
+  layer.id = layerId;
+  layer.sceneId = sceneId;
+  layer.parentId = undefined;
+  if (layer.type === "group") layer.childIds = [];
+  const ratio = Math.min(1, 220 / Math.max(1, layer.size.width), 110 / Math.max(1, layer.size.height));
+  layer.size = { width: Math.max(60, layer.size.width * ratio), height: Math.max(42, layer.size.height * ratio) };
+  layer.position = { x: (scene.width - layer.size.width) / 2, y: (scene.height - layer.size.height) / 2 };
+  layer.rotation = 0;
+  layer.scale = { x: 1, y: 1 };
+  layer.visible = true;
+  layer.locked = false;
+  layer.mask = undefined;
+  layer.maskSource = false;
+  layer.animationActions = customPreset
+    ? customPreset.actions.map((action, index) => presetActionToPreview(layerId, action, index))
+    : [builtInPreviewAction(layerId, type ?? "fadeIn")];
+  next.activeSceneId = sceneId;
+  next.scenes = { [sceneId]: scene };
+  next.layers = { [layerId]: layer };
+  next.animationGroups = {};
+  return next;
+}
+
+function builtInPreviewAction(layerId: string, type: AnimationType) {
+  const preset = presetFor(type);
+  const startTime = preset.category === "out" ? 1.15 : .2;
+  const action = createAnimationAction(layerId, preset.category, type, {
+    startTime,
+    duration: preset.recommendedDuration ?? .7,
+    easing: preset.recommendedEasing ?? (preset.category === "loop" ? "easeInOut" : "easeOut"),
+  });
+  if (type === "motionPath") action.motionPath = defaultMotionPath();
+  if (type === "counter") action.parameters = { ...action.parameters, from: 0, to: 1240, decimals: 0, prefix: "", suffix: "+" };
+  return action;
+}
+
+function presetActionToPreview(layerId: string, template: AnimationPresetAction, index: number) {
+  const action = createAnimationAction(layerId, template.category, template.type, {
+    startTime: Math.max(.1, template.startOffset ?? index * .08),
+    duration: template.duration,
+    delay: template.delay,
+    easing: template.easing,
+    easingCurve: template.easingCurve,
+    parameters: template.parameters,
+    stagger: template.stagger,
+    repeat: template.repeat,
+    motionPath: template.motionPath,
+  });
+  return action;
+}
+
+function presetSpan(actions: AnimationPresetAction[]) {
+  return actions.reduce((value, action) => Math.max(value, (action.startOffset ?? 0) + action.delay + action.duration), 0);
+}
+
+function previewBackground(layer: Layer) {
   const color = layer.type === "text" ? layer.style.color : layer.type === "shape" ? layer.style.fill : "#7c5cff";
-  const light = isLightColor(color);
-  return light
-    ? { background: "linear-gradient(145deg,#171821,#252637)", foreground: "#ffffff", textShadow: "0 2px 12px rgba(0,0,0,.38)" }
-    : { background: "linear-gradient(145deg,#f8f8fb,#e9e8f0)", foreground: "#171821", textShadow: "0 1px 8px rgba(255,255,255,.65)" };
+  return isLightColor(color) ? { type: "solid" as const, color: "#171821" } : { type: "solid" as const, color: "#f4f2f8" };
 }
 
 function isLightColor(value: string) {

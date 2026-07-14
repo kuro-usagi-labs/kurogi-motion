@@ -657,6 +657,22 @@ function normalizeMotionPath(value: AnimationAction["motionPath"]): AnimationAct
   return { enabled: value.enabled !== false, start: point(value.start, { x: 0, y: 0 }), control1: point(value.control1, { x: 100, y: -120 }), control2: point(value.control2, { x: 220, y: 120 }), end: point(value.end, { x: 320, y: 0 }), orientToPath: Boolean(value.orientToPath) };
 }
 
+function normalizeEasing(value: AnimationAction["easing"]): AnimationAction["easing"] {
+  const supported = new Set(["linear","easeIn","easeOut","easeInOut","backIn","backOut","overshoot","bounce","elastic","custom"]);
+  return value && supported.has(value) ? value : "easeOut";
+}
+
+function normalizeBezier(value: AnimationAction["easingCurve"]): AnimationAction["easingCurve"] {
+  if (!value) return undefined;
+  return { x1: clampNumber(value.x1, 0, 1), y1: clampNumber(value.y1, -4, 4), x2: clampNumber(value.x2, 0, 1), y2: clampNumber(value.y2, -4, 4) };
+}
+
+function normalizeMotionPath(value: AnimationAction["motionPath"]): AnimationAction["motionPath"] {
+  if (!value) return undefined;
+  const point = (candidate, fallback) => ({ x: Number.isFinite(candidate?.x) ? candidate.x : fallback.x, y: Number.isFinite(candidate?.y) ? candidate.y : fallback.y });
+  return { enabled: value.enabled !== false, start: point(value.start, { x: 0, y: 0 }), control1: point(value.control1, { x: 100, y: -120 }), control2: point(value.control2, { x: 220, y: 120 }), end: point(value.end, { x: 320, y: 0 }), orientToPath: Boolean(value.orientToPath) };
+}
+
 function normalizeBlendMode(value: Layer["blendMode"]): NonNullable<Layer["blendMode"]> {
   const supported = new Set(["normal","multiply","screen","overlay","darken","lighten","color-dodge","color-burn","hard-light","soft-light","difference","exclusion","hue","saturation","color","luminosity"]);
   return value && supported.has(value) ? value : "normal";

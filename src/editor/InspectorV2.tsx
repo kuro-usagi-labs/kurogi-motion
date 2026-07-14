@@ -129,12 +129,6 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
         </div>
       </section>
 
-      <section className="property-section compact-property-section">
-        <div className="section-label">Layer state</div>
-        <label className="toggle-row"><span>Visible</span><ToggleSwitch checked={layer.visible} onChange={(checked) => commit((current) => ({ ...current, visible: checked }))} /></label>
-        <label className="toggle-row"><span>Locked</span><ToggleSwitch checked={layer.locked} onChange={(checked) => commit((current) => ({ ...current, locked: checked }))} /></label>
-      </section>
-
       {layer.type === "text" ? (
         <section className="property-section compact-property-section">
           <div className="section-label">Typography</div>

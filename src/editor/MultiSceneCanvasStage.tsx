@@ -467,7 +467,6 @@ export function MultiSceneCanvasStage({
               if (event.key === "Enter") event.currentTarget.blur();
             }}
           />
-          <button type="button" className={settingsOpen ? "active" : ""} onClick={() => setSettingsOpen((value) => !value)} title="Scene settings"><Icon name="frame" size={15} /></button>
         </div>
 
         <div className="scene-toolbar-secondary">

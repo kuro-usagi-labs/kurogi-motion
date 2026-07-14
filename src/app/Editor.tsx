@@ -1028,12 +1028,6 @@ export function Editor({ initialProject, onExit }: EditorProps) {
                   </div>
                 ))}
               </div>
-              {selectedLayer ? (
-                <div className="sidebar-selection-actions">
-                  <button type="button" onClick={duplicateSelectedLayer}>Duplicate</button>
-                  <button type="button" className="danger-text" onClick={deleteSelectedLayer}>Delete</button>
-                </div>
-              ) : null}
             </div>
           ) : null}
           {sidebarTab === "text" ? (

@@ -30,6 +30,19 @@ try {
     if (!defined.has(type)) issues.push(`${type}: renderer registration has no effect definition`);
   }
 
+  const plainShapeOpacity = renderer.resolveGlassContentOpacity("shape", []);
+  if (plainShapeOpacity !== 1) {
+    issues.push(`plain shape: expected full content opacity, received ${plainShapeOpacity}`);
+  }
+  const glassShapeOpacity = renderer.resolveGlassContentOpacity("shape", [{ intensity: 60 }]);
+  if (!(glassShapeOpacity < 1 && glassShapeOpacity >= 0.38)) {
+    issues.push(`glass shape: expected reduced content opacity, received ${glassShapeOpacity}`);
+  }
+  const nonShapeOpacity = renderer.resolveGlassContentOpacity("text", [{ intensity: 60 }]);
+  if (nonShapeOpacity !== 1) {
+    issues.push(`non-shape layer: glass content opacity leaked into text, received ${nonShapeOpacity}`);
+  }
+
   for (const definition of core.EFFECT_DEFINITIONS) {
     const controls = [definition.intensityLabel, definition.radiusLabel, definition.speedLabel, definition.colorLabel].filter(Boolean).join(", ");
     console.log(`${definition.type.padEnd(12)} ${definition.rendererStage.padEnd(14)} ${definition.animated ? "animated" : "static  "} · ${controls}`);

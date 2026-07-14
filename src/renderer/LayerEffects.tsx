@@ -36,10 +36,7 @@ export function LayerEffects({ layer, time, children }: LayerEffectsProps) {
   ].filter(Boolean).join(" ");
   const clipRadius = resolveClipRadius(layer, glassEffects.at(-1));
   const shouldClip = Boolean(glassEffects.length || grainEffects.length || vignetteEffects.length || displacementEffects.length);
-  const strongestGlass = glassEffects.reduce((strongest, effect) => Math.max(strongest, effect.intensity), 0);
-  const glassContentOpacity = layer.type === "shape"
-    ? clamp(1 - strongestGlass / 170, 0.38, 0.86)
-    : 1;
+  const glassContentOpacity = resolveGlassContentOpacity(layer.type, glassEffects);
 
   const outerStyle: React.CSSProperties = {
     position: "relative",
@@ -88,6 +85,15 @@ export function LayerEffects({ layer, time, children }: LayerEffectsProps) {
       </div>
     </div>
   );
+}
+
+export function resolveGlassContentOpacity(
+  layerType: Layer["type"],
+  glassEffects: readonly Pick<LayerEffect, "intensity">[],
+) {
+  if (layerType !== "shape" || glassEffects.length === 0) return 1;
+  const strongestGlass = glassEffects.reduce((strongest, effect) => Math.max(strongest, effect.intensity), 0);
+  return clamp(1 - strongestGlass / 170, 0.38, 0.86);
 }
 
 function DisplacementDefinitions({ effects, ids, time }: { effects: LayerEffect[]; ids: string[]; time: number }) {

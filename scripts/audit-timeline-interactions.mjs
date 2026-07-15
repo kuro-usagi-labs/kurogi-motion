@@ -32,6 +32,18 @@ try {
   assert.equal(interactions.timelineDragThresholdPassed({ x: 10, y: 10 }, { x: 13, y: 12 }), false);
   assert.equal(interactions.timelineDragThresholdPassed({ x: 10, y: 10 }, { x: 14, y: 10 }), true);
 
+  const layerRows = [
+    { id: "front", top: 100, bottom: 144 },
+    { id: "middle", top: 144, bottom: 188 },
+    { id: "back", top: 188, bottom: 232 },
+  ];
+  assert.equal(interactions.timelineLayerDropTargetAtY(layerRows, "front", 120), null, "A small grip move must not reorder the source row.");
+  assert.deepEqual(interactions.timelineLayerDropTargetAtY(layerRows, "front", 172), { targetId: "middle", edge: "after" });
+  assert.deepEqual(interactions.timelineLayerDropTargetAtY(layerRows, "back", 122), { targetId: "front", edge: "before" });
+  assert.ok(interactions.timelineLayerReorderAutoScrollVelocity(105, 100, 500) < 0, "Reordering near the top must autoscroll upward.");
+  assert.equal(interactions.timelineLayerReorderAutoScrollVelocity(300, 100, 500), 0);
+  assert.ok(interactions.timelineLayerReorderAutoScrollVelocity(495, 100, 500) > 0, "Reordering near the bottom must autoscroll downward.");
+
   // laneWidth carries the current zoom, while scrollLeft anchors the pointer.
   const timeAtOneHundredPercent = interactions.timelineTimeAtClientX({
     clientX: 500,
@@ -83,11 +95,27 @@ try {
   assert.ok(source.includes("timelineLocalRect(element.getBoundingClientRect(), lanesRect)"), "Marquee hit testing must share the rendered local coordinate system.");
   assert.ok(source.includes("setPointerCaptureSafely"), "Timeline drags must capture their pointer.");
   assert.ok(source.includes("onPointerCancel={(event) => cancelTimelineMarquee(event.pointerId)}"), "Cancelled marquee gestures must be discarded.");
+  assert.ok(source.includes("onReorderLayer: (draggedLayerId: string, targetLayerId: string) => void"), "Timeline must expose a layer reorder commit callback.");
+  assert.ok(source.includes('className="timeline-layer-reorder-grip"'), "Timeline labels must expose a visible reorder grip.");
+  assert.ok(source.includes('aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"'), "Focused timeline rows need an accessible keyboard reorder alternative.");
+  assert.ok(source.includes("timelineLayerDropTargetAtY(rows, active.layerId, clientY)"), "Layer reorder must resolve insertion targets from rendered visual rows.");
+  assert.ok(source.includes('(project.layers[row.id]?.parentId ?? "") === draggedParentId'), "Timeline drag targets must stay within the layer's current group.");
+  assert.ok(source.includes("const siblings = timelineLayers.filter"), "Keyboard reorder must move among sibling layers only.");
+  assert.ok(source.includes("timelineLayerReorderAutoScrollVelocity"), "Layer reorder must autoscroll near viewport edges.");
+  assert.ok(source.includes("event.shiftKey || event.ctrlKey || event.metaKey"), "Timeline selection must accept Shift, Ctrl, and Command additive intent.");
+  assert.ok(source.includes("onPointerCancel={(event) => cleanupLayerReorder(event.pointerId)}"), "Cancelled layer reorder gestures must clean up pointer capture and indicators.");
+  assert.ok(source.includes("onUpdateSceneDuration: (duration: number) => void"), "Timeline must expose a scene duration update callback.");
+  assert.ok(source.includes('label="Duration"') && source.includes(">Fit</button>"), "Timeline header must expose an editable Duration field and Fit-to-content workflow.");
+  assert.ok(source.includes("timelineContentEnd(project, scene.id)") && source.includes("timeline-content-end-marker"), "Timeline must show content end affordances.");
+  const editorSource = await readFile(new URL("../src/app/Editor.tsx", import.meta.url), "utf8");
+  assert.ok(editorSource.includes("updateAnimationActions(current, patches)") && editorSource.includes("extendSceneForAction(next, patch.layerId, patch.actionId)"), "Dragging animation blocks past the end must extend scene duration in the same commit.");
+  assert.ok(editorSource.includes("startTime + duration > scene.duration") && editorSource.includes("return updateLayer(prepared, layerId"), "Dragging or trimming layer spans past the end must extend scene duration in the same commit.");
+  assert.ok(editorSource.includes("requestedStart + requestedDuration > targetScene.duration"), "Dragging or trimming audio clips past the end must extend scene duration before audio normalization.");
   assert.ok(!source.includes("onClick={(event) => { event.stopPropagation(); onSelectAction"), "Action selection must not toggle twice on pointer-down plus click.");
   assert.ok(!source.includes("Math.max(.6, (activePreview.duration / scene.duration)"), "Long projects must not inflate short actions with percentage-based minimum widths.");
   assert.ok(!source.includes("Math.max(.3, (timing.duration / scene.duration)"), "Long projects must not inflate short layer spans with percentage-based minimum widths.");
 
-  console.log("Timeline interaction audit passed: scrolled/zoomed coordinates, virtualized ruler labels, drag thresholds, Shift selection, blank-click/Escape deselection, pointer capture, and cancellation are wired.");
+  console.log("Timeline interaction audit passed: scrolled/zoomed coordinates, virtualized ruler labels, drag thresholds, modifier selection, row reorder insertion/autoscroll/keyboard controls, blank-click/Escape deselection, pointer capture, and cancellation are wired.");
 } finally {
   await server.close();
 }

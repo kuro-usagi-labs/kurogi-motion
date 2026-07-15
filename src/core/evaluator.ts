@@ -5,9 +5,13 @@ import type {
   EasingName,
   Layer,
   Scene,
-  StaggerOrder,
   TextAnimationUnit,
 } from "../types";
+import {
+  segmentGraphemes,
+  textAnimationScope,
+  textAnimationStaggerRank,
+} from "./textAnimation";
 
 export interface EvaluatedLayerVisual {
   x: number;
@@ -34,11 +38,15 @@ export interface EvaluatedUnitVisual {
   opacity: number;
   translateX: number;
   translateY: number;
-  scale: number;
+  scaleX: number;
+  scaleY: number;
   rotation: number;
   rotateX: number;
   rotateY: number;
+  skewX: number;
   blur: number;
+  brightness: number;
+  glow: number;
   clipPath?: string;
 }
 
@@ -97,32 +105,52 @@ export function evaluateTextUnit(
   unitIndex: number,
   unitCount: number,
 ): EvaluatedUnitVisual {
+  const unit = getTextAnimationUnit(layer);
+  return evaluateTextScope(layer, scene, time, unit === "layer" ? "character" : unit, unitIndex, unitCount);
+}
+
+export function evaluateTextScope(
+  layer: Layer,
+  scene: Scene,
+  time: number,
+  unit: Exclude<TextAnimationUnit, "layer">,
+  unitIndex: number,
+  unitCount: number,
+): EvaluatedUnitVisual {
   const visual: EvaluatedUnitVisual = {
     opacity: 1,
     translateX: 0,
     translateY: 0,
-    scale: 1,
+    scaleX: 1,
+    scaleY: 1,
     rotation: 0,
     rotateX: 0,
     rotateY: 0,
+    skewX: 0,
     blur: 0,
+    brightness: 1,
+    glow: 0,
   };
 
   if (layer.type !== "text") return visual;
 
   for (const action of orderedActions(layer.animationActions)) {
     const stagger = action.stagger;
-    if (!stagger?.enabled || stagger.unit === "layer") continue;
-    const offset = stagger.delay * staggerRank(unitIndex, unitCount, stagger.order, stagger.seed ?? 1);
+    if (!stagger?.enabled || textAnimationScope(action) !== unit) continue;
+    const offset = stagger.delay * textAnimationStaggerRank(unitIndex, unitCount, stagger.order, stagger.seed ?? 1);
     applyActionToUnit(visual, action, scene, time - offset);
   }
 
   visual.opacity = clamp(visual.opacity, 0, 1);
-  visual.scale = finite(visual.scale, 1);
+  visual.scaleX = finite(visual.scaleX, 1);
+  visual.scaleY = finite(visual.scaleY, 1);
   visual.rotation = finite(visual.rotation, 0);
   visual.rotateX = finite(visual.rotateX, 0);
   visual.rotateY = finite(visual.rotateY, 0);
+  visual.skewX = finite(visual.skewX, 0);
   visual.blur = Math.max(0, finite(visual.blur, 0));
+  visual.brightness = Math.max(0, finite(visual.brightness, 1));
+  visual.glow = Math.max(0, finite(visual.glow, 0));
   return visual;
 }
 
@@ -138,7 +166,7 @@ export function splitTextUnits(text: string, unit: TextAnimationUnit): TextUnit[
   if (unit === "word") {
     return text.split(/(\s+)/).filter(Boolean).map((part, index) => ({ key: `word-${index}`, text: part }));
   }
-  return Array.from(text).map((character, index) => ({ key: `character-${index}`, text: character }));
+  return segmentGraphemes(text).map((character, index) => ({ key: `character-${index}`, text: character }));
 }
 
 export function evaluateCounterText(layer: Layer, time: number): string | null {
@@ -219,6 +247,18 @@ function applyActionToLayer(visual: EvaluatedLayerVisual, action: AnimationActio
 }
 
 function applyActionToUnit(visual: EvaluatedUnitVisual, action: AnimationAction, scene: Scene, time: number) {
+  if (action.type === "motionPath" && action.motionPath?.enabled) {
+    const progress = applyEasing(action.easing, oneShotProgress(action, time), action.easingCurve);
+    const point = cubicPoint(action.motionPath.start, action.motionPath.control1, action.motionPath.control2, action.motionPath.end, progress);
+    visual.translateX += point.x;
+    visual.translateY += point.y;
+    if (action.motionPath.orientToPath) {
+      const tangent = cubicTangent(action.motionPath.start, action.motionPath.control1, action.motionPath.control2, action.motionPath.end, progress);
+      visual.rotation += Math.atan2(tangent.y, tangent.x) * 180 / Math.PI;
+    }
+    return;
+  }
+  if (action.type === "counter") return;
   if (action.category === "loop") {
     const progress = loopProgress(action, time);
     if (progress === null) return;
@@ -245,12 +285,29 @@ function applyActionToUnit(visual: EvaluatedUnitVisual, action: AnimationAction,
     visual.translateX += direction.x * amount;
     visual.translateY += direction.y * amount;
   }
-  if (isScalingType(action.type)) visual.scale *= entering
-    ? initialScale + (1 - initialScale) * progress
-    : 1 + (initialScale - 1) * progress;
+  if (isScalingType(action.type)) {
+    const scale = entering
+      ? initialScale + (1 - initialScale) * progress
+      : 1 + (initialScale - 1) * progress;
+    visual.scaleX *= scale;
+    visual.scaleY *= scale;
+  }
   if (isRotatingType(action.type)) visual.rotation += rotation * amount * (entering ? 1 : 1);
-  if (action.type === "flipIn" || action.type === "flipOut") visual.rotateY += 88 * amount;
+  if (action.type === "flipIn" || action.type === "flipOut") {
+    if (stringParameter(action, "axis", "y") === "x") visual.rotateX += 88 * amount;
+    else visual.rotateY += 88 * amount;
+  }
+  if (action.type === "stretchIn" || action.type === "stretchOut") {
+    const scale = entering ? .12 + .88 * progress : 1 - .88 * progress;
+    if (stringParameter(action, "axis", "x") === "y") visual.scaleY *= scale;
+    else visual.scaleX *= scale;
+  }
   if (action.type === "blurIn" || action.type === "blurOut" || action.type === "zoomBlurIn" || action.type === "zoomBlurOut" || action.type === "dissolveOut") visual.blur += blur * amount;
+  if (action.type === "zoomBlurIn" || action.type === "zoomBlurOut") {
+    visual.scaleX *= 1 + .5 * amount;
+    visual.scaleY *= 1 + .5 * amount;
+  }
+  if (action.type === "dissolveOut") visual.opacity *= .82 + .18 * Math.sin(progress * Math.PI * 18);
   if (isMaskType(action.type)) visual.clipPath = maskClip(stringParameter(action, "direction", "left"), entering ? 1 - progress : progress);
 }
 
@@ -439,21 +496,51 @@ function applyUnitLoop(
   const smoothPulse = (1 - cosine) / 2;
   const intensity = numberParameter(action, "intensity", .06) * weight;
 
-  if (action.type === "pulse") visual.scale *= 1 + wave * intensity;
+  if (action.type === "pulse") {
+    visual.scaleX *= 1 + wave * intensity;
+    visual.scaleY *= 1 + wave * intensity;
+  }
   if (action.type === "heartbeat") {
     const pulse = Math.pow(Math.max(0, Math.sin(progress * Math.PI * 4)), 8);
-    visual.scale *= 1 + pulse * intensity;
+    visual.scaleX *= 1 + pulse * intensity;
+    visual.scaleY *= 1 + pulse * intensity;
   }
   if (action.type === "float" || action.type === "hover" || action.type === "wave") {
-    visual.translateY += wave * numberParameter(action, "intensity", 18) * weight;
+    const amount = numberParameter(action, "intensity", 18) * weight;
+    visual.translateY += wave * amount;
+    if (action.type === "hover") visual.rotation += wave * amount * .08;
+    if (action.type === "wave") visual.rotation += wave * amount * .45;
   }
   if (action.type === "shake" || action.type === "jiggle") {
     const frequency = action.type === "jiggle" ? 8 : numberParameter(action, "frequency", 5);
     visual.translateX += Math.sin(phase * frequency) * numberParameter(action, "intensity", 10) * weight;
   }
-  if (action.type === "spin") visual.rotation += progress * 360 * weight;
-  if (action.type === "breathe") visual.scale *= 1 + smoothPulse * intensity;
-  if (action.type === "wobble" || action.type === "liquid") visual.scale *= 1 + wave * intensity;
+  if (action.type === "spin") {
+    const direction = stringParameter(action, "direction", "clockwise") === "counterclockwise" ? -1 : 1;
+    visual.rotation += progress * 360 * numberParameter(action, "turns", 1) * direction * weight;
+  }
+  if (action.type === "breathe") {
+    visual.scaleX *= 1 + smoothPulse * intensity;
+    visual.scaleY *= 1 + smoothPulse * intensity;
+  }
+  if (action.type === "wobble") {
+    visual.scaleX *= 1 + wave * intensity;
+    visual.scaleY *= 1 - wave * intensity * .7;
+    visual.rotation += wave * intensity * 45;
+  }
+  if (action.type === "ripple") {
+    visual.scaleX *= 1 + wave * intensity;
+    visual.scaleY *= 1 - wave * intensity;
+  }
+  if (action.type === "liquid") {
+    visual.scaleX *= 1 + wave * intensity;
+    visual.scaleY *= 1 - wave * intensity * .72;
+    visual.skewX += wave * intensity * 24;
+  }
+  if (action.type === "glowPulse") {
+    visual.glow += smoothPulse * numberParameter(action, "intensity", 18) * weight;
+    visual.brightness *= 1 + smoothPulse * .08 * weight;
+  }
   if (action.type === "swing") visual.rotation += wave * numberParameter(action, "intensity", 8) * weight;
   if (action.type === "orbit") {
     const radius = numberParameter(action, "intensity", 16) * weight;
@@ -504,18 +591,6 @@ function loopEntranceWeight(action: AnimationAction, time: number) {
   return progress * progress * (3 - 2 * progress);
 }
 
-function staggerRank(index: number, count: number, order: StaggerOrder, seed: number) {
-  if (order === "reverse") return count - index - 1;
-  if (order === "center") return Math.abs(index - (count - 1) / 2);
-  if (order === "edges") return Math.min(index, count - index - 1);
-  if (order === "random") {
-    const ranks = Array.from({ length: count }, (_, value) => value);
-    ranks.sort((a, b) => seededRandom(seed + a * 101) - seededRandom(seed + b * 101));
-    return ranks.indexOf(index);
-  }
-  return index;
-}
-
 function cubicBezierProgress(curve: CubicBezier, progress: number) {
   const x = clamp(progress, 0, 1);
   let t = x;
@@ -552,11 +627,6 @@ function cubicScalar(start: number, control1: number, control2: number, end: num
 function cubicScalarDerivative(start: number, control1: number, control2: number, end: number, progress: number) {
   const inverse = 1 - progress;
   return 3 * inverse * inverse * (control1 - start) + 6 * inverse * progress * (control2 - control1) + 3 * progress * progress * (end - control2);
-}
-
-function seededRandom(seed: number) {
-  const value = Math.sin(seed * 12.9898) * 43758.5453;
-  return value - Math.floor(value);
 }
 
 function directionVector(direction: string, distance: number) {

@@ -95,6 +95,10 @@ const animationFields = {
   parameters: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])).optional(),
   repeatCount: z.union([z.number().min(1), z.literal("infinite")]).optional(),
   repeatDelay: z.number().min(0).optional(),
+  textUnit: z.enum(["layer", "line", "word", "character"]).describe("Apply a text animation to the whole layer, each explicit line, each word, or each Unicode-safe letter.").optional(),
+  staggerDelay: z.number().min(0).max(10).describe("Seconds between text units when textUnit is line, word, or character.").optional(),
+  staggerOrder: z.enum(["normal", "reverse", "center", "edges", "random"]).optional(),
+  staggerSeed: z.number().int().optional(),
   motionPath: z.record(z.string(), z.unknown()).optional(),
 };
 
@@ -354,7 +358,7 @@ export const MCP_CAPABILITIES = {
   version: 4,
   model: "autonomous action-based motion design",
   templates: TEMPLATE_IDS,
-  authoring: ["project creation", "multi-scene", "scene ordering and transitions", "text", "vector shapes", "image assets", "groups", "alignment and distribution", "gradients", "blend modes", "clipping masks", "layer effects", "animation actions", "layer timing", "audio assets", "audio timeline", "atomic referenced workflows"],
+  authoring: ["project creation", "multi-scene", "scene ordering and transitions", "text", "Unicode-safe per-letter, word, line, and whole-text motion", "vector shapes", "image assets", "groups", "alignment and distribution", "gradients", "blend modes", "clipping masks", "layer effects", "animation actions", "layer timing", "audio assets", "audio timeline", "atomic referenced workflows"],
   audio: ["import", "reuse", "trim", "move", "duration", "volume", "mute", "fade-in", "fade-out", "playback-rate", "preview", "export mixing"],
   inspection: ["paginated project library", "template discovery", "focused layer inspection", "project validation", "multiframe preview strip", "export preflight"],
   delivery: ["preview frame", "preview strip", "automatic save", "mp4", "webm", "mov", "verified ProRes 4444 alpha", "gif", "png-sequence", "async render jobs", "progress polling", "render cancellation", "unique automatic output path", "direct output path"],

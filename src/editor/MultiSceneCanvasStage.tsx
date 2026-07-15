@@ -10,6 +10,9 @@ import {
 import type { KurogiProject, Layer, MotionPathDefinition } from "../types";
 import { Icon } from "../ui/Icon";
 import { normalizeWheelDelta, panForZoomAnchor, zoomFromWheel } from "./canvasMath";
+import { crispWorkspaceTransform } from "../core/canvasDirectManipulation";
+import { getLayerRenderTiming } from "../core/layerTiming";
+import { textAnimationVisualDuration } from "../core/textAnimation";
 
 export interface WorkspaceCommand {
   type: "fit-all" | "focus-scene" | "scene-settings";
@@ -522,7 +525,8 @@ export function MultiSceneCanvasStage({
           style={{
             width: workspaceSize.width,
             height: workspaceSize.height,
-            transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${viewScale})`,
+            transform: crispWorkspaceTransform(pan, viewZoom),
+            willChange: panning ? "transform" : "auto",
           }}
         >
             {visibleScenes.map((scene) => {
@@ -541,14 +545,26 @@ export function MultiSceneCanvasStage({
                     top: position.y - workspaceOrigin.y,
                     width: scene.width,
                     height: scene.height,
+                    // CSS filters rasterise the complete Player subtree before
+                    // the infinite canvas scales it. Canvas box-shadows retain
+                    // depth without turning text and SVG into a blurry bitmap.
+                    filter: "none",
+                    backfaceVisibility: "visible",
                   }}
+                  data-preview-quality="crisp-vector"
                   onPointerDown={() => { if (!active) onActivateScene(scene.id); }}
                 >
                   <div className="workspace-artboard-label" onPointerDown={(event) => beginSceneMove(event, scene.id)}>
                     <span><strong>{scene.name}</strong><small>{scene.width} × {scene.height} · {scene.duration}s</small></span>
                     <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); focusScene(scene.id); }} title="Focus scene"><Icon name="frame" size={13} /></button>
                   </div>
-                  <div className="workspace-artboard-canvas">
+                  <div
+                    className="workspace-artboard-canvas"
+                    style={{
+                      backfaceVisibility: "visible",
+                      ...(!active ? { boxShadow: "0 20px 48px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.15)" } : {}),
+                    }}
+                  >
                     <Player
                       key={`${scene.id}:${active ? "active" : "preview"}`}
                       ref={active ? playerRef : undefined}
@@ -561,7 +577,13 @@ export function MultiSceneCanvasStage({
                       controls={false}
                       autoPlay={false}
                       loop
-                      style={{ width: "100%", height: "100%" }}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        backfaceVisibility: "visible",
+                        imageRendering: "auto",
+                        textRendering: "geometricPrecision",
+                      }}
                     />
                   </div>
                 </article>
@@ -606,9 +628,10 @@ export function designSurfaceFrame(project: KurogiProject, sceneId: string) {
   for (const layerId of scene.layerIds) {
     const layer = project.layers[layerId];
     if (!layer) continue;
+    const timing = getLayerRenderTiming(layer, scene);
     for (const action of layer.animationActions) {
-      const start = Math.max(0, action.startTime + action.delay);
-      if (action.category === "in") revealTime = Math.max(revealTime, start + action.duration);
+      const start = Math.max(0, timing.animationOffset + action.startTime + action.delay);
+      if (action.category === "in") revealTime = Math.max(revealTime, start + textAnimationVisualDuration(action, layer.type === "text" ? layer.text : ""));
       if (action.category === "out") firstExitTime = Math.min(firstExitTime, start);
     }
   }

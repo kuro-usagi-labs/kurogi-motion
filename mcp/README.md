@@ -49,7 +49,7 @@ The V4 tool set also includes:
 - `kurogi_start_render`, `kurogi_get_render_progress`, and `kurogi_cancel_render`
 - scene ordering, transitions, layer timing, and multi-layer movement
 - grouping, alignment, distribution, gradients, blend modes, clipping masks, and effects
-- text stroke, line height, letter spacing, and auto-fit
+- text stroke, line height, letter spacing, auto-fit, and Unicode-safe whole/line/word/letter animation
 - asset search, metadata, replacement, reuse, and unused-asset cleanup
 - `kurogi_undo`, `kurogi_redo`, and session checkpoints
 - scene, layer, animation, asset, and audio tools
@@ -57,6 +57,8 @@ The V4 tool set also includes:
 - `kurogi_export_active_project`
 
 The server exposes `kurogi://projects`, `kurogi://templates`, `kurogi://active-project`, `kurogi://active-project/validation`, and `kurogi://capabilities` resources. Tools return both text and `structuredContent` and include complete MCP risk annotations.
+
+Text actions created with `kurogi_add_animation` can set `textUnit` to `layer`, `line`, `word`, or `character`. For unit animation, use `staggerDelay`, `staggerOrder`, and optionally `staggerSeed`; the same fields can be changed with `kurogi_update_animation`. For example, a `moveIn` action with `textUnit: "character"`, `staggerDelay: 0.035`, and `staggerOrder: "normal"` builds a title letter by letter without creating separate layers.
 
 ## Inspection limits
 

@@ -15,6 +15,7 @@ import {
 } from "../types";
 import { normalizeTextVerticalAlign } from "./textLayout";
 import { getShapeDefaultSize, normalizeShapeType } from "./shapeLibrary";
+import { normalizeTextStagger } from "./textAnimation";
 
 export type ProjectFormat = "square" | "vertical" | "landscape" | "portrait" | "custom";
 
@@ -192,13 +193,15 @@ export function removeLayer(project: KurogiProject, layerId: string): KurogiProj
   const layer = project.layers[layerId];
   if (!layer) return project;
   const next = cloneProject(project);
-  delete next.layers[layerId];
-  const scene = next.scenes[layer.sceneId];
-  if (scene) scene.layerIds = scene.layerIds.filter((id) => id !== layerId);
+  const deleting = collectLayerTreeIds(next, layerId);
+  for (const id of deleting) delete next.layers[id];
+  for (const candidateScene of Object.values(next.scenes)) {
+    candidateScene.layerIds = candidateScene.layerIds.filter((id) => !deleting.has(id));
+  }
   for (const candidate of Object.values(next.layers)) {
-    if (candidate.parentId === layerId) candidate.parentId = undefined;
-    if (candidate.type === "group") candidate.childIds = candidate.childIds.filter((id) => id !== layerId);
-    if (candidate.mask?.sourceLayerId === layerId) candidate.mask = undefined;
+    if (candidate.parentId && deleting.has(candidate.parentId)) candidate.parentId = undefined;
+    if (candidate.type === "group") candidate.childIds = candidate.childIds.filter((id) => !deleting.has(id));
+    if (candidate.mask?.sourceLayerId && deleting.has(candidate.mask.sourceLayerId)) candidate.mask = undefined;
   }
   for (const candidate of Object.values(next.layers)) candidate.maskSource = false;
   for (const candidate of Object.values(next.layers)) {
@@ -206,6 +209,20 @@ export function removeLayer(project: KurogiProject, layerId: string): KurogiProj
     if (sourceId && !candidate.mask?.clipping && next.layers[sourceId]) next.layers[sourceId].maskSource = true;
   }
   return touchProject(next);
+}
+
+function collectLayerTreeIds(project: KurogiProject, rootLayerId: string) {
+  const ids = new Set<string>();
+  const pending = [rootLayerId];
+  while (pending.length) {
+    const id = pending.pop();
+    if (!id || ids.has(id)) continue;
+    const candidate = project.layers[id];
+    if (!candidate) continue;
+    ids.add(id);
+    if (candidate.type === "group") pending.push(...candidate.childIds);
+  }
+  return ids;
 }
 
 export function updateLayer(
@@ -416,7 +433,7 @@ export function createAnimationAction(
     groupId: overrides.groupId,
     motionPath: overrides.motionPath,
     parameters: { ...defaultParameters(type), ...(overrides.parameters ?? {}) },
-    stagger: overrides.stagger,
+    stagger: normalizeTextStagger(overrides.stagger, type),
     repeat: overrides.repeat ?? (category === "loop" ? { count: "infinite", delay: 0 } : undefined),
   };
 }
@@ -575,14 +592,15 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     layer.animationActions = (layer.animationActions ?? []).map((action) => ({
       ...action,
       layerId: layer.id,
-      startTime: Math.max(0, action.startTime),
-      duration: Math.max(0.05, action.duration),
-      delay: Math.max(0, action.delay),
+      startTime: Math.max(0, finiteNumber(action.startTime, 0)),
+      duration: Math.max(0.05, finiteNumber(action.duration, .6)),
+      delay: Math.max(0, finiteNumber(action.delay, 0)),
       easing: normalizeEasing(action.easing),
       easingCurve: normalizeBezier(action.easingCurve),
       groupId: action.groupId && next.animationGroups[action.groupId] ? action.groupId : undefined,
       motionPath: normalizeMotionPath(action.motionPath),
       parameters: action.parameters ?? {},
+      stagger: layer.type === "text" ? normalizeTextStagger(action.stagger, action.type) : undefined,
     }));
     if (layer.type === "text") {
       layer.style.verticalAlign = normalizeTextVerticalAlign(layer.style.verticalAlign);
@@ -593,6 +611,17 @@ function sanitizeProject(project: KurogiProject): KurogiProject {
     if (layer.type === "shape") {
       layer.shape = normalizeShapeType(layer.shape);
     }
+  }
+  for (const preset of Object.values(next.animationPresets)) {
+    preset.actions = (preset.actions ?? []).map((action) => ({
+      ...action,
+      startOffset: action.startOffset === undefined ? undefined : Math.max(0, finiteNumber(action.startOffset, 0)),
+      duration: Math.max(.05, finiteNumber(action.duration, .6)),
+      delay: Math.max(0, finiteNumber(action.delay, 0)),
+      easing: normalizeEasing(action.easing),
+      parameters: action.parameters ?? {},
+      stagger: normalizeTextStagger(action.stagger, action.type),
+    }));
   }
   for (const target of Object.values(next.layers)) {
     const sourceId = target.mask?.sourceLayerId;
@@ -700,6 +729,10 @@ function titleCase(value: string): string {
 function normalizeEasing(value: AnimationAction["easing"]): AnimationAction["easing"] {
   const supported = new Set(["linear","easeIn","easeOut","easeInOut","backIn","backOut","overshoot","bounce","elastic","custom"]);
   return value && supported.has(value) ? value : "easeOut";
+}
+
+function finiteNumber(value: number, fallback: number) {
+  return Number.isFinite(value) ? value : fallback;
 }
 
 function normalizeBezier(value: AnimationAction["easingCurve"]): AnimationAction["easingCurve"] {

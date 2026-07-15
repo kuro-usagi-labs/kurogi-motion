@@ -12,6 +12,17 @@ export interface TimelineRectLike {
   bottom: number;
 }
 
+export interface TimelineLayerRowRect {
+  id: string;
+  top: number;
+  bottom: number;
+}
+
+export interface TimelineLayerDropTarget {
+  targetId: string;
+  edge: "before" | "after";
+}
+
 export const TIMELINE_DRAG_THRESHOLD = 4;
 
 /**
@@ -48,6 +59,60 @@ export function timelineLocalRect(rect: TimelineRectLike, lanesRect: Pick<Timeli
 
 export function timelineDragThresholdPassed(start: TimelinePoint, current: TimelinePoint, threshold = TIMELINE_DRAG_THRESHOLD) {
   return Math.hypot(current.x - start.x, current.y - start.y) >= threshold;
+}
+
+/**
+ * Resolve the visual row a vertical reorder gesture has crossed. The source
+ * remains stationary until the pointer crosses the midpoint to a neighbour,
+ * preventing a tiny grip movement from unexpectedly changing z-order.
+ */
+export function timelineLayerDropTargetAtY(
+  rows: TimelineLayerRowRect[],
+  sourceId: string,
+  clientY: number,
+): TimelineLayerDropTarget | null {
+  const ordered = rows
+    .filter((row) => row.id && Number.isFinite(row.top) && Number.isFinite(row.bottom) && row.bottom >= row.top)
+    .sort((left, right) => left.top - right.top);
+  const sourceIndex = ordered.findIndex((row) => row.id === sourceId);
+  if (sourceIndex < 0 || ordered.length < 2 || !Number.isFinite(clientY)) return null;
+
+  let targetIndex = 0;
+  let closestDistance = Number.POSITIVE_INFINITY;
+  ordered.forEach((row, index) => {
+    const center = row.top + (row.bottom - row.top) / 2;
+    const distance = Math.abs(clientY - center);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      targetIndex = index;
+    }
+  });
+  if (targetIndex === sourceIndex) return null;
+  return {
+    targetId: ordered[targetIndex].id,
+    edge: sourceIndex < targetIndex ? "after" : "before",
+  };
+}
+
+/** Return a signed scroll speed while a reorder pointer sits near an edge. */
+export function timelineLayerReorderAutoScrollVelocity(
+  clientY: number,
+  viewportTop: number,
+  viewportBottom: number,
+  edgeSize = 54,
+  maximumSpeed = 14,
+) {
+  if (!Number.isFinite(clientY) || viewportBottom <= viewportTop) return 0;
+  const safeEdge = Math.max(1, Math.min(edgeSize, (viewportBottom - viewportTop) / 2));
+  if (clientY < viewportTop + safeEdge) {
+    const intensity = clampTimelineValue((viewportTop + safeEdge - clientY) / safeEdge, 0, 1);
+    return -maximumSpeed * intensity;
+  }
+  if (clientY > viewportBottom - safeEdge) {
+    const intensity = clampTimelineValue((clientY - (viewportBottom - safeEdge)) / safeEdge, 0, 1);
+    return maximumSpeed * intensity;
+  }
+  return 0;
 }
 
 /** The same mapping used by seek and tests; laneWidth already includes zoom. */

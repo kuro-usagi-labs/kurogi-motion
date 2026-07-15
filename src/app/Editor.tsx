@@ -15,7 +15,6 @@ import {
   getSceneLayers,
   removeLayer,
   reorderLayer,
-  setSceneLayerOrder,
   touchProject,
   updateAction,
   updateLayer,
@@ -46,6 +45,7 @@ import {
   distributeLayers,
   groupLayers,
   releaseClippingMask,
+  reorderSiblingLayer,
   setBackgroundBlur,
   setBlendMode,
   setFontFamily,
@@ -82,14 +82,18 @@ import { estimateAutoFitFontSize } from "../core/projectValidation";
 import { EDITOR_PANEL_LIMITS, fitEditorPanelWidths, loadEditorUiPreferences, saveEditorUiPreferences, type EditorUiPreferences } from "../core/editorUiPreferences";
 import { cutTimelineSelection, trimTimelineSelection, type TrimEdge } from "../core/timelineEditing";
 import { getNudgeableLayerIds, isCanvasArrowKey, nudgeCanvasLayers, resolveCanvasArrowAction, type CanvasArrowKey } from "../core/canvasNudge";
+import { resolveSidebarSelection, selectionAfterMarquee } from "../core/sidebarSelection";
 import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
 import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
 import { Timeline, type TimelineActionPatch } from "../editor/TimelineV3";
+import { presetFor } from "../editor/animationPresets";
 import { LayerThumbnail } from "./LayerThumbnail";
 import { CommandPalette, type CommandPaletteAction } from "../editor/CommandPalette";
 import { ExportDialog, ExportToast, type ExportNotice } from "../editor/ExportDialog";
 import { useAppFeedback } from "../ui/AppFeedback";
+import { getLayerRenderTiming } from "../core/layerTiming";
+import { supportsTextAnimationUnit, textAnimationVisualEnd, textStaggerForScope } from "../core/textAnimation";
 import type {
   AnimationAction,
   AnimationCategory,
@@ -105,6 +109,7 @@ import type {
   ProjectAsset,
   ShapeType,
   StaggerOrder,
+  TextAnimationUnit,
 } from "../types";
 
 interface EditorProps {
@@ -128,6 +133,15 @@ type CanvasNudgeGesture = {
   selectionKey: string;
   pressedKeys: Set<CanvasArrowKey>;
 };
+type SidebarMarqueeGesture = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  additive: boolean;
+  baselineLayerIds: string[];
+  dragging: boolean;
+};
+type SidebarMarqueeRect = { left: number; top: number; width: number; height: number };
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; icon: IconName; label: string }> = [
   { id: "layers", icon: "layers", label: "Layers" },
@@ -159,6 +173,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand | null>(null);
   const [draggedLayerId, setDraggedLayerId] = useState("");
   const [dragOverLayerId, setDragOverLayerId] = useState("");
+  const [sidebarMarqueeRect, setSidebarMarqueeRect] = useState<SidebarMarqueeRect | null>(null);
   const [saveStatus, setSaveStatus] = useState<"Saving draft…" | "Draft saved" | "Saving…" | "Saved" | "Save failed" | "Copied">("Saved");
   const [exporting, setExporting] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
@@ -182,11 +197,16 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   const playerRef = useRef<PlayerRef>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
   const layerReorderRef = useRef<LayerReorderGesture | null>(null);
+  const sidebarSelectionAnchorRef = useRef(selectedLayerId);
+  const sidebarMarqueeRef = useRef<SidebarMarqueeGesture | null>(null);
+  const suppressSidebarClickRef = useRef(false);
   const canvasNudgeGestureRef = useRef<CanvasNudgeGesture | null>(null);
   const mcpCheckpointsRef = useRef(new Map<string, { id: string; name: string; createdAt: string; project: KurogiProject }>());
 
   const selectedLayer = selectedLayerId ? project.layers[selectedLayerId] ?? null : null;
   const selectedLayers = useMemo(() => selectedLayerIds.map((id) => project.layers[id]).filter((layer): layer is Layer => Boolean(layer)), [project.layers, selectedLayerIds]);
+  const sidebarLayerIds = useMemo(() => [...layers].reverse().map((layer) => layer.id), [layers]);
+  const sidebarPanelVisible = inspectorTab === "Design" && uiPreferences.sidebarVisible;
   const clippingSourceIds = useMemo(() => new Set(Object.values(project.layers).filter((layer) => layer.mask?.clipping).map((layer) => layer.mask!.sourceLayerId)), [project.layers]);
   const selectedAction = useMemo(() => {
     if (!selectedActionId) return null;
@@ -337,6 +357,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
       if (!editable && (event.key === "Delete" || event.key === "Backspace")) {
         event.preventDefault();
         if (selectedActionIds.length) deleteActions(selectedActionIds);
+        else if (selectedAudioClipId) deleteAudioClipById(selectedAudioClipId);
         else deleteSelectedLayer();
       }
     };
@@ -521,8 +542,10 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
 
   function selectOnly(layerId: string) {
     setSelectedAudioClipId("");
+    setOnlyAction("");
     setPrimaryLayerId(layerId);
     setSelectedLayerIds(layerId ? [layerId] : []);
+    sidebarSelectionAnchorRef.current = layerId;
   }
 
   function selectAudioClip(clipId: string) {
@@ -532,7 +555,18 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     setSelectedAudioClipId(clipId);
   }
 
-  function updateAudioClipById(clipId: string, patch: Partial<AudioClip>) { commitProject((current) => updateAudioClip(current, clipId, patch)); }
+  function updateAudioClipById(clipId: string, patch: Partial<AudioClip>) {
+    commitProject((current) => {
+      const source = current.audioClips[clipId];
+      const targetScene = source ? current.scenes[source.sceneId] : undefined;
+      const requestedStart = patch.startTime ?? source?.startTime ?? 0;
+      const requestedDuration = patch.duration ?? source?.duration ?? 0;
+      const prepared = targetScene && requestedStart + requestedDuration > targetScene.duration
+        ? updateWorkspaceScene(current, targetScene.id, { duration: roundTimelineDuration(requestedStart + requestedDuration + .5) })
+        : current;
+      return updateAudioClip(prepared, clipId, patch);
+    });
+  }
   function deleteAudioClipById(clipId: string) { commitProject((current) => removeAudioClip(current, clipId)); setSelectedAudioClipId((current) => current === clipId ? "" : current); }
   function duplicateAudioClipById(clipId: string) {
     commitProject((current) => { const result = duplicateAudioClip(current, clipId); window.queueMicrotask(() => selectAudioClip(result.clipId)); return result.project; });
@@ -541,17 +575,36 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   function selectLayer(layerId: string, additive = false) {
     if (!layerId) {
       selectOnly("");
-      setOnlyAction("");
       return;
     }
+    setSelectedAudioClipId("");
+    setOnlyAction("");
     if (additive) {
       setSelectedLayerIds((current) => {
         const next = current.includes(layerId) ? current.filter((id) => id !== layerId) : [...current, layerId];
         setPrimaryLayerId(next.at(-1) ?? "");
         return next;
       });
+      sidebarSelectionAnchorRef.current = layerId;
     } else selectOnly(layerId);
-    if (project.layers[layerId]?.animationActions.every((action) => action.id !== selectedActionId)) setOnlyAction("");
+  }
+
+  function selectSidebarLayer(layerId: string, event: Pick<React.MouseEvent | React.KeyboardEvent, "shiftKey" | "ctrlKey" | "metaKey">) {
+    if (suppressSidebarClickRef.current) return;
+    const result = resolveSidebarSelection({
+      visibleLayerIds: sidebarLayerIds,
+      selectedLayerIds,
+      clickedLayerId: layerId,
+      anchorLayerId: sidebarSelectionAnchorRef.current,
+      toggle: event.ctrlKey || event.metaKey,
+      range: event.shiftKey,
+      additiveRange: event.shiftKey && (event.ctrlKey || event.metaKey),
+    });
+    setSelectedAudioClipId("");
+    setOnlyAction("");
+    setSelectedLayerIds(result.selectedLayerIds);
+    setPrimaryLayerId(result.primaryLayerId);
+    sidebarSelectionAnchorRef.current = result.anchorLayerId;
   }
 
   function selectLayersByMarquee(layerIds: string[], additive = false) {
@@ -561,8 +614,83 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     setSelectedLayerIds((current) => {
       const next = additive ? [...new Set([...current, ...valid])] : valid;
       setPrimaryLayerId(next.at(-1) ?? "");
+      sidebarSelectionAnchorRef.current = next.at(-1) ?? "";
       return next;
     });
+  }
+
+  function beginSidebarMarquee(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || event.defaultPrevented) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest("button, input, textarea, select, [contenteditable='true']")) return;
+    sidebarMarqueeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      additive: event.ctrlKey || event.metaKey || event.shiftKey,
+      baselineLayerIds: [...selectedLayerIds],
+      dragging: false,
+    };
+  }
+
+  function updateSidebarMarquee(event: React.PointerEvent<HTMLDivElement>) {
+    const gesture = sidebarMarqueeRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (!gesture.dragging && Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) < 5) return;
+    if (!gesture.dragging) {
+      gesture.dragging = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    const listBounds = event.currentTarget.getBoundingClientRect();
+    const startX = clamp(gesture.startX, listBounds.left, listBounds.right);
+    const startY = clamp(gesture.startY, listBounds.top, listBounds.bottom);
+    const currentX = clamp(event.clientX, listBounds.left, listBounds.right);
+    const currentY = clamp(event.clientY, listBounds.top, listBounds.bottom);
+    const selectionBounds = {
+      left: Math.min(startX, currentX),
+      top: Math.min(startY, currentY),
+      right: Math.max(startX, currentX),
+      bottom: Math.max(startY, currentY),
+    };
+    const hitLayerIds = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-layer-id]"))
+      .filter((row) => rectanglesIntersect(selectionBounds, row.getBoundingClientRect()))
+      .map((row) => row.dataset.layerId ?? "")
+      .filter(Boolean);
+    const next = selectionAfterMarquee(sidebarLayerIds, hitLayerIds, gesture.baselineLayerIds, gesture.additive);
+    setSelectedAudioClipId("");
+    setOnlyAction("");
+    setSelectedLayerIds(next);
+    setPrimaryLayerId(next.at(-1) ?? "");
+    sidebarSelectionAnchorRef.current = next.at(-1) ?? sidebarSelectionAnchorRef.current;
+    setSidebarMarqueeRect({
+      left: selectionBounds.left - listBounds.left,
+      top: selectionBounds.top - listBounds.top,
+      width: selectionBounds.right - selectionBounds.left,
+      height: selectionBounds.bottom - selectionBounds.top,
+    });
+  }
+
+  function finishSidebarMarquee(event: React.PointerEvent<HTMLDivElement>) {
+    const gesture = sidebarMarqueeRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (gesture.dragging) {
+      suppressSidebarClickRef.current = true;
+      window.setTimeout(() => { suppressSidebarClickRef.current = false; }, 120);
+    } else if (event.target === event.currentTarget) {
+      selectOnly("");
+    }
+    sidebarMarqueeRef.current = null;
+    setSidebarMarqueeRect(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  function cancelSidebarMarquee(event: React.PointerEvent<HTMLDivElement>) {
+    const gesture = sidebarMarqueeRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    sidebarMarqueeRef.current = null;
+    setSidebarMarqueeRect(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
   function selectTimelineMarquee(layerIds: string[], actionRefs: Array<{ layerId: string; actionId: string }>, additive = false) {
@@ -584,6 +712,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   }
 
   function selectAction(layerId: string, actionId: string, additive = false) {
+    setSelectedAudioClipId("");
     const expanded = expandActionSelection(project, [{ layerId, actionId }]);
     const ids = expanded.map((ref) => ref.actionId);
     const ownerIds = [...new Set(expanded.map((ref) => ref.layerId))];
@@ -630,7 +759,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     actionId: string,
     updater: (action: AnimationAction) => AnimationAction,
   ) {
-    commitProject((current) => updateAction(current, layerId, actionId, updater));
+    commitProject((current) => extendSceneForAction(updateAction(current, layerId, actionId, updater), layerId, actionId));
   }
 
   function addText(preset: "heading" | "subheading" | "body" = "heading") {
@@ -641,30 +770,16 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
       size: preset === "heading" ? { width: 700, height: 150 } : { width: 620, height: 100 },
       fontSize: preset === "heading" ? 82 : preset === "subheading" ? 46 : 30,
     });
-    layer.animationActions.push(
-      createAnimationAction(layer.id, "in", preset === "heading" ? "moveIn" : "fadeIn", {
-        duration: 0.6,
-        easing: "easeOut",
-      }),
-    );
     commitProject((current) => addLayers(current, [layer]));
     selectOnly(layer.id);
-    setOnlyAction(layer.animationActions[0]?.id ?? "");
     setSidebarTab("layers");
     setInspectorTab("Design");
   }
 
   function addShape(shape: ShapeType) {
     const layer = createShapeLayer(getActiveScene(project), shape);
-    layer.animationActions.push(
-      createAnimationAction(layer.id, "in", "scaleIn", {
-        duration: 0.6,
-        easing: "backOut",
-      }),
-    );
     commitProject((current) => addLayers(current, [layer]));
     selectOnly(layer.id);
-    setOnlyAction(layer.animationActions[0]?.id ?? "");
     setSidebarTab("layers");
     setInspectorTab("Design");
   }
@@ -720,7 +835,6 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
         return { imported: true, assetId, audioClipId: result.clipId, sceneId: targetSceneId };
       }
       const layer = createAssetLayer(current.scenes[targetSceneId], asset);
-      layer.animationActions.push(createAnimationAction(layer.id, "in", "scaleIn", { duration: .65, easing: "backOut" }));
       const next = addLayers(current, [layer]);
       history.commit(() => next);
       window.queueMicrotask(() => selectOnly(layer.id));
@@ -753,18 +867,19 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
 
   function deleteLayerById(layerId: string) {
     if (!layerId) return;
-    const ids = scene.layerIds.filter((id) => id !== layerId);
+    const remainingIds = scene.layerIds.filter((id) => id !== layerId && Boolean(project.layers[id]));
     commitProject((current) => removeLayer(current, layerId));
-    selectOnly(ids.at(-1) ?? "");
-    setOnlyAction("");
+    selectOnly(remainingIds.at(-1) ?? "");
   }
 
   function deleteSelectedLayer() {
-    if (selectedLayerIds.length <= 1) { deleteLayerById(selectedLayerId); return; }
-    const ids = [...selectedLayerIds];
+    const ids = [...new Set((selectedLayerIds.length ? selectedLayerIds : [selectedLayerId])
+      .filter((id) => project.layers[id]?.sceneId === scene.id))];
+    if (!ids.length) return;
+    const deleting = new Set(ids);
+    const remainingIds = scene.layerIds.filter((id) => !deleting.has(id) && Boolean(project.layers[id]));
     commitProject((current) => ids.reduce((next, id) => removeLayer(next, id), current));
-    selectOnly("");
-    setOnlyAction("");
+    selectOnly(remainingIds.at(-1) ?? "");
   }
 
   function duplicateLayerById(layerId: string) {
@@ -783,16 +898,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
 
   function moveLayerByDrop(draggedId: string, targetId: string) {
     if (!draggedId || !targetId || draggedId === targetId) return;
-    commitProject((current) => {
-      const currentScene = getActiveScene(current);
-      const displayOrder = [...currentScene.layerIds].reverse();
-      const fromIndex = displayOrder.indexOf(draggedId);
-      const targetIndex = displayOrder.indexOf(targetId);
-      if (fromIndex < 0 || targetIndex < 0) return current;
-      displayOrder.splice(fromIndex, 1);
-      displayOrder.splice(targetIndex, 0, draggedId);
-      return setSceneLayerOrder(current, currentScene.id, displayOrder.reverse());
-    });
+    commitProject((current) => reorderSiblingLayer(current, draggedId, targetId));
   }
 
   function renameLayer(layerId: string, name: string) {
@@ -801,24 +907,46 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     commitLayer(layerId, (layer) => ({ ...layer, name: clean }));
   }
 
-  function addAction(category: AnimationCategory, type: AnimationType) {
+  function addAction(category: AnimationCategory, type: AnimationType, textUnit: TextAnimationUnit = "layer") {
     if (!selectedLayer) return;
+    const preset = presetFor(type);
+    const recommendedDuration = type === "counter" ? 1.2 : type === "motionPath" ? 1.4 : preset.recommendedDuration ?? (category === "loop" ? Math.min(1.5, scene.duration) : .65);
     const defaultStart = category === "out"
-      ? Math.max(0, scene.duration - 0.65)
+      ? Math.max(0, scene.duration - recommendedDuration)
       : category === "loop"
         ? Math.min(0.8, scene.duration * 0.2)
         : 0;
     const action = createAnimationAction(selectedLayer.id, category, type, {
       startTime: defaultStart,
-      duration: type === "counter" ? 1.2 : type === "motionPath" ? 1.4 : category === "loop" ? Math.min(1.5, scene.duration) : 0.65,
+      duration: recommendedDuration,
+      easing: preset.recommendedEasing,
+      stagger: selectedLayer.type === "text" && supportsTextAnimationUnit(type) ? textStaggerForScope(textUnit) : undefined,
       motionPath: type === "motionPath" ? { enabled: true, start: { x: 0, y: 0 }, control1: { x: 100, y: -120 }, control2: { x: 220, y: 120 }, end: { x: 320, y: 0 }, orientToPath: false } : undefined,
     });
-    commitLayer(selectedLayer.id, (layer) => ({
-      ...layer,
-      animationActions: [...layer.animationActions, action],
-    }));
+    commitProject((current) => {
+      const next = updateLayer(current, selectedLayer.id, (layer) => ({ ...layer, animationActions: [...layer.animationActions, action] }));
+      return extendSceneForAction(next, selectedLayer.id, action.id);
+    });
     setOnlyAction(action.id);
     setInspectorTab("Animation");
+    playActionData({ ...selectedLayer, animationActions: [...selectedLayer.animationActions, action] }, action);
+  }
+
+  function playActionData(layer: Layer, action: AnimationAction) {
+    const targetScene = project.scenes[layer.sceneId];
+    const player = playerRef.current;
+    if (!targetScene || !player || layer.sceneId !== project.activeSceneId) return;
+    const timing = getLayerRenderTiming(layer, targetScene);
+    const startTime = Math.max(0, timing.animationOffset + action.startTime + action.delay - .12);
+    player.seekTo(Math.min(Math.max(0, Math.round(targetScene.duration * targetScene.fps) - 1), Math.round(startTime * targetScene.fps)));
+    player.play();
+    setPlaying(true);
+  }
+
+  function playAction(actionId: string) {
+    const owner = findActionOwner(project, actionId);
+    const action = owner?.animationActions.find((candidate) => candidate.id === actionId);
+    if (owner && action) playActionData(owner, action);
   }
 
   function deleteActions(actionIds: string[]) {
@@ -863,9 +991,40 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     setOnlyAction(copy.id);
   }
 
-  function commitTimelineActions(patches: TimelineActionPatch[]) { commitProject((current) => updateAnimationActions(current, patches)); }
+  function commitTimelineActions(patches: TimelineActionPatch[]) {
+    commitProject((current) => {
+      let next = updateAnimationActions(current, patches);
+      for (const patch of patches) next = extendSceneForAction(next, patch.layerId, patch.actionId);
+      return next;
+    });
+  }
+
+  function extendSceneForAction(current: KurogiProject, layerId: string, actionId: string) {
+    const layer = current.layers[layerId];
+    const targetScene = layer ? current.scenes[layer.sceneId] : undefined;
+    const action = layer?.animationActions.find((candidate) => candidate.id === actionId);
+    if (!layer || !targetScene || !action) return current;
+    const timing = getLayerRenderTiming(layer, targetScene);
+    const requestedEnd = timing.animationOffset + textAnimationVisualEnd(action, layer.type === "text" ? layer.text : "");
+    return requestedEnd > targetScene.duration
+      ? updateWorkspaceScene(current, targetScene.id, { duration: roundTimelineDuration(requestedEnd + .5) })
+      : current;
+  }
   function updateLayerTiming(layerId: string, startTime: number, duration: number) {
-    commitProject((current) => updateLayer(current, layerId, (layer) => ({ ...layer, startTime, duration })));
+    commitProject((current) => {
+      const layer = current.layers[layerId];
+      const scene = layer ? current.scenes[layer.sceneId] : undefined;
+      const prepared = scene && startTime + duration > scene.duration
+        ? updateWorkspaceScene(current, scene.id, { duration: roundTimelineDuration(startTime + duration + .5) })
+        : current;
+      return updateLayer(prepared, layerId, (layer) => ({ ...layer, startTime, duration }));
+    });
+  }
+
+  function updateActiveSceneDuration(duration: number) {
+    const targetFrame = Math.max(0, Math.round(duration * scene.fps) - 1);
+    if ((playerRef.current?.getCurrentFrame() ?? 0) > targetFrame) playerRef.current?.seekTo(targetFrame);
+    commitProject((current) => updateWorkspaceScene(current, current.activeSceneId, { duration }));
   }
 
   function beginLayerReorder(event: React.PointerEvent<HTMLButtonElement>, layerId: string) {
@@ -889,7 +1048,10 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     gesture.dragging = true;
     setDraggedLayerId(gesture.layerId);
     const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-layer-id]");
-    setDragOverLayerId(target?.dataset.layerId && target.dataset.layerId !== gesture.layerId ? target.dataset.layerId : "");
+    const targetId = target?.dataset.layerId ?? "";
+    const draggedParentId = project.layers[gesture.layerId]?.parentId ?? "";
+    const targetParentId = project.layers[targetId]?.parentId ?? "";
+    setDragOverLayerId(targetId && targetId !== gesture.layerId && draggedParentId === targetParentId ? targetId : "");
   }
 
   function finishLayerReorder(event: React.PointerEvent<HTMLButtonElement>) {
@@ -1107,11 +1269,17 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   }
   function ungroupSelected() {
     if (selectedLayer?.type !== "group") return;
+    ungroupLayerById(selectedLayer.id);
+  }
+  function ungroupLayerById(groupId: string) {
     commitProject((current) => {
-      const result = ungroupLayer(current, selectedLayer.id);
+      const result = ungroupLayer(current, groupId);
       window.queueMicrotask(() => {
+        setSelectedAudioClipId("");
+        setOnlyAction("");
         setSelectedLayerIds(result.layerIds);
         setPrimaryLayerId(result.layerIds.at(-1) ?? "");
+        sidebarSelectionAnchorRef.current = result.layerIds.at(-1) ?? "";
       });
       return result.project;
     });
@@ -1135,7 +1303,14 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     selectOnly(layerId);
   }
   function openLayerContextMenu(layerId: string, clientX: number, clientY: number) {
-    selectOnly(layerId);
+    if (selectedLayerIds.includes(layerId)) {
+      setSelectedAudioClipId("");
+      setOnlyAction("");
+      setPrimaryLayerId(layerId);
+      sidebarSelectionAnchorRef.current = layerId;
+    } else {
+      selectOnly(layerId);
+    }
     setLayerContextMenu({ layerId, x: clientX, y: clientY });
   }
   function toggleSmartSnap() {
@@ -1186,8 +1361,10 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   }
 
   function selectAllLayers() {
+    setSelectedAudioClipId("");
     setSelectedLayerIds([...scene.layerIds]);
     setPrimaryLayerId(scene.layerIds.at(-1) ?? "");
+    sidebarSelectionAnchorRef.current = scene.layerIds.at(-1) ?? "";
     setOnlyAction("");
   }
 
@@ -1353,7 +1530,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
 
   return (
     <main
-      className={`app editor-app workspace-mode-${inspectorTab.toLowerCase()} ${uiPreferences.sidebarVisible ? "" : "is-sidebar-hidden"} ${uiPreferences.inspectorVisible ? "" : "is-inspector-hidden"} ${inspectorTab === "Animation" && !uiPreferences.timelineVisible ? "is-timeline-hidden" : ""}`}
+      className={`app editor-app workspace-mode-${inspectorTab.toLowerCase()} ${sidebarPanelVisible ? "" : "is-sidebar-hidden"} ${uiPreferences.inspectorVisible ? "" : "is-inspector-hidden"} ${inspectorTab === "Animation" && !uiPreferences.timelineVisible ? "is-timeline-hidden" : ""}`}
       style={{
         "--editor-sidebar-width": `${uiPreferences.sidebarWidth}px`,
         "--editor-inspector-width": `${uiPreferences.inspectorWidth}px`,
@@ -1366,11 +1543,14 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
       <LayerContextMenu
         project={project}
         state={layerContextMenu}
+        selectedLayerIds={selectedLayerIds}
         onClose={() => setLayerContextMenu(null)}
         onCreateClippingMask={createLayerClippingMask}
         onReleaseClippingMask={releaseLayerClippingMask}
         onDuplicate={duplicateLayerById}
-        onDelete={deleteLayerById}
+        onDeleteSelection={deleteSelectedLayer}
+        onGroupSelection={groupSelected}
+        onUngroup={ungroupLayerById}
         onBringForward={bringLayerForwardById}
         onSendBackward={sendLayerBackwardById}
         onToggleVisibility={toggleLayerVisibilityById}
@@ -1503,7 +1683,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           <div className="rail-bottom"><button type="button" onClick={showKeyboardShortcuts}><b><Icon name="help" size={18} /></b><span>Help</span></button></div>
         </aside>
 
-        <aside className="sidebar editor-sidebar" aria-hidden={!uiPreferences.sidebarVisible || undefined}>
+        <aside className="sidebar editor-sidebar" aria-hidden={!sidebarPanelVisible || undefined}>
           <div className="panel-title">
             <span>{SIDEBAR_TABS.find((item) => item.id === sidebarTab)?.label}</span>
             <div className="panel-title-actions">
@@ -1519,20 +1699,40 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
                 <button type="button" onClick={() => addShape("rectangle")}><Icon name="shapes" size={13} />Shape</button>
                 <button type="button" onClick={() => assetInputRef.current?.click()}><Icon name="upload" size={13} />Media</button>
               </div>
-              <div className="layer-list" role="listbox" aria-label="Scene layers" aria-multiselectable="true">
-                {[...layers].reverse().map((layer) => (
+              <div
+                className="layer-list"
+                role="listbox"
+                aria-label="Scene layers"
+                aria-multiselectable="true"
+                onPointerDown={beginSidebarMarquee}
+                onPointerMove={updateSidebarMarquee}
+                onPointerUp={finishSidebarMarquee}
+                onPointerCancel={cancelSidebarMarquee}
+                onClickCapture={(event) => {
+                  if (!suppressSidebarClickRef.current) return;
+                  suppressSidebarClickRef.current = false;
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+              >
+                {sidebarLayerIds.map((id) => project.layers[id]).filter((layer): layer is Layer => Boolean(layer)).map((layer) => {
+                  const nestingDepth = getLayerNestingDepth(project, layer.id);
+                  return (
                   <div
                     key={layer.id}
                     data-layer-id={layer.id}
+                    data-layer-parent-id={layer.parentId || undefined}
                     tabIndex={0}
                     role="option"
                     aria-selected={selectedLayerIds.includes(layer.id)}
-                    className={`layer-row ${selectedLayerIds.includes(layer.id) ? "selected" : ""} ${layer.maskSource ? "is-mask-source" : ""} ${layer.mask?.clipping ? "is-clipped" : ""} ${clippingSourceIds.has(layer.id) ? "is-clipping-source" : ""} ${draggedLayerId === layer.id ? "is-dragging" : ""} ${dragOverLayerId === layer.id ? "drag-over" : ""}`}
-                    onClick={(event) => selectLayer(layer.id, event.shiftKey)}
+                    title={layer.parentId ? `${layer.name} · inside ${project.layers[layer.parentId]?.name ?? "group"}` : layer.type === "group" ? `${layer.name} · ${layer.childIds.length} layers` : layer.name}
+                    style={{ "--layer-indent": `${Math.min(nestingDepth, 4) * 15}px` } as React.CSSProperties}
+                    className={`layer-row ${selectedLayerIds.includes(layer.id) ? "selected" : ""} ${layer.type === "group" ? "is-group" : ""} ${layer.parentId ? "is-group-child" : ""} ${layer.maskSource ? "is-mask-source" : ""} ${layer.mask?.clipping ? "is-clipped" : ""} ${clippingSourceIds.has(layer.id) ? "is-clipping-source" : ""} ${draggedLayerId === layer.id ? "is-dragging" : ""} ${dragOverLayerId === layer.id ? "drag-over" : ""}`}
+                    onClick={(event) => selectSidebarLayer(layer.id, event)}
                     onKeyDown={(event) => {
                       if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
                       event.preventDefault();
-                      selectLayer(layer.id, event.shiftKey);
+                      selectSidebarLayer(layer.id, event);
                     }}
                     onContextMenu={(event) => { event.preventDefault(); openLayerContextMenu(layer.id, event.clientX, event.clientY); }}
                   >
@@ -1580,7 +1780,9 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
                     <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, visible: !candidate.visible })); }} title={layer.visible ? "Hide" : "Show"} aria-label={`${layer.visible ? "Hide" : "Show"} ${layer.name}`}>{layer.visible ? <Icon name="eye" size={14} /> : <Icon name="eyeOff" size={14} />}</button>
                     <button type="button" className="layer-state" onClick={(event) => { event.stopPropagation(); commitLayer(layer.id, (candidate) => ({ ...candidate, locked: !candidate.locked })); }} title={layer.locked ? "Unlock" : "Lock"} aria-label={`${layer.locked ? "Unlock" : "Lock"} ${layer.name}`}>{layer.locked ? <Icon name="lock" size={13} /> : <Icon name="unlock" size={13} />}</button>
                   </div>
-                ))}
+                  );
+                })}
+                {sidebarMarqueeRect ? <div className="layer-list-selection-marquee" aria-hidden="true" style={sidebarMarqueeRect} /> : null}
               </div>
             </div>
           ) : null}
@@ -1630,9 +1832,9 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           ) : null}
         </aside>
 
-        {uiPreferences.sidebarVisible ? <PanelResizeHandle edge="sidebar" value={uiPreferences.sidebarWidth} minimum={EDITOR_PANEL_LIMITS.sidebar.minimum} maximum={EDITOR_PANEL_LIMITS.sidebar.maximum} defaultValue={EDITOR_PANEL_LIMITS.sidebar.defaultValue} onChange={(sidebarWidth) => setUiPreferences((current) => fitEditorPanelWidths({ ...current, sidebarWidth }, window.innerWidth))} /> : null}
+        {sidebarPanelVisible ? <PanelResizeHandle edge="sidebar" value={uiPreferences.sidebarWidth} minimum={EDITOR_PANEL_LIMITS.sidebar.minimum} maximum={EDITOR_PANEL_LIMITS.sidebar.maximum} defaultValue={EDITOR_PANEL_LIMITS.sidebar.defaultValue} onChange={(sidebarWidth) => setUiPreferences((current) => fitEditorPanelWidths({ ...current, sidebarWidth }, window.innerWidth))} /> : null}
 
-        {!uiPreferences.sidebarVisible ? <button type="button" className="workspace-panel-restore is-sidebar" onClick={toggleSidebar} title="Show layer panel"><Icon name="chevronRight" size={14} /><span>Layers</span></button> : null}
+        {inspectorTab === "Design" && !uiPreferences.sidebarVisible ? <button type="button" className="workspace-panel-restore is-sidebar" onClick={toggleSidebar} title="Show layer panel"><Icon name="chevronRight" size={14} /><span>Layers</span></button> : null}
         {!uiPreferences.inspectorVisible ? <button type="button" className="workspace-panel-restore is-inspector" onClick={toggleInspector} title="Show inspector"><span>Inspector</span><Icon name="chevronRight" className="panel-collapse-icon is-left" size={14} /></button> : null}
         {inspectorTab === "Animation" && !uiPreferences.timelineVisible ? <button type="button" className="workspace-panel-restore is-timeline" onClick={toggleTimeline} title="Show timeline"><Icon name="chevronUp" size={14} /><span>Timeline</span></button> : null}
 
@@ -1703,6 +1905,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           onPreviewAction={previewAction}
           onCommitAction={commitAction}
           onAddAction={addAction}
+          onPlayAction={playAction}
           onSelectAction={(actionId) => { const owner = findActionOwner(project, actionId); if (owner) selectAction(owner.id, actionId); }}
           onDeleteAction={deleteAction}
           onDuplicateAction={duplicateAction}
@@ -1730,8 +1933,10 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
         onSelectLayer={selectLayer}
         onSelectAction={selectAction}
         onMarqueeSelect={selectTimelineMarquee}
+        onReorderLayer={moveLayerByDrop}
         onCommitActions={commitTimelineActions}
         onUpdateLayerTiming={updateLayerTiming}
+        onUpdateSceneDuration={updateActiveSceneDuration}
         onTrimStart={() => trimSelectionAtPlayhead("start")}
         onTrimEnd={() => trimSelectionAtPlayhead("end")}
         onCut={cutSelectionAtPlayhead}
@@ -1761,6 +1966,25 @@ function findActionOwner(project: KurogiProject, actionId: string) {
   );
 }
 
+function getLayerNestingDepth(project: KurogiProject, layerId: string) {
+  let depth = 0;
+  let parentId = project.layers[layerId]?.parentId;
+  const visited = new Set<string>();
+  while (parentId && depth < 6 && !visited.has(parentId)) {
+    visited.add(parentId);
+    depth += 1;
+    parentId = project.layers[parentId]?.parentId;
+  }
+  return depth;
+}
+
+function rectanglesIntersect(
+  left: { left: number; top: number; right: number; bottom: number },
+  right: { left: number; top: number; right: number; bottom: number },
+) {
+  return left.left <= right.right && left.right >= right.left && left.top <= right.bottom && left.bottom >= right.top;
+}
+
 function EditorInfoDialog({ kind, onClose }: { kind: EditorInfoDialogKind | null; onClose: () => void }) {
   useEffect(() => {
     if (!kind) return;
@@ -1777,7 +2001,9 @@ function EditorInfoDialog({ kind, onClose }: { kind: EditorInfoDialogKind | null
     ["Space", "Play or pause"],
     ["Arrow keys", "Nudge selected layers by 1 px · seek frames when none are editable"],
     ["Shift + Arrow", "Nudge selected layers by 10 px"],
+    ["Ctrl/Shift + click", "Toggle layers or select a contiguous layer range"],
     ["Shift + drag", "Add to marquee selection"],
+    ["Alt + Arrow Up/Down", "Reorder a focused timeline layer among its siblings"],
     ["Ctrl S", "Save project"],
     ["Ctrl Z / Ctrl Shift Z", "Undo / redo"],
     ["Ctrl D", "Duplicate selection"],
@@ -1878,4 +2104,7 @@ function formatTimelineTime(seconds: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+function roundTimelineDuration(duration: number) {
+  return clamp(Math.ceil(duration * 10) / 10, .1, 3600);
 }

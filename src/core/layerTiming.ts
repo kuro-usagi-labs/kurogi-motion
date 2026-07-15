@@ -1,4 +1,5 @@
 import type { Layer, Scene } from "../types";
+import { textAnimationVisualDuration } from "./textAnimation";
 
 export interface LayerRenderTiming {
   startTime: number;
@@ -21,7 +22,7 @@ export function getLayerRenderTiming(layer: Layer, scene: Scene): LayerRenderTim
     ? Math.max(...entering.map((action) => Math.max(0, action.startTime + action.delay)))
     : 0;
   const inferredEnd = exiting.length
-    ? Math.max(...exiting.map((action) => Math.max(0, action.startTime + action.delay + action.duration)))
+    ? Math.max(...exiting.map((action) => Math.max(0, action.startTime + action.delay + textAnimationVisualDuration(action, layer.type === "text" ? layer.text : ""))))
     : scene.duration;
   const clampedStart = Math.min(Math.max(0, inferredStart), Math.max(0, scene.duration - .01));
   const clampedEnd = Math.min(scene.duration, Math.max(clampedStart + .01, inferredEnd));

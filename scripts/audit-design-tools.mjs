@@ -14,6 +14,11 @@ try {
   const projectCore = await server.ssrLoadModule("/src/core/project.ts");
   const design = await server.ssrLoadModule("/src/core/designTools.ts");
   const historyCore = await server.ssrLoadModule("/src/core/historyPatch.ts");
+  const fonts = await server.ssrLoadModule("/src/core/fontCatalog.ts");
+
+  assert.ok(fonts.SYSTEM_FONT_GROUPS.length >= 4, "Font choices must be organized by creative-use category.");
+  assert.ok(fonts.SYSTEM_FONT_FAMILIES.length >= 24, `Expected a production font catalog, found ${fonts.SYSTEM_FONT_FAMILIES.length}.`);
+  assert.equal(new Set(fonts.SYSTEM_FONT_FAMILIES).size, fonts.SYSTEM_FONT_FAMILIES.length, "Font catalog contains duplicate families.");
 
   let project = projectCore.createProject({ name: "Design audit", format: "square", width: 1000, height: 1000 });
   const scene = projectCore.getActiveScene(project);
@@ -38,6 +43,18 @@ try {
   assert.equal(project.layers[a.id].parentId, grouped.groupId);
   assert.equal(project.layers[b.id].parentId, grouped.groupId);
   assert.deepEqual(project.layers[grouped.groupId].childIds, [a.id, b.id]);
+
+  project = design.reorderSiblingLayer(project, b.id, a.id);
+  assert.deepEqual(project.layers[grouped.groupId].childIds, [b.id, a.id], "Reordering grouped children must change their actual render order.");
+  assert.equal(
+    design.reorderSiblingLayer(project, a.id, c.id),
+    project,
+    "A child must not silently jump out of its group when reordered against a top-level layer.",
+  );
+  const groupDeleted = projectCore.removeLayer(project, grouped.groupId);
+  assert.equal(groupDeleted.layers[grouped.groupId], undefined, "Deleting a group must remove the group layer.");
+  assert.equal(groupDeleted.layers[a.id], undefined, "Deleting a group must delete its contents rather than silently ungroup them.");
+  assert.equal(groupDeleted.layers[b.id], undefined, "Every grouped child must be removed with its selected group.");
 
   const patch = historyCore.createProjectPatch(beforeGroup, project);
   assert.equal(historyCore.applyProjectPatch(project, patch, "before").layers[grouped.groupId], undefined);
@@ -72,6 +89,7 @@ try {
   const editor = await readFile(new URL("../src/app/Editor.tsx", import.meta.url), "utf8");
   const stage = await readFile(new URL("../src/editor/MultiSceneCanvasStage.tsx", import.meta.url), "utf8");
   const panel = await readFile(new URL("../src/editor/DesignToolsPanel.tsx", import.meta.url), "utf8");
+  const inspector = await readFile(new URL("../src/editor/InspectorV2.tsx", import.meta.url), "utf8");
   for (const [source, needle, message] of [
     [types, 'type: "image" | "svg" | "font"', "Font assets are missing from the project model."],
     [composition, "snapLayerPosition", "Direct manipulation is not connected to smart snapping."],
@@ -83,6 +101,8 @@ try {
     [stage, "selectedLayerIds", "Multi-selection is not passed through the multi-scene stage."],
     [panel, "Use vector mask", "Vector mask controls are missing."],
     [panel, "Linear gradient", "Gradient controls are missing."],
+    [panel, "SYSTEM_FONT_GROUPS", "Design toolbar does not expose the shared font catalog."],
+    [inspector, "data-font-family-select", "Inspector does not expose the expanded font picker."],
   ]) assert.ok(source.includes(needle), message);
 
   console.log("Design tools audit passed: snapping, alignment, distribution, gradients, compositing, masks, fonts, grouping, and history are wired.");

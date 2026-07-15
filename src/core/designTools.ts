@@ -164,6 +164,43 @@ export function groupLayers(
   return { project: touchProject(next), groupId };
 }
 
+/**
+ * Reorder a layer against another row in the editor's top-to-bottom display
+ * order. Layers may only move among siblings; grouped children update both the
+ * scene order used by editor lists and the group's render order atomically.
+ */
+export function reorderSiblingLayer(
+  project: KurogiProject,
+  draggedLayerId: string,
+  targetLayerId: string,
+): KurogiProject {
+  if (!draggedLayerId || !targetLayerId || draggedLayerId === targetLayerId) return project;
+  const dragged = project.layers[draggedLayerId];
+  const target = project.layers[targetLayerId];
+  if (!dragged || !target || dragged.sceneId !== target.sceneId || (dragged.parentId ?? "") !== (target.parentId ?? "")) return project;
+  const scene = project.scenes[dragged.sceneId];
+  if (!scene) return project;
+
+  const sceneDisplayOrder = [...scene.layerIds].reverse();
+  if (!moveToDisplayTarget(sceneDisplayOrder, draggedLayerId, targetLayerId)) return project;
+
+  let childDisplayOrder: string[] | null = null;
+  if (dragged.parentId) {
+    const parent = project.layers[dragged.parentId];
+    if (!parent || parent.type !== "group") return project;
+    childDisplayOrder = [...parent.childIds].reverse();
+    if (!moveToDisplayTarget(childDisplayOrder, draggedLayerId, targetLayerId)) return project;
+  }
+
+  const next = cloneProject(project);
+  next.scenes[scene.id].layerIds = sceneDisplayOrder.reverse();
+  if (dragged.parentId && childDisplayOrder) {
+    const parent = next.layers[dragged.parentId];
+    if (parent?.type === "group") parent.childIds = childDisplayOrder.reverse();
+  }
+  return touchProject(next);
+}
+
 export function ungroupLayer(
   project: KurogiProject,
   groupId: string,
@@ -362,6 +399,15 @@ export function snapLayerPosition(
       ...(bestY ? [{ axis: "y" as const, position: bestY.target.value, kind: bestY.target.kind, targetLayerId: bestY.target.targetLayerId }] : []),
     ],
   };
+}
+
+function moveToDisplayTarget(order: string[], draggedLayerId: string, targetLayerId: string) {
+  const fromIndex = order.indexOf(draggedLayerId);
+  const targetIndex = order.indexOf(targetLayerId);
+  if (fromIndex < 0 || targetIndex < 0) return false;
+  order.splice(fromIndex, 1);
+  order.splice(targetIndex, 0, draggedLayerId);
+  return true;
 }
 
 function selectableLayers(project: KurogiProject, ids: string[]): Layer[] {

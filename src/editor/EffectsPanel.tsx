@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { createLayerEffect, EFFECT_DEFINITIONS, effectDefinition, normalizeEffects } from "../core/effects";
 import type { Layer, LayerEffect, LayerEffectType } from "../types";
 import { Icon, type IconName } from "../ui/Icon";
+import { NumberField } from "./NumericField";
 
 interface EffectsPanelProps {
   layer: Layer;
@@ -14,12 +15,14 @@ interface EffectsPanelProps {
 
 export function EffectsPanel({ layer, onBegin, onFinish, onCancel, onPreview, onCommit }: EffectsPanelProps) {
   const effects = normalizeEffects(layer.effects);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   function addEffect(type: LayerEffectType) {
     onCommit((current) => ({
       ...current,
       effects: [...normalizeEffects(current.effects), createLayerEffect(type)],
     }));
+    setLibraryOpen(false);
   }
 
   function updateEffect(effectId: string, updater: (effect: LayerEffect) => LayerEffect, commit = false) {
@@ -40,20 +43,28 @@ export function EffectsPanel({ layer, onBegin, onFinish, onCancel, onPreview, on
 
   return (
     <section className="property-section compact-property-section effects-section">
-      <div className="section-label">Effects</div>
-      <div className="effect-library-grid">
-        {EFFECT_DEFINITIONS.map((definition) => (
-          <button
-            key={definition.type}
-            type="button"
-            title={definition.description}
-            onClick={() => addEffect(definition.type)}
-          >
-            <EffectGlyph type={definition.type} />
-            <span>{definition.label}</span>
-          </button>
-        ))}
-      </div>
+      <header className="effects-section-header">
+        <div className="section-label">Effects{effects.length ? <span>{effects.length}</span> : null}</div>
+        <button type="button" className={libraryOpen ? "is-open" : ""} aria-expanded={libraryOpen} aria-controls="effect-library" onClick={() => setLibraryOpen((open) => !open)}><Icon name={libraryOpen ? "close" : "plus"} size={13} />{libraryOpen ? "Close" : "Add effect"}</button>
+      </header>
+      {libraryOpen ? (
+        <div className="effect-library-panel" id="effect-library">
+          <div className="effect-library-grid">
+            {EFFECT_DEFINITIONS.map((definition) => (
+              <button
+                key={definition.type}
+                type="button"
+                title={definition.description}
+                onClick={() => addEffect(definition.type)}
+              >
+                <EffectGlyph type={definition.type} />
+                <span>{definition.label}</span>
+              </button>
+            ))}
+          </div>
+          <small>Effects are non-destructive and render the same in preview and export.</small>
+        </div>
+      ) : null}
 
       {effects.length ? (
         <div className="effect-stack">
@@ -68,12 +79,13 @@ export function EffectsPanel({ layer, onBegin, onFinish, onCancel, onPreview, on
                     <label className="effect-toggle" title={effect.enabled ? "Disable effect" : "Enable effect"}>
                       <input
                         type="checkbox"
+                        aria-label={`${effect.enabled ? "Disable" : "Enable"} ${definition.label}`}
                         checked={effect.enabled}
                         onChange={(event) => updateEffect(effect.id, (current) => ({ ...current, enabled: event.currentTarget.checked }), true)}
                       />
                       <i />
                     </label>
-                    <button type="button" className="svg-button danger-text" title="Remove effect" onClick={() => removeEffect(effect.id)}><Icon name="trash" size={13} /></button>
+                    <button type="button" className="svg-button danger-text" title="Remove effect" aria-label={`Remove ${definition.label}`} onClick={() => removeEffect(effect.id)}><Icon name="trash" size={13} /></button>
                   </span>
                 </header>
                 <p className="effect-description">{definition.description}</p>
@@ -94,10 +106,10 @@ export function EffectsPanel({ layer, onBegin, onFinish, onCancel, onPreview, on
                 {hasSecondaryControls ? (
                   <div className="property-grid two effect-secondary-controls">
                     {definition.radiusLabel ? (
-                      <label className="number-field">{definition.radiusLabel}<span><input type="number" min="0" max="180" step="1" value={Number(effect.radius.toFixed(2))} onFocus={onBegin} onChange={(event) => updateEffect(effect.id, (current) => ({ ...current, radius: Math.max(0, Number(event.currentTarget.value)) }))} onBlur={onFinish} onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }} /></span></label>
+                      <NumberField label={definition.radiusLabel} value={effect.radius} min={0} max={180} step={1} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => updateEffect(effect.id, (current) => ({ ...current, radius: clamp(value, 0, 180) }))} />
                     ) : <span />}
                     {definition.speedLabel ? (
-                      <label className="number-field">{definition.speedLabel}<span><input type="number" min="0" max="10" step=".05" value={Number(effect.speed.toFixed(2))} onFocus={onBegin} onChange={(event) => updateEffect(effect.id, (current) => ({ ...current, speed: Math.max(0, Number(event.currentTarget.value)) }))} onBlur={onFinish} onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }} /></span></label>
+                      <NumberField label={definition.speedLabel} value={effect.speed} min={0} max={10} step={.05} suffix="×" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => updateEffect(effect.id, (current) => ({ ...current, speed: clamp(value, 0, 10) }))} />
                     ) : null}
                   </div>
                 ) : null}
@@ -109,7 +121,7 @@ export function EffectsPanel({ layer, onBegin, onFinish, onCancel, onPreview, on
           })}
         </div>
       ) : (
-        <p className="effect-empty">Add blur, glow, full-surface glass, liquid displacement, grain, or another non-destructive effect. Preview and export use the same renderer.</p>
+        <p className="effect-empty"><strong>No effects applied</strong><span>Keep the layer clean, or choose Add effect when the design needs more depth.</span></p>
       )}
     </section>
   );
@@ -133,4 +145,8 @@ function EffectGlyph({ type }: { type: LayerEffectType }) {
 
 function normalizeColor(value: string) {
   return /^#[0-9a-f]{6}$/i.test(value) ? value : "#000000";
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }

@@ -1,5 +1,7 @@
 import type { KurogiProject, Layer, Scene, TextLayer } from "../types";
+import { SYSTEM_FONT_FAMILIES } from "./fontCatalog";
 import { getSceneLayers } from "./project";
+import { textAnimationScope, textAnimationUnitCount, textAnimationVisualDuration } from "./textAnimation";
 
 export type ValidationSeverity = "error" | "warning" | "info";
 
@@ -23,10 +25,7 @@ export interface ProjectValidationResult {
   issues: ProjectValidationIssue[];
 }
 
-const SAFE_FONT_FAMILIES = new Set([
-  "arial", "arial black", "calibri", "cambria", "courier new", "georgia", "inter",
-  "segoe ui", "tahoma", "times new roman", "trebuchet ms", "verdana", "sans-serif", "serif", "monospace",
-]);
+const SAFE_FONT_FAMILIES = new Set([...SYSTEM_FONT_FAMILIES.map((family) => family.toLowerCase()), "sans-serif", "serif", "monospace"]);
 
 export function validateProject(project: KurogiProject): ProjectValidationResult {
   const issues: ProjectValidationIssue[] = [];
@@ -101,7 +100,7 @@ function validateScene(project: KurogiProject, scene: Scene, issues: ProjectVali
     }
 
     for (const action of layer.animationActions) {
-      const actionEnd = startTime + action.startTime + action.delay + action.duration;
+      const actionEnd = startTime + action.startTime + action.delay + textAnimationVisualDuration(action, layer.type === "text" ? layer.text : "");
       if (actionEnd > scene.duration + .001 && action.repeat?.count !== "infinite") {
         issues.push({ severity: "warning", code: "ANIMATION_EXCEEDS_SCENE", message: `Animation ${action.type} on “${layer.name}” ends at ${actionEnd.toFixed(2)}s, after the scene.`, sceneId: scene.id, layerId: layer.id, suggestion: "Shorten or move the animation." });
       }
@@ -122,6 +121,10 @@ function validateScene(project: KurogiProject, scene: Scene, issues: ProjectVali
 function validateTextLayer(project: KurogiProject, scene: Scene, layer: TextLayer, issues: ProjectValidationIssue[]) {
   if (!layer.text.trim()) {
     issues.push({ severity: "warning", code: "EMPTY_TEXT", message: `Text layer “${layer.name}” is empty.`, sceneId: scene.id, layerId: layer.id });
+  }
+  const characterCount = textAnimationUnitCount(layer.text, "character");
+  if (characterCount > 500 && layer.animationActions.some((action) => textAnimationScope(action) === "character")) {
+    issues.push({ severity: "warning", code: "TEXT_ANIMATION_TOO_DENSE", message: `Text layer “${layer.name}” animates ${characterCount} letters individually.`, sceneId: scene.id, layerId: layer.id, suggestion: "Use word or line animation for long passages to keep preview and export responsive." });
   }
   const metrics = estimateTextMetrics(layer, layer.style.fontSize);
   if (metrics.overflow) {

@@ -10,6 +10,8 @@ import type {
   Layer,
   LayerEffectType,
   ShapeType,
+  StaggerOrder,
+  TextAnimationUnit,
 } from "../types";
 import {
   addLayers,
@@ -55,6 +57,7 @@ import {
 } from "./designTools";
 import { createLayerEffect, EFFECT_TYPES, normalizeEffects } from "./effects";
 import { estimateAutoFitFontSize, validateProject } from "./projectValidation";
+import { defaultTextStaggerDelay, supportsTextAnimationUnit, textStaggerForScope } from "./textAnimation";
 
 export interface McpBridgeRequest {
   id: string;
@@ -86,7 +89,7 @@ const ANIMATION_TYPES = new Set<AnimationType>([
   "flipIn", "stretchIn", "wipeIn", "zoomBlurIn", "dropIn", "rollIn", "elasticIn", "counter", "motionPath",
   "pulse", "float", "shake", "spin", "breathe", "swing", "hover", "wobble", "heartbeat", "drift", "orbit",
   "wave", "jiggle", "glowPulse", "ripple", "liquid", "fadeOut", "moveOut", "scaleOut", "rotateOut", "blurOut",
-  "maskHide", "popOut", "slideOut", "flipOut", "stretchOut", "wipeOut", "zoomBlurOut", "dropOut", "rollOut",
+  "maskHide", "popOut", "slideOut", "flipOut", "stretchOut", "wipeOut", "zoomBlurOut", "dropOut", "rollOut", "dissolveOut",
 ]);
 
 const EASINGS = new Set<EasingName>([
@@ -398,6 +401,7 @@ export function executeMcpProjectCommand(
     if (!layer) throw new Error(`Layer ${layerId} does not exist.`);
     const category = animationCategory(params.category);
     const type = animationType(params.type);
+    validateTextAnimationParams(layer, type, params);
     const action = createAnimationAction(layerId, category, type, animationOverrides(params));
     const next = updateLayer(prepared, layerId, (current) => ({ ...current, animationActions: [...current.animationActions, action] }));
     return { project: next, changed: true, selectedLayerId: layerId, activeSceneId: layer.sceneId, result: { created: true, action } };
@@ -407,7 +411,9 @@ export function executeMcpProjectCommand(
     const actionId = requiredText(params.actionId, "actionId");
     const owner = findActionOwner(prepared, actionId);
     if (!owner) throw new Error(`Animation action ${actionId} does not exist.`);
-    const next = updateAction(prepared, owner.layer.id, actionId, (action) => updateAnimationFromParams(action, params));
+    const requestedType = params.type === undefined ? owner.action.type : animationType(params.type);
+    validateTextAnimationParams(owner.layer, requestedType, params);
+    const next = updateAction(prepared, owner.layer.id, actionId, (action) => updateAnimationFromParams(action, params, owner.layer.type === "text"));
     return { project: next, changed: next !== prepared, selectedLayerId: owner.layer.id, activeSceneId: owner.layer.sceneId, result: { updated: true, action: findActionOwner(next, actionId)?.action } };
   }
 
@@ -624,11 +630,12 @@ function animationOverrides(params: Record<string, unknown>) {
     } : undefined,
     parameters,
     repeat: repeatCount === undefined ? undefined : { count: repeatCount as number | "infinite", delay: Math.max(0, optionalNumber(params.repeatDelay) ?? 0) },
+    stagger: hasTextAnimationParams(params) ? textStaggerFromParams(params) : undefined,
     motionPath: params.motionPath && typeof params.motionPath === "object" && !Array.isArray(params.motionPath) ? cloneProject(params.motionPath) as AnimationAction["motionPath"] : undefined,
   };
 }
 
-function updateAnimationFromParams(action: AnimationAction, params: Record<string, unknown>): AnimationAction {
+function updateAnimationFromParams(action: AnimationAction, params: Record<string, unknown>, textLayer: boolean): AnimationAction {
   const next = cloneProject(action);
   if (params.category !== undefined) next.category = animationCategory(params.category);
   if (params.type !== undefined) next.type = animationType(params.type);
@@ -641,7 +648,36 @@ function updateAnimationFromParams(action: AnimationAction, params: Record<strin
   if (params.parameters !== undefined) next.parameters = overrides.parameters ?? {};
   if (params.repeatCount !== undefined) next.repeat = overrides.repeat;
   if (params.motionPath !== undefined) next.motionPath = overrides.motionPath;
+  if (textLayer && hasTextAnimationParams(params)) next.stagger = textStaggerFromParams(params, next.stagger);
+  if (!textLayer || !supportsTextAnimationUnit(next.type)) next.stagger = undefined;
   return next;
+}
+
+function hasTextAnimationParams(params: Record<string, unknown>) {
+  return params.textUnit !== undefined || params.staggerDelay !== undefined || params.staggerOrder !== undefined || params.staggerSeed !== undefined;
+}
+
+function textStaggerFromParams(params: Record<string, unknown>, current?: AnimationAction["stagger"]): AnimationAction["stagger"] {
+  const rawUnit = optionalText(params.textUnit) ?? current?.unit ?? "character";
+  if (!new Set<TextAnimationUnit>(["layer", "line", "word", "character"]).has(rawUnit as TextAnimationUnit)) throw new Error("textUnit must be layer, line, word, or character.");
+  const unit = rawUnit as TextAnimationUnit;
+  if (unit === "layer") return undefined;
+  const rawOrder = optionalText(params.staggerOrder) ?? current?.order ?? "normal";
+  if (!new Set<StaggerOrder>(["normal", "reverse", "center", "edges", "random"]).has(rawOrder as StaggerOrder)) throw new Error("staggerOrder must be normal, reverse, center, edges, or random.");
+  const base = textStaggerForScope(unit, current)!;
+  return {
+    ...base,
+    delay: clamp(optionalNumber(params.staggerDelay) ?? current?.delay ?? defaultTextStaggerDelay(unit), 0, 10),
+    order: rawOrder as StaggerOrder,
+    seed: Math.round(optionalNumber(params.staggerSeed) ?? current?.seed ?? 42),
+  };
+}
+
+function validateTextAnimationParams(layer: Layer, type: AnimationType, params: Record<string, unknown>) {
+  if (!hasTextAnimationParams(params)) return;
+  if (layer.type !== "text") throw new Error("textUnit and stagger fields are only valid for text layers.");
+  const unit = optionalText(params.textUnit) ?? "character";
+  if (unit !== "layer" && !supportsTextAnimationUnit(type)) throw new Error(`${type} changes the whole text value and cannot animate individual text units.`);
 }
 
 function audioOptions(params: Record<string, unknown>) {

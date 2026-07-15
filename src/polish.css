@@ -660,3 +660,225 @@
   .preset-live-element,
   .catalog-preview * { animation: none !important; }
 }
+
+/* Text motion workflow */
+.preset-dialog.has-text-scope {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+.preset-dialog-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.preset-dialog-content > .preset-browser-grid {
+  flex: 1 1 auto;
+}
+
+.preset-text-scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 58px;
+  padding: 9px 24px;
+  border-bottom: 1px solid rgba(255,255,255,.075);
+  background: #1b1c25;
+}
+
+.preset-text-scope > span strong,
+.preset-text-scope > span small {
+  display: block;
+}
+
+.preset-text-scope > span strong {
+  color: #ece8f4;
+  font-size: 11px;
+}
+
+.preset-text-scope > span small {
+  margin-top: 3px;
+  color: #878292;
+  font-size: 10px;
+}
+
+.preset-text-scope > div,
+.text-motion-scope-picker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #383946;
+  border-radius: 9px;
+  background: #20212b;
+}
+
+.preset-text-scope button,
+.text-motion-scope-picker button {
+  min-width: 68px;
+  height: 31px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  color: #8f8a9a;
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  transition: color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+
+.preset-text-scope button:hover,
+.text-motion-scope-picker button:hover:not(:disabled) {
+  color: #e7e1f1;
+  background: rgba(255,255,255,.055);
+}
+
+.preset-text-scope button.active,
+.text-motion-scope-picker button.active {
+  color: #fff;
+  background: #594579;
+  box-shadow: 0 0 0 1px rgba(184,156,255,.24) inset;
+}
+
+.text-motion-target {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 11px;
+  border: 1px solid #3b3947;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #22212b, #1e1f28);
+}
+
+.text-motion-target > header,
+.text-motion-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.text-motion-target > header strong,
+.text-motion-target > header small {
+  display: block;
+}
+
+.text-motion-target > header strong {
+  color: #ebe7f2;
+  font-size: 11px;
+}
+
+.text-motion-target > header small {
+  max-width: 230px;
+  margin-top: 3px;
+  color: #817c8b;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.text-motion-scope-status,
+.action-scope-badge,
+.timeline-action-scope {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid rgba(181,153,255,.25);
+  border-radius: 5px;
+  color: #c9b4ff;
+  background: rgba(117,82,169,.2);
+  font: 700 8px/1 "DM Mono", monospace;
+  letter-spacing: .04em;
+}
+
+.text-motion-scope-picker button {
+  min-width: 0;
+  padding: 0 4px;
+}
+
+.text-motion-scope-picker button:disabled {
+  opacity: .32;
+  cursor: not-allowed;
+}
+
+.text-motion-stagger-controls {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.text-motion-summary {
+  padding: 8px 9px;
+  border-radius: 7px;
+  color: #a7a1b1;
+  background: rgba(10,11,16,.28);
+  font-size: 9px;
+}
+
+.text-motion-summary span:last-child {
+  color: #c8b7f3;
+  font-family: "DM Mono", monospace;
+}
+
+.text-motion-note {
+  color: #90899a;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.action-chip-list small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.action-scope-badge {
+  min-width: 0;
+  height: 15px;
+  padding: 0 4px;
+  font-size: 7px;
+  font-style: normal;
+}
+
+.timeline-action-scope {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 14px;
+  padding: 0 3px;
+  border-color: rgba(255,255,255,.22);
+  color: rgba(255,255,255,.88);
+  background: rgba(17,14,26,.26);
+  font-size: 7px;
+}
+
+.timeline-action.has-text-stagger {
+  overflow: hidden;
+}
+
+.timeline-action-stagger-tail {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 0;
+  border-left: 1px dashed rgba(255,255,255,.55);
+  background: repeating-linear-gradient(135deg, rgba(255,255,255,.12) 0 4px, transparent 4px 8px);
+  pointer-events: none;
+}
+
+.timeline-action.has-text-stagger .action-name,
+.timeline-action.has-text-stagger .action-category,
+.timeline-action.has-text-stagger .action-group-badge {
+  position: relative;
+  z-index: 2;
+}
+
+@media (max-width: 760px) {
+  .preset-text-scope { align-items: stretch; flex-direction: column; gap: 8px; }
+  .preset-text-scope button { min-width: 0; }
+}

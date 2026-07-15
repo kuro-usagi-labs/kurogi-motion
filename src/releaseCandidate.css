@@ -18,6 +18,8 @@
 
 .editor-app.workspace-mode-animation {
   grid-template-rows: 56px 34px minmax(0, 1fr) var(--timeline-height) !important;
+  /* Animation owns the timeline; the saved Design-panel preference stays intact. */
+  --editor-sidebar-slot: 0px;
 }
 
 .editor-app.workspace-mode-animation.is-timeline-hidden {
@@ -44,6 +46,13 @@
   visibility: hidden;
   pointer-events: none;
   border: 0 !important;
+}
+
+.workspace-mode-animation .editor-sidebar,
+.workspace-mode-animation .workspace-panel-resizer.is-sidebar,
+.workspace-mode-animation .workspace-panel-restore.is-sidebar {
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 .panel-title-actions,
@@ -392,6 +401,180 @@
   box-shadow: inset 0 2px rgba(139,108,255,.9) !important;
 }
 
+.editor-sidebar .layer-list {
+  position: relative;
+  touch-action: pan-y;
+}
+
+.editor-sidebar .layer-row {
+  position: relative;
+  --layer-indent: 0px;
+  width: calc(100% - var(--layer-indent)) !important;
+  margin-left: var(--layer-indent);
+}
+
+.editor-sidebar .layer-row.is-group {
+  border-color: rgba(139,108,255,.13);
+  background: linear-gradient(90deg, rgba(139,108,255,.075), rgba(139,108,255,.015));
+}
+
+.editor-sidebar .layer-row.is-group-child::before {
+  content: "";
+  position: absolute;
+  left: -9px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(139,108,255,.18);
+  pointer-events: none;
+}
+
+.layer-list-selection-marquee {
+  position: absolute;
+  z-index: 20;
+  min-width: 2px;
+  min-height: 2px;
+  border: 1px solid rgba(132,197,255,.95);
+  border-radius: 3px;
+  background: rgba(75,150,255,.14);
+  box-shadow: 0 0 0 1px rgba(7,18,34,.4), inset 0 0 18px rgba(93,169,255,.08);
+  pointer-events: none;
+}
+
+/* Inspector numeric controls: editable text, precise stepping, and label scrubbing. */
+.inspector .number-field {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.inspector .number-field > .number-field-scrub-label {
+  position: relative;
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  min-height: 13px;
+  align-items: center;
+  gap: 5px;
+  color: #929aab;
+  cursor: ew-resize;
+  touch-action: none;
+  transition: color .12s ease;
+}
+
+.inspector .number-field > .number-field-scrub-label::after {
+  color: #626b7c;
+  content: "↔";
+  font: 600 9px/1 "DM Mono", monospace;
+  opacity: 0;
+  transform: translateX(-2px);
+  transition: opacity .12s ease, color .12s ease, transform .12s ease;
+}
+
+.inspector .number-field:hover > .number-field-scrub-label::after,
+.inspector .number-field.is-focused > .number-field-scrub-label::after,
+.inspector .number-field.is-scrubbing > .number-field-scrub-label::after {
+  opacity: 1;
+  transform: none;
+}
+
+.inspector .number-field > .number-field-control {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.inspector .number-field .number-field-control > input {
+  width: 100%;
+  min-width: 0;
+  height: 35px;
+  padding: 8px 9px;
+  color: #edf0f7;
+  border: 1px solid #383d49;
+  border-radius: 7px;
+  outline: none;
+  background: #20232c;
+  box-shadow: 0 0 0 0 rgba(139,108,255,0);
+  caret-color: #b5a2ff;
+  font: 600 10px/1 "DM Mono", monospace;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -.015em;
+  transition: border-color .12s ease, background .12s ease, box-shadow .12s ease;
+}
+
+.inspector .number-field .number-field-control.has-suffix > input {
+  padding-right: 29px;
+}
+
+.inspector .number-field:hover .number-field-control > input {
+  border-color: #4a5060;
+  background: #242731;
+}
+
+.inspector .number-field.is-focused .number-field-control > input,
+.inspector .number-field.is-scrubbing .number-field-control > input {
+  border-color: #8b6cff;
+  background: #252733;
+  box-shadow: 0 0 0 2px rgba(139,108,255,.16);
+}
+
+.inspector .number-field.is-focused > .number-field-scrub-label,
+.inspector .number-field.is-scrubbing > .number-field-scrub-label,
+.inspector .number-field.is-focused > .number-field-scrub-label::after,
+.inspector .number-field.is-scrubbing > .number-field-scrub-label::after {
+  color: #c4b6ff;
+}
+
+.inspector .number-field.is-scrubbing,
+.inspector .number-field.is-scrubbing .number-field-control > input {
+  cursor: ew-resize;
+}
+
+.inspector .number-field.is-invalid .number-field-control > input {
+  color: #ffbdc8;
+  border-color: #ca5a70;
+  box-shadow: 0 0 0 2px rgba(202,90,112,.13);
+}
+
+.inspector .number-field.is-invalid > .number-field-scrub-label {
+  color: #e58a9c;
+}
+
+.inspector .number-field .number-field-control > i {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  right: 9px;
+  color: #747d8f;
+  font: 600 8px/1 "DM Mono", monospace;
+  font-style: normal;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.inspector .number-field .number-field-control > input::selection {
+  color: #fff;
+  background: rgba(139,108,255,.58);
+}
+
+.inspector .number-field.is-disabled {
+  opacity: .48;
+}
+
+.inspector .number-field.is-disabled > .number-field-scrub-label,
+.inspector .number-field.is-disabled .number-field-control > input {
+  cursor: not-allowed;
+}
+
+.inspector .bezier-values .number-field {
+  margin: 0;
+}
+
+.inspector .bezier-values .number-field > .number-field-scrub-label {
+  font-size: 8px;
+}
+
 .effect-glyph svg { display: block; }
 .command-palette-search > span,
 .command-palette footer kbd { display: inline-flex; align-items: center; justify-content: center; }
@@ -420,4 +603,137 @@
 
 @media (prefers-reduced-motion: reduce) {
   .workspace-artboard { transition: none !important; }
+}
+
+/* Workflow clarity: keep first-run decisions light and reveal power on demand. */
+.dashboard-empty-with-actions {
+  min-height: 154px;
+  gap: 7px;
+  padding: 22px;
+}
+
+.dashboard-empty-with-actions > svg { margin: 0 auto 2px; color: #9d84ee; }
+.dashboard-empty-with-actions > div { display: flex; justify-content: center; gap: 8px; margin-top: 7px; }
+.dashboard-empty-with-actions > div > button { min-height: 36px; }
+
+.create-project-dialog > header p {
+  margin: 6px 0 0;
+  color: #858d9c;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.create-project-dialog > header .svg-button {
+  align-self: flex-start;
+  width: 34px;
+  height: 34px;
+}
+
+.flexible-timeline-note {
+  display: grid;
+  grid-template-columns: 22px minmax(0,1fr);
+  gap: 9px;
+  margin: 2px 0 15px;
+  padding: 11px 12px;
+  border: 1px solid rgba(95,215,199,.19);
+  border-radius: 9px;
+  color: #73d9cb;
+  background: rgba(95,215,199,.055);
+}
+
+.flexible-timeline-note > svg { margin-top: 1px; }
+.flexible-timeline-note strong,
+.flexible-timeline-note small { display: block; }
+.flexible-timeline-note strong { color: #cbeee9; font-size: 11px; }
+.flexible-timeline-note small { margin-top: 3px; color: #8796a4; font-size: 9px; line-height: 1.5; }
+
+.create-project-advanced {
+  overflow: hidden;
+  margin-bottom: 13px;
+  border: 1px solid rgba(255,255,255,.085);
+  border-radius: 10px;
+  background: rgba(12,15,21,.38);
+}
+
+.create-project-advanced > summary {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  cursor: pointer;
+  list-style: none;
+  color: #c9ced8;
+}
+
+.create-project-advanced > summary::-webkit-details-marker { display: none; }
+.create-project-advanced > summary > span { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.create-project-advanced > summary > span > span { display: grid; min-width: 0; gap: 3px; }
+.create-project-advanced > summary strong { font-size: 11px; }
+.create-project-advanced > summary small { overflow: hidden; color: #767f8f; font: 8.5px "DM Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.create-project-advanced .advanced-chevron { transition: transform .18s ease; }
+.create-project-advanced[open] .advanced-chevron { transform: rotate(180deg); }
+.create-project-advanced[open] > summary { color: #eeeaff; background: rgba(139,108,255,.07); }
+
+.create-project-advanced-body {
+  padding: 13px 12px 1px;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+
+.create-project-submit-hint {
+  margin-right: auto;
+  color: #6f7787;
+  font: 9px "DM Mono", monospace;
+}
+
+/* Inspector effects follow a compact stack-first workflow. */
+.effects-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.effects-section-header .section-label { display: flex; align-items: center; gap: 6px; margin: 0; }
+.effects-section-header .section-label > span {
+  display: inline-grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 999px;
+  color: #cabfff;
+  background: rgba(139,108,255,.16);
+  font-size: 8px;
+}
+
+.effects-section-header > button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 6px;
+  color: #b9c0cc;
+  background: #1b202a;
+  cursor: pointer;
+  font: 700 9px Manrope,sans-serif;
+}
+
+.effects-section-header > button:hover,
+.effects-section-header > button.is-open { border-color: rgba(139,108,255,.45); color: #fff; background: rgba(139,108,255,.12); }
+.effect-library-panel { display: grid; gap: 8px; padding: 10px; border: 1px solid rgba(139,108,255,.17); border-radius: 9px; background: rgba(139,108,255,.035); }
+.effect-library-panel > small { color: #737c8c; font-size: 8.5px; line-height: 1.45; }
+.effect-empty { display: grid; gap: 3px; margin: 0; padding: 9px 10px; border: 1px dashed rgba(255,255,255,.075); border-radius: 8px; }
+.effect-empty strong { color: #9fa6b3; font-size: 9.5px; }
+.effect-empty span { color: #707988; font-size: 8.5px; line-height: 1.45; }
+
+@media (max-width: 720px) {
+  .dashboard-empty-with-actions > div { align-items: stretch; flex-direction: column; }
+  .create-project-submit-hint { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .create-project-advanced .advanced-chevron { transition: none; }
 }

@@ -23,6 +23,10 @@ try {
   const a = projectCore.createTextLayer(scene, { name: "Metric", text: "0", position: { x: 100, y: 100 } });
   const b = projectCore.createShapeLayer(scene, "circle", { name: "Orb", position: { x: 300, y: 300 } });
   const c = projectCore.createShapeLayer(scene, "rectangle", { name: "Card", position: { x: 600, y: 500 } });
+  const media = projectCore.createAssetLayer(scene, { id: "asset-default-audit", projectId: project.id, name: "Still", type: "image", mimeType: "image/png", sourceUrl: "data:image/png;base64," });
+  assert.deepEqual(a.animationActions, [], "New text layers must start with an empty animation stack.");
+  assert.deepEqual(b.animationActions, [], "New shape layers must start with an empty animation stack.");
+  assert.deepEqual(media.animationActions, [], "New imported-media layers must start with an empty animation stack.");
   const counter = projectCore.createAnimationAction(a.id, "in", "counter", { duration: 1, easing: "custom", easingCurve: { x1: .25, y1: .1, x2: .25, y2: 1 }, parameters: { from: 0, to: 1000, decimals: 0, prefix: "$", suffix: "+" } });
   const path = projectCore.createAnimationAction(b.id, "in", "motionPath", { duration: 2, motionPath: { enabled: true, start: { x: 0, y: 0 }, control1: { x: 80, y: -100 }, control2: { x: 180, y: 100 }, end: { x: 260, y: 0 }, orientToPath: true } });
   const fade = projectCore.createAnimationAction(c.id, "in", "fadeIn", { startTime: .2, duration: .6 });
@@ -97,6 +101,10 @@ try {
     "../src/editor/MotionPathOverlay.tsx",
   ].map((path) => readFile(new URL(path, import.meta.url), "utf8")));
   const [types, editor, timeline, inspector, dialog, composition, pathOverlay] = files;
+  const manualCreationStart = editor.indexOf("function addText(");
+  const manualCreationEnd = editor.indexOf("function deleteLayerById(");
+  assert.ok(manualCreationStart >= 0 && manualCreationEnd > manualCreationStart, "Manual layer creation workflow could not be audited.");
+  assert.doesNotMatch(editor.slice(manualCreationStart, manualCreationEnd), /animationActions\.push/, "Text, shape, and media creation must never inject a default animation.");
   for (const [source, needle, message] of [
     [types, "AnimationClipboard", "Animation clipboard model is missing."],
     [types, "CubicBezier", "Custom cubic Bezier model is missing."],
@@ -109,12 +117,12 @@ try {
     [inspector, "Orient to path", "Motion path controls are missing."],
     [dialog, "component={MotionComposition}", "Preset previews are not using the production renderer."],
     [dialog, "My presets", "Reusable custom presets are missing."],
-    [composition, "evaluateCounterText", "Counter rendering is not connected."],
+    [composition, "AnimatedTextContent", "Shared animated text rendering is not connected."],
     [composition, "MotionPathOverlay", "Motion path handles are not mounted."],
     [pathOverlay, "control1", "Bezier path handles are incomplete."],
   ]) assert.ok(source.includes(needle), message);
 
-  console.log("Animation workflow audit passed: multi-select blocks, layer staggering, clipboard, cubic easing, groups, counters, motion paths, accurate previews, and reusable presets are wired.");
+  console.log("Animation workflow audit passed: new layers stay animation-free, while multi-select blocks, layer staggering, clipboard, cubic easing, groups, counters, motion paths, accurate previews, and reusable presets remain wired.");
 } finally {
   await server.close();
 }

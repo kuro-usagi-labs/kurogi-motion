@@ -1,21 +1,33 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { CubicBezier } from "../types";
+import { NumberField } from "./NumericField";
 
 interface CubicBezierEditorProps {
   value: CubicBezier;
   onBegin: () => void;
   onPreview: (value: CubicBezier) => void;
   onFinish: () => void;
+  onCancel: () => void;
 }
 
 type HandleName = "one" | "two";
 
-export function CubicBezierEditor({ value, onBegin, onPreview, onFinish }: CubicBezierEditorProps) {
+export function CubicBezierEditor({ value, onBegin, onPreview, onFinish, onCancel }: CubicBezierEditorProps) {
   const [draft, setDraft] = useState(value);
+  const draftRef = useRef(value);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<{ pointerId: number; handle: HandleName } | null>(null);
 
-  useEffect(() => setDraft(value), [value.x1, value.y1, value.x2, value.y2]);
+  useEffect(() => {
+    draftRef.current = value;
+    setDraft(value);
+  }, [value.x1, value.y1, value.x2, value.y2]);
+
+  function previewDraft(next: CubicBezier) {
+    draftRef.current = next;
+    setDraft(next);
+    onPreview(next);
+  }
 
   useEffect(() => {
     const move = (event: PointerEvent) => {
@@ -25,27 +37,30 @@ export function CubicBezierEditor({ value, onBegin, onPreview, onFinish }: Cubic
       const rect = svg.getBoundingClientRect();
       const x = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
       const y = clamp(1 - (event.clientY - rect.top) / Math.max(1, rect.height), -1.5, 2.5);
+      const current = draftRef.current;
       const next = drag.handle === "one"
-        ? { ...draft, x1: round(x), y1: round(y) }
-        : { ...draft, x2: round(x), y2: round(y) };
-      setDraft(next);
-      onPreview(next);
+        ? { ...current, x1: round(x), y1: round(y) }
+        : { ...current, x2: round(x), y2: round(y) };
+      previewDraft(next);
     };
-    const finish = (event: PointerEvent) => {
+    const finish = (event: PointerEvent, cancelled: boolean) => {
       const drag = dragRef.current;
       if (!drag || drag.pointerId !== event.pointerId) return;
       dragRef.current = null;
-      onFinish();
+      if (cancelled) onCancel();
+      else onFinish();
     };
+    const pointerUp = (event: PointerEvent) => finish(event, false);
+    const pointerCancel = (event: PointerEvent) => finish(event, true);
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", finish);
-    window.addEventListener("pointercancel", finish);
+    window.addEventListener("pointerup", pointerUp);
+    window.addEventListener("pointercancel", pointerCancel);
     return () => {
       window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("pointerup", pointerUp);
+      window.removeEventListener("pointercancel", pointerCancel);
     };
-  }, [draft, onFinish, onPreview]);
+  }, [onCancel, onFinish, onPreview]);
 
   function begin(event: React.PointerEvent<SVGCircleElement>, handle: HandleName) {
     event.preventDefault();
@@ -57,22 +72,20 @@ export function CubicBezierEditor({ value, onBegin, onPreview, onFinish }: Cubic
 
   function field(label: string, key: keyof CubicBezier, min: number, max: number) {
     return (
-      <label>{label}
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step={.01}
-          value={draft[key]}
-          onFocus={onBegin}
-          onChange={(event) => {
-            const next = { ...draft, [key]: clamp(Number(event.currentTarget.value), min, max) };
-            setDraft(next);
-            onPreview(next);
-          }}
-          onBlur={onFinish}
-        />
-      </label>
+      <NumberField
+        label={label}
+        value={draft[key]}
+        min={min}
+        max={max}
+        step={.01}
+        onBegin={onBegin}
+        onFinish={onFinish}
+        onCancel={onCancel}
+        onChange={(value) => {
+          const next = { ...draftRef.current, [key]: clamp(value, min, max) };
+          previewDraft(next);
+        }}
+      />
     );
   }
 

@@ -15,7 +15,7 @@ const releaseCss = read("src/studioRelease.css");
 const finalCss = read("src/releaseCandidate.css");
 const packageLock = JSON.parse(read("package-lock.json"));
 
-assert.equal(packageJson.version, "0.3.0", "Release version must be 0.3.0");
+assert.equal(packageJson.version, "0.3.1", "Release version must be 0.3.1");
 assert.equal(packageLock.version, packageJson.version, "Package and lockfile versions must match");
 assert.equal(packageLock.packages[""].version, packageJson.version, "Root lockfile package version must match");
 assert.match(main, /import "\.\/releaseCandidate\.css";\s*\n\s*const root/, "Release candidate stylesheet must load last");

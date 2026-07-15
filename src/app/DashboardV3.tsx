@@ -138,7 +138,7 @@ function ProjectsView({ projects, draft, loading, onOpen, onOpenDraft, onDelete,
 
     <section className="dashboard-section recent-section">
       <div className="dashboard-section-heading"><div><span className="eyebrow">YOUR WORK</span><h2>Recent projects</h2></div><span>Saved locally</span></div>
-      {loading ? <div className="dashboard-empty">Loading projects…</div> : projects.length ? <div className="recent-project-grid project-grid-v3">{projects.map((project, index) => <ProjectCard key={project.id} project={project} latest={index === 0} onOpen={() => onOpen(project.id)} onDelete={() => onDelete(project.id)} onSaveAsTemplate={() => onSaveAsTemplate(project.id)} onExportFile={() => onExportFile(project.id)} />)}</div> : <div className="dashboard-empty"><strong>No saved projects yet</strong><span>Create a blank project or begin from a template.</span></div>}
+      {loading ? <div className="dashboard-empty">Loading projects…</div> : projects.length ? <div className="recent-project-grid project-grid-v3">{projects.map((project, index) => <ProjectCard key={project.id} project={project} latest={index === 0} onOpen={() => onOpen(project.id)} onDelete={() => onDelete(project.id)} onSaveAsTemplate={() => onSaveAsTemplate(project.id)} onExportFile={() => onExportFile(project.id)} />)}</div> : <div className="dashboard-empty dashboard-empty-with-actions"><Icon name="frame" size={22} /><strong>No saved projects yet</strong><span>Begin with an empty canvas or adapt a production-ready template.</span><div><button type="button" className="dashboard-primary-action" onClick={onCreate}><Icon name="plus" size={15} />Create project</button><button type="button" className="dashboard-quiet-action" onClick={onBrowseTemplates}><Icon name="sparkles" size={15} />Browse templates</button></div></div>}
     </section>
   </>;
 }
@@ -175,36 +175,70 @@ function UserTemplateCard({ template, onUse, onDelete }: { template: UserTemplat
 }
 
 function CreateProjectDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (options: CreateProjectOptions) => void }) {
+  const dialogRef = useRef<HTMLFormElement>(null);
   const [name, setName] = useState("Untitled motion");
   const [format, setFormat] = useState<ProjectFormat>("square");
   const [width, setWidth] = useState(1080);
   const [height, setHeight] = useState(1080);
-  const [duration, setDuration] = useState(5);
   const [fps, setFps] = useState<24 | 30 | 60>(30);
   const [background, setBackground] = useState("#ffffff");
   const [transparent, setTransparent] = useState(false);
 
   useEffect(() => {
-    const listener = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const listener = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),summary,[tabindex]:not([tabindex="-1"])') ?? [])
+        .filter((element) => element.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
+    return () => {
+      window.removeEventListener("keydown", listener);
+      previousFocus?.focus({ preventScroll: true });
+    };
   }, [onClose]);
 
-  const submit = () => onCreate({ name: name.trim() || "Untitled motion", format, width: format === "custom" ? width : undefined, height: format === "custom" ? height : undefined, duration, fps, background, transparent });
+  const submit = () => onCreate({
+    name: name.trim() || "Untitled motion",
+    format,
+    width: format === "custom" ? clampDimension(width) : undefined,
+    height: format === "custom" ? clampDimension(height) : undefined,
+    duration: 5,
+    fps,
+    background: normalizeHexColor(background),
+    transparent,
+  });
+  const selectedFormat = FORMATS.find((item) => item.id === format);
 
   return <div className="create-project-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section className="create-project-dialog" role="dialog" aria-modal="true" aria-label="Create project">
-      <header><div><span className="eyebrow">NEW PROJECT</span><h2>Create a motion canvas</h2></div><button type="button" className="svg-button" onClick={onClose}><Icon name="close" /></button></header>
+    <form ref={dialogRef} className="create-project-dialog" role="dialog" aria-modal="true" aria-label="Create project" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+      <header><div><span className="eyebrow">NEW PROJECT</span><h2>Create a motion canvas</h2><p>Choose the canvas. Timing stays flexible while you edit.</p></div><button type="button" className="svg-button" aria-label="Close create project dialog" onClick={onClose}><Icon name="close" /></button></header>
       <div className="create-dialog-body">
         <label className="dashboard-field">Project name<input autoFocus value={name} onChange={(event) => setName(event.currentTarget.value)} /></label>
-        <div className="dashboard-field"><span>Canvas size</span><div className="format-grid modal-format-grid">{FORMATS.map((item) => <button type="button" key={item.id} className={format === item.id ? "active" : ""} onClick={() => setFormat(item.id)}><i style={{ aspectRatio: item.ratio }} /><span><strong>{item.label}</strong><small>{item.size}</small></span></button>)}</div></div>
+        <div className="dashboard-field"><span>Canvas size</span><div className="format-grid modal-format-grid" role="radiogroup" aria-label="Canvas size">{FORMATS.map((item) => <button type="button" role="radio" aria-checked={format === item.id} key={item.id} className={format === item.id ? "active" : ""} onClick={() => setFormat(item.id)}><i style={{ aspectRatio: item.ratio }} /><span><strong>{item.label}</strong><small>{item.size}</small></span></button>)}</div></div>
         {format === "custom" ? <div className="dashboard-two"><label className="dashboard-field">Width<input type="number" min={64} max={7680} value={width} onChange={(event) => setWidth(Number(event.currentTarget.value))} /></label><label className="dashboard-field">Height<input type="number" min={64} max={7680} value={height} onChange={(event) => setHeight(Number(event.currentTarget.value))} /></label></div> : null}
-        <div className="dashboard-two"><label className="dashboard-field">Duration<input type="number" min={.1} max={3600} step={.1} value={duration} onChange={(event) => setDuration(Number(event.currentTarget.value))} /></label><label className="dashboard-field">Frame rate<select value={fps} onChange={(event) => setFps(Number(event.currentTarget.value) as 24 | 30 | 60)}><option value={24}>24 FPS</option><option value={30}>30 FPS</option><option value={60}>60 FPS</option></select></label></div>
-        <label className="dashboard-field">Background<div className="background-control"><input type="color" value={background} disabled={transparent} onChange={(event) => setBackground(event.currentTarget.value)} /><input value={background} disabled={transparent} onChange={(event) => setBackground(event.currentTarget.value)} /></div></label>
-        <label className="dashboard-toggle"><span><strong>Transparent canvas</strong><small>Required for alpha WebM, PNG sequence, and MOV ProRes 4444.</small></span><DashboardSwitch checked={transparent} onChange={setTransparent} /></label>
+        <div className="flexible-timeline-note"><Icon name="info" size={17} /><span><strong>Flexible timeline</strong><small>Starts at 5 seconds and grows automatically when content runs longer. Change the end time directly in the editor whenever you need.</small></span></div>
+        <details className="create-project-advanced">
+          <summary><span><Icon name="command" size={16} /><span><strong>Advanced settings</strong><small>{fps} FPS · {transparent ? "Transparent" : normalizeHexColor(background).toUpperCase()} · {selectedFormat?.size ?? `${clampDimension(width)} × ${clampDimension(height)}`}</small></span></span><Icon name="chevronDown" className="advanced-chevron" size={15} /></summary>
+          <div className="create-project-advanced-body">
+            <label className="dashboard-field">Frame rate<select value={fps} onChange={(event) => setFps(Number(event.currentTarget.value) as 24 | 30 | 60)}><option value={24}>24 FPS · cinematic</option><option value={30}>30 FPS · standard</option><option value={60}>60 FPS · smooth motion</option></select></label>
+            <label className="dashboard-field">Background<div className="background-control"><input type="color" value={normalizeHexColor(background)} disabled={transparent} aria-label="Background color" onChange={(event) => setBackground(event.currentTarget.value)} /><input value={background} disabled={transparent} aria-label="Background hex color" onChange={(event) => setBackground(event.currentTarget.value)} onBlur={() => setBackground(normalizeHexColor(background))} /></div></label>
+            <label className="dashboard-toggle"><span><strong>Transparent canvas</strong><small>Use for alpha WebM, PNG sequence, and MOV ProRes 4444.</small></span><DashboardSwitch checked={transparent} onChange={setTransparent} /></label>
+          </div>
+        </details>
       </div>
-      <footer><button type="button" className="dialog-secondary" onClick={onClose}>Cancel</button><button type="button" className="dashboard-primary-action" onClick={submit}>Create project <Icon name="arrow" size={15} /></button></footer>
-    </section>
+      <footer><span className="create-project-submit-hint">Press Enter to create</span><button type="button" className="dialog-secondary" onClick={onClose}>Cancel</button><button type="submit" className="dashboard-primary-action">Create project <Icon name="arrow" size={15} /></button></footer>
+    </form>
   </div>;
 }
 
@@ -236,6 +270,9 @@ function relativeTime(value: string) {
 }
 
 function checkerBackground() { return "linear-gradient(45deg,#eceaf0 25%,transparent 25%),linear-gradient(-45deg,#eceaf0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#eceaf0 75%),linear-gradient(-45deg,transparent 75%,#eceaf0 75%),#fff"; }
+
+function clampDimension(value: number) { return Math.min(7680, Math.max(64, Number.isFinite(value) ? Math.round(value) : 1080)); }
+function normalizeHexColor(value: string) { return /^#[0-9a-f]{6}$/i.test(value.trim()) ? value.trim() : "#ffffff"; }
 
 function templateCategoryCount(category: CategoryFilter, customCount: number) {
   if (category === "Custom") return customCount;

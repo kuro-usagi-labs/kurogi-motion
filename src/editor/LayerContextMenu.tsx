@@ -12,11 +12,14 @@ export interface LayerContextMenuState {
 interface LayerContextMenuProps {
   project: KurogiProject;
   state: LayerContextMenuState | null;
+  selectedLayerIds: string[];
   onClose: () => void;
   onCreateClippingMask: (layerId: string) => void;
   onReleaseClippingMask: (layerId: string) => void;
   onDuplicate: (layerId: string) => void;
-  onDelete: (layerId: string) => void;
+  onDeleteSelection: () => void;
+  onGroupSelection: () => void;
+  onUngroup: (layerId: string) => void;
   onBringForward: (layerId: string) => void;
   onSendBackward: (layerId: string) => void;
   onToggleVisibility: (layerId: string) => void;
@@ -27,11 +30,14 @@ interface LayerContextMenuProps {
 export function LayerContextMenu({
   project,
   state,
+  selectedLayerIds,
   onClose,
   onCreateClippingMask,
   onReleaseClippingMask,
   onDuplicate,
-  onDelete,
+  onDeleteSelection,
+  onGroupSelection,
+  onUngroup,
   onBringForward,
   onSendBackward,
   onToggleVisibility,
@@ -63,13 +69,23 @@ export function LayerContextMenu({
   const sourceLayer = sourceId ? project.layers[sourceId] : undefined;
   const clipping = Boolean(layer.mask?.clipping);
   const canCreateClipping = Boolean(sourceLayer && !layer.parentId && !sourceLayer.parentId);
+  const contextSelection = [...new Set(selectedLayerIds)]
+    .map((id) => project.layers[id])
+    .filter((candidate): candidate is Layer => Boolean(candidate));
+  const groupableSelection = contextSelection.filter((candidate) => candidate.sceneId === layer.sceneId && !candidate.parentId && !candidate.maskSource);
+  const canGroupSelection = groupableSelection.length >= 2;
+  const canUngroup = contextSelection.length === 1 && layer.type === "group";
   const width = 264;
-  const estimatedHeight = layer.type === "image" ? 424 : 330;
+  const estimatedHeight = layer.type === "image" ? 468 : 374;
   const left = Math.max(8, Math.min(window.innerWidth - width - 8, state.x));
   const top = Math.max(8, Math.min(window.innerHeight - estimatedHeight - 8, state.y));
 
   const run = (callback: (layerId: string) => void) => {
     callback(layer.id);
+    onClose();
+  };
+  const runSelection = (callback: () => void) => {
+    callback();
     onClose();
   };
 
@@ -93,7 +109,10 @@ export function LayerContextMenu({
       >
         <header>
           <span className={`layer-context-icon is-${layer.type}`}><Icon name={layerIcon(layer)} size={14} /></span>
-          <span><strong>{layer.name}</strong><small>{layer.type}{clipping && layer.mask ? ` · clipped to ${project.layers[layer.mask.sourceLayerId]?.name ?? "layer below"}` : ""}</small></span>
+          <span>
+            <strong>{contextSelection.length > 1 ? `${contextSelection.length} layers selected` : layer.name}</strong>
+            <small>{contextSelection.length > 1 ? "Multiple selection" : `${layer.type}${clipping && layer.mask ? ` · clipped to ${project.layers[layer.mask.sourceLayerId]?.name ?? "layer below"}` : ""}`}</small>
+          </span>
         </header>
 
         <div className="layer-context-section">
@@ -120,6 +139,13 @@ export function LayerContextMenu({
           </div>
         ) : null}
 
+        {canGroupSelection || canUngroup ? (
+          <div className="layer-context-section">
+            {canGroupSelection ? <button type="button" role="menuitem" onClick={() => runSelection(onGroupSelection)}><Icon name="layers" size={15} /><span>Group Selection</span><kbd>Ctrl+G</kbd></button> : null}
+            {canUngroup ? <button type="button" role="menuitem" onClick={() => run(onUngroup)}><Icon name="layers" size={15} /><span>Ungroup</span><kbd>Ctrl+Shift+G</kbd></button> : null}
+          </div>
+        ) : null}
+
         <div className="layer-context-section">
           <button type="button" role="menuitem" onClick={() => run(onDuplicate)}><Icon name="copy" size={15} /><span>Duplicate</span><kbd>Ctrl+D</kbd></button>
           <button type="button" role="menuitem" disabled={index < 0 || index >= (scene?.layerIds.length ?? 0) - 1} onClick={() => run(onBringForward)}><Icon name="chevronUp" size={15} /><span>Bring Forward</span></button>
@@ -132,7 +158,7 @@ export function LayerContextMenu({
         </div>
 
         <div className="layer-context-section is-danger">
-          <button type="button" role="menuitem" onClick={() => run(onDelete)}><Icon name="trash" size={15} /><span>Delete</span><kbd>Del</kbd></button>
+          <button type="button" role="menuitem" onClick={() => runSelection(onDeleteSelection)}><Icon name="trash" size={15} /><span>{contextSelection.length > 1 ? `Delete ${contextSelection.length} Layers` : "Delete"}</span><kbd>Del</kbd></button>
         </div>
       </section>
     </div>,

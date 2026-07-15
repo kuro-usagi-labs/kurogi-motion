@@ -1,11 +1,11 @@
 import React from "react";
-import { evaluateLayer, evaluateTextUnit, getTextAnimationUnit, splitTextUnits } from "../core/evaluator";
+import { evaluateLayer } from "../core/evaluator";
 import { getLayerRenderTiming } from "../core/layerTiming";
 import { getShapeDefinition, getShapeMaskStyle, isBoxShape } from "../core/shapeLibrary";
-import { textVerticalJustification } from "../core/textLayout";
-import type { KurogiProject, Layer, Scene, Size, TextLayer } from "../types";
+import type { KurogiProject, Layer, Scene, Size } from "../types";
 import { LayerEffects } from "./LayerEffects";
-import { gradientToCss, layerCompositingStyle, textPaintStyle } from "./designStyles";
+import { AnimatedTextContent } from "./AnimatedTextContent";
+import { gradientToCss, layerCompositingStyle } from "./designStyles";
 
 export function StaticLayerTree({
   project,
@@ -57,7 +57,7 @@ export function StaticLayerTree({
                 return child ? <StaticLayerTree key={childId} project={project} layer={child} scene={scene} time={layerTime} parentSize={layer.size} /> : null;
               })
             : layer.type === "text"
-              ? <StaticAnimatedText layer={layer} scene={scene} time={layerTime} />
+              ? <AnimatedTextContent layer={layer} scene={scene} time={layerTime} />
               : layer.type === "shape"
                 ? <StaticShape layer={layer} />
                 : <StaticAsset project={project} layer={layer} />}
@@ -65,44 +65,6 @@ export function StaticLayerTree({
       </LayerEffects>
     </div>
   );
-}
-
-function StaticAnimatedText({ layer, scene, time }: { layer: TextLayer; scene: Scene; time: number }) {
-  const unit = getTextAnimationUnit(layer);
-  const units = splitTextUnits(layer.text, unit);
-  const baseStyle = staticTextStyle(layer);
-  if (unit === "layer") return <TextFrame layer={layer}><div style={{ ...baseStyle, width: "100%" }}>{layer.text}</div></TextFrame>;
-  return (
-    <TextFrame layer={layer}>
-      <div style={{ ...baseStyle, width: "100%" }}>
-        {units.map((part, index) => {
-          if (part.text === "\n") return <br key={part.key} />;
-          const visual = evaluateTextUnit(layer, scene, time, index, units.length);
-          return <span key={part.key} style={{ display: "inline-block", whiteSpace: "pre", opacity: visual.opacity, transform: `perspective(${scene.width}px) translate(${visual.translateX}px, ${visual.translateY}px) rotate(${visual.rotation}deg) rotateX(${visual.rotateX}deg) rotateY(${visual.rotateY}deg) scale(${visual.scale})`, transformOrigin: "center", filter: visual.blur > 0 ? `blur(${visual.blur}px)` : undefined }}>{part.text}</span>;
-        })}
-      </div>
-    </TextFrame>
-  );
-}
-
-function TextFrame({ layer, children }: { layer: TextLayer; children: React.ReactNode }) {
-  return <div style={{ display: "flex", flexDirection: "column", justifyContent: textVerticalJustification(layer.style.verticalAlign), width: "100%", height: "100%", minWidth: 0, minHeight: 0, overflow: "hidden", boxSizing: "border-box" }}>{children}</div>;
-}
-
-function staticTextStyle(layer: TextLayer): React.CSSProperties {
-  return {
-    whiteSpace: "pre-wrap",
-    overflowWrap: "break-word",
-    fontFamily: `${layer.style.fontFamily}, Inter, Arial, sans-serif`,
-    fontWeight: layer.style.fontWeight,
-    fontSize: layer.style.fontSize,
-    lineHeight: layer.style.lineHeight,
-    letterSpacing: layer.style.letterSpacing,
-    textAlign: layer.style.align,
-    boxSizing: "border-box",
-    minWidth: 0,
-    ...textPaintStyle(layer),
-  };
 }
 
 function StaticShape({ layer }: { layer: Extract<Layer, { type: "shape" }> }) {

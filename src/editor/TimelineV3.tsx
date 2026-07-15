@@ -5,17 +5,23 @@ import type { AnimationAction, AudioClip, KurogiProject, Layer, StaggerOrder } f
 import { AudioClipToolbar, AudioTimelineTracks } from "./AudioTimeline";
 import { Icon } from "../ui/Icon";
 import { LayerThumbnail } from "../app/LayerThumbnail";
+import { NumberField } from "./NumericField";
+import { getLayerRenderTiming } from "../core/layerTiming";
+import { textAnimationScope, textAnimationScopeBadge, textAnimationStaggerSpread, textAnimationVisualDuration } from "../core/textAnimation";
 import { presetFor } from "./animationPresets";
 import { normalizeWheelDelta } from "./canvasMath";
 import { selectionRect, selectionRectsIntersect, type SelectionRect } from "../core/marqueeSelection";
 import {
   TIMELINE_MARQUEE_BLOCKER_SELECTOR,
   timelineDragThresholdPassed,
+  timelineLayerDropTargetAtY,
+  timelineLayerReorderAutoScrollVelocity,
   timelineLocalPoint,
   timelineLocalRect,
   timelinePointerSelection,
   timelineReleaseIntent,
   timelineTimeAtClientX,
+  type TimelineLayerDropTarget,
   visibleTimelineRulerMarks,
 } from "./timelineInteractions";
 
@@ -34,10 +40,12 @@ interface TimelineProps {
   selectedActionIds: string[];
   selectedAudioClipId: string;
   onSelectLayer: (layerId: string, additive?: boolean) => void;
+  onReorderLayer: (draggedLayerId: string, targetLayerId: string) => void;
   onSelectAction: (layerId: string, actionId: string, additive?: boolean) => void;
   onMarqueeSelect: (layerIds: string[], actionRefs: Array<{ layerId: string; actionId: string }>, additive?: boolean) => void;
   onCommitActions: (patches: TimelineActionPatch[]) => void;
   onUpdateLayerTiming: (layerId: string, startTime: number, duration: number) => void;
+  onUpdateSceneDuration: (duration: number) => void;
   onTrimStart: () => void;
   onTrimEnd: () => void;
   onCut: () => void;
@@ -64,6 +72,8 @@ type ActionSnapshot = {
   startTime: number;
   duration: number;
   delay: number;
+  animationOffset: number;
+  staggerSpread: number;
 };
 
 type ActionGesture = {
@@ -102,6 +112,15 @@ type TimelineScrubGesture = {
   captureTarget: HTMLDivElement;
   wasPlaying: boolean;
 };
+type LayerReorderGesture = {
+  pointerId: number;
+  captureTarget: HTMLElement;
+  layerId: string;
+  startClient: { x: number; y: number };
+  pointerClientY: number;
+  dragging: boolean;
+  target: TimelineLayerDropTarget | null;
+};
 
 const LABEL_WIDTH = 188;
 const MIN_HEIGHT = 190;
@@ -119,10 +138,12 @@ export function Timeline({
   selectedActionIds,
   selectedAudioClipId,
   onSelectLayer,
+  onReorderLayer,
   onSelectAction,
   onMarqueeSelect,
   onCommitActions,
   onUpdateLayerTiming,
+  onUpdateSceneDuration,
   onTrimStart,
   onTrimEnd,
   onCut,
@@ -155,10 +176,14 @@ export function Timeline({
   const [layerTimingPreview, setLayerTimingPreview] = useState<{ startTime: number; duration: number } | null>(null);
   const [timelineMarquee, setTimelineMarquee] = useState<SelectionRect | null>(null);
   const [scrubbing, setScrubbing] = useState(false);
+  const [reorderingLayerId, setReorderingLayerId] = useState("");
+  const [layerDropTarget, setLayerDropTarget] = useState<TimelineLayerDropTarget | null>(null);
   const [timelineViewport, setTimelineViewport] = useState(() => ({ scrollLeft: 0, width: window.innerWidth }));
   const layerTimingPreviewRef = useRef<{ startTime: number; duration: number } | null>(null);
   const timelineMarqueeRef = useRef<TimelineMarqueeGesture | null>(null);
   const timelineScrubRef = useRef<TimelineScrubGesture | null>(null);
+  const layerReorderRef = useRef<LayerReorderGesture | null>(null);
+  const layerReorderAutoScrollFrameRef = useRef(0);
   const tracksRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<ActionPreviewMap>({});
   const actionGestureCancelledRef = useRef(false);
@@ -250,31 +275,31 @@ export function Timeline({
       const primary = active.snapshots.find((snapshot) => snapshot.actionId === active.primaryActionId) ?? active.snapshots[0];
       if (!primary) return;
       if (active.mode === "move") {
-        const rawPrimaryStart = primary.startTime + primary.delay + delta;
+        const rawPrimaryStart = primary.animationOffset + primary.startTime + primary.delay + delta;
         const effectivePrimaryStart = event.altKey
           ? rawPrimaryStart
           : snapTime(rawPrimaryStart, project, frame / scene.fps, new Set(active.snapshots.map((snapshot) => snapshot.actionId)), active.laneWidth);
-        const snappedDelta = effectivePrimaryStart - primary.delay - primary.startTime;
+        const snappedDelta = effectivePrimaryStart - primary.animationOffset - primary.delay - primary.startTime;
         const next: ActionPreviewMap = {};
         for (const snapshot of active.snapshots) {
           next[snapshot.actionId] = {
-            startTime: clamp(snapshot.startTime + snappedDelta, 0, Math.max(0, scene.duration - snapshot.duration - snapshot.delay)),
+            startTime: Math.max(0, snapshot.startTime + snappedDelta),
             duration: snapshot.duration,
           };
         }
         updatePreview(next);
       } else {
         const rawDuration = primary.duration + delta;
-        const primaryEnd = primary.startTime + primary.delay + rawDuration;
+        const primaryEnd = primary.animationOffset + primary.startTime + primary.delay + rawDuration + primary.staggerSpread;
         const snappedEnd = event.altKey
           ? primaryEnd
           : snapTime(primaryEnd, project, frame / scene.fps, new Set(active.snapshots.map((snapshot) => snapshot.actionId)), active.laneWidth);
-        const durationDelta = clamp(snappedEnd - primary.startTime - primary.delay, .05, Math.max(.05, scene.duration - primary.startTime - primary.delay)) - primary.duration;
+        const durationDelta = Math.max(.05, snappedEnd - primary.animationOffset - primary.startTime - primary.delay - primary.staggerSpread) - primary.duration;
         const next: ActionPreviewMap = {};
         for (const snapshot of active.snapshots) {
           next[snapshot.actionId] = {
             startTime: snapshot.startTime,
-            duration: clamp(snapshot.duration + durationDelta, .05, Math.max(.05, scene.duration - snapshot.startTime - snapshot.delay)),
+            duration: Math.max(.05, snapshot.duration + durationDelta),
           };
         }
         updatePreview(next);
@@ -325,13 +350,13 @@ export function Timeline({
       const delta = ((event.clientX - active.startClient.x) / Math.max(1, active.laneWidth)) * scene.duration;
       let startTime = active.startTime;
       let duration = active.duration;
-      if (active.mode === "move") startTime = clamp(active.startTime + delta, 0, Math.max(0, scene.duration - active.duration));
+      if (active.mode === "move") startTime = Math.max(0, active.startTime + delta);
       if (active.mode === "trim-start") {
         const end = active.startTime + active.duration;
         startTime = clamp(active.startTime + delta, 0, end - .01);
         duration = end - startTime;
       }
-      if (active.mode === "trim-end") duration = clamp(active.duration + delta, .01, Math.max(.01, scene.duration - active.startTime));
+      if (active.mode === "trim-end") duration = Math.max(.01, active.duration + delta);
       const next = { startTime, duration };
       layerTimingPreviewRef.current = next;
       setLayerTimingPreview(next);
@@ -380,6 +405,14 @@ export function Timeline({
     };
   }, []);
 
+  useEffect(() => () => {
+    if (layerReorderAutoScrollFrameRef.current) window.cancelAnimationFrame(layerReorderAutoScrollFrameRef.current);
+    const active = layerReorderRef.current;
+    if (active) releasePointerCaptureSafely(active.captureTarget, active.pointerId);
+    layerReorderRef.current = null;
+    document.body.classList.remove("timeline-layer-reordering");
+  }, []);
+
   useEffect(() => {
     const tracks = tracksRef.current;
     if (!tracks) return;
@@ -405,7 +438,7 @@ export function Timeline({
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      const hasGesture = Boolean(gesture || layerTimingGesture || timelineMarqueeRef.current);
+      const hasGesture = Boolean(gesture || layerTimingGesture || timelineMarqueeRef.current || layerReorderRef.current);
       const hasSelection = Boolean(selectedLayerIds.length || selectedActionIds.length || selectedAudioClipId);
       if (!hasGesture && !hasSelection) return;
       event.preventDefault();
@@ -417,6 +450,7 @@ export function Timeline({
   }, [gesture, layerTimingGesture, onMarqueeSelect, selectedActionIds.length, selectedAudioClipId, selectedLayerIds.length]);
 
   const laneWidth = timelineLaneWidth(scene.duration, zoom);
+  const timelineLayers = [...layers].reverse();
   const rulerMarks = useMemo(() => visibleTimelineRulerMarks({
     duration: scene.duration,
     laneWidth,
@@ -429,6 +463,8 @@ export function Timeline({
   const selectedAudioClip = selectedAudioClipId ? project.audioClips[selectedAudioClipId] ?? null : null;
   const selectedGroups = new Set(selectedActionIds.map((id) => findAction(project, id)?.action.groupId).filter(Boolean));
   const canEditTimeline = selectedLayerIds.length > 0 || Boolean(selectedAudioClip);
+  const contentEnd = useMemo(() => timelineContentEnd(project, scene.id), [project, scene.id]);
+  const contentOverflow = contentEnd > scene.duration + .001;
 
   function togglePlay() {
     const player = playerRef.current;
@@ -516,9 +552,10 @@ export function Timeline({
     const lane = event.currentTarget.closest(".track-lane") as HTMLElement | null;
     if (!lane) return;
     const targets = actionSelectionTargets(project, action);
-    const ids = timelinePointerSelection(selectedActionIds, targets, event.shiftKey);
-    const preserveExisting = !event.shiftKey && selectedActionIds.length > targets.length && targets.every((id) => selectedActionIds.includes(id));
-    if (!preserveExisting) onSelectAction(layerId, action.id, event.shiftKey);
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    const ids = timelinePointerSelection(selectedActionIds, targets, additive);
+    const preserveExisting = !additive && selectedActionIds.length > targets.length && targets.every((id) => selectedActionIds.includes(id));
+    if (!preserveExisting) onSelectAction(layerId, action.id, additive);
     if (!ids.includes(action.id)) return;
     const snapshots = actionSnapshots(project, ids);
     const initialPreview = Object.fromEntries(snapshots.map((snapshot) => [snapshot.actionId, { startTime: snapshot.startTime, duration: snapshot.duration }]));
@@ -542,9 +579,10 @@ export function Timeline({
     event.stopPropagation();
     const lane = event.currentTarget.closest(".track-lane") as HTMLElement | null;
     if (!lane) return;
-    const ids = timelinePointerSelection(selectedLayerIds, [layer.id], event.shiftKey);
-    const preserveExisting = !event.shiftKey && selectedLayerIds.length > 1 && selectedLayerIds.includes(layer.id);
-    if (!preserveExisting) onSelectLayer(layer.id, event.shiftKey);
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    const ids = timelinePointerSelection(selectedLayerIds, [layer.id], additive);
+    const preserveExisting = !additive && selectedLayerIds.length > 1 && selectedLayerIds.includes(layer.id);
+    if (!preserveExisting) onSelectLayer(layer.id, additive);
     if (!ids.includes(layer.id)) return;
     const startTime = clamp(layer.startTime ?? 0, 0, scene.duration);
     const duration = clamp(layer.duration ?? scene.duration - startTime, .01, Math.max(.01, scene.duration - startTime));
@@ -563,6 +601,129 @@ export function Timeline({
       startTime,
       duration,
     });
+  }
+
+  function layerSelectionIsAdditive(event: Pick<React.MouseEvent | React.KeyboardEvent | React.PointerEvent, "shiftKey" | "ctrlKey" | "metaKey">) {
+    return event.shiftKey || event.ctrlKey || event.metaKey;
+  }
+
+  function updateLayerReorderTarget(clientY: number) {
+    const active = layerReorderRef.current;
+    const lanes = tracksRef.current?.querySelector<HTMLElement>(".timeline-lanes");
+    if (!active || !active.dragging || !lanes) return;
+    const draggedParentId = project.layers[active.layerId]?.parentId ?? "";
+    const rows = Array.from(lanes.querySelectorAll<HTMLElement>("[data-timeline-layer-row='true']"))
+      .map((row) => ({
+        id: row.dataset.timelineLayerId ?? "",
+        top: row.getBoundingClientRect().top,
+        bottom: row.getBoundingClientRect().bottom,
+      }))
+      .filter((row) => (project.layers[row.id]?.parentId ?? "") === draggedParentId);
+    const target = timelineLayerDropTargetAtY(rows, active.layerId, clientY);
+    active.target = target;
+    setLayerDropTarget((current) => current?.targetId === target?.targetId && current?.edge === target?.edge ? current : target);
+  }
+
+  function runLayerReorderAutoScroll() {
+    if (layerReorderAutoScrollFrameRef.current) return;
+    const tick = () => {
+      layerReorderAutoScrollFrameRef.current = 0;
+      const active = layerReorderRef.current;
+      const tracks = tracksRef.current;
+      if (!active || !tracks) return;
+      if (active.dragging) {
+        const rect = tracks.getBoundingClientRect();
+        const velocity = timelineLayerReorderAutoScrollVelocity(active.pointerClientY, rect.top, rect.bottom);
+        if (velocity) {
+          const previous = tracks.scrollTop;
+          tracks.scrollTop += velocity;
+          if (tracks.scrollTop !== previous) updateLayerReorderTarget(active.pointerClientY);
+        }
+      }
+      layerReorderAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+    };
+    layerReorderAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+  }
+
+  function beginLayerReorder(event: React.PointerEvent<HTMLElement>, layer: Layer) {
+    if (event.button !== 0 || !event.isPrimary) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!selectedLayerIds.includes(layer.id)) onSelectLayer(layer.id, layerSelectionIsAdditive(event));
+    const captureTarget = event.currentTarget;
+    setPointerCaptureSafely(captureTarget, event.pointerId);
+    layerReorderRef.current = {
+      pointerId: event.pointerId,
+      captureTarget,
+      layerId: layer.id,
+      startClient: { x: event.clientX, y: event.clientY },
+      pointerClientY: event.clientY,
+      dragging: false,
+      target: null,
+    };
+    setLayerDropTarget(null);
+    runLayerReorderAutoScroll();
+  }
+
+  function moveLayerReorder(event: React.PointerEvent<HTMLElement>) {
+    const active = layerReorderRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    active.pointerClientY = event.clientY;
+    if (!active.dragging && !timelineDragThresholdPassed(active.startClient, { x: event.clientX, y: event.clientY })) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!active.dragging) {
+      active.dragging = true;
+      setReorderingLayerId(active.layerId);
+      document.body.classList.add("timeline-layer-reordering");
+    }
+    updateLayerReorderTarget(event.clientY);
+  }
+
+  function finishLayerReorder(event: React.PointerEvent<HTMLElement>) {
+    const active = layerReorderRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    active.pointerClientY = event.clientY;
+    if (active.dragging) updateLayerReorderTarget(event.clientY);
+    const targetId = active.target?.targetId ?? "";
+    cleanupLayerReorder();
+    if (active.dragging && targetId) onReorderLayer(active.layerId, targetId);
+  }
+
+  function cleanupLayerReorder(pointerId?: number) {
+    const active = layerReorderRef.current;
+    if (!active || (pointerId !== undefined && active.pointerId !== pointerId)) return;
+    layerReorderRef.current = null;
+    if (layerReorderAutoScrollFrameRef.current) {
+      window.cancelAnimationFrame(layerReorderAutoScrollFrameRef.current);
+      layerReorderAutoScrollFrameRef.current = 0;
+    }
+    document.body.classList.remove("timeline-layer-reordering");
+    setReorderingLayerId("");
+    setLayerDropTarget(null);
+    releasePointerCaptureSafely(active.captureTarget, active.pointerId);
+  }
+
+  function handleLayerRowKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, layer: Layer) {
+    if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      const parentId = layer.parentId ?? "";
+      const siblings = timelineLayers.filter((candidate) => (candidate.parentId ?? "") === parentId);
+      const siblingIndex = siblings.findIndex((candidate) => candidate.id === layer.id);
+      const target = siblings[siblingIndex + (event.key === "ArrowUp" ? -1 : 1)];
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!selectedLayerIds.includes(layer.id)) onSelectLayer(layer.id, false);
+      onReorderLayer(layer.id, target.id);
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+      onSelectLayer(layer.id, layerSelectionIsAdditive(event));
+    }
   }
 
   function beginTimelineMarquee(event: React.PointerEvent<HTMLDivElement>) {
@@ -645,6 +806,7 @@ export function Timeline({
     setPreview({});
     setLayerTimingGesture(null);
     setLayerTimingPreview(null);
+    cleanupLayerReorder();
     cancelTimelineMarquee();
     cancelRulerScrub();
   }
@@ -688,6 +850,21 @@ export function Timeline({
             <button type="button" disabled={!canEditTimeline} onClick={onTrimEnd} title="Trim end to playhead (W)"><Icon name="trimEnd" size={14} /><kbd>W</kbd></button>
             <button type="button" disabled={!canEditTimeline} onClick={onCut} title="Cut at playhead (Ctrl+B)"><Icon name="cut" size={14} /><kbd>Ctrl B</kbd></button>
           </div>
+        </div>
+        <div className={`timeline-duration-control ${contentOverflow ? "has-overflow" : ""}`} title={contentOverflow ? `Content ends at ${formatTime(contentEnd)}` : "Set scene duration"}>
+          <NumberField
+            label="Duration"
+            value={scene.duration}
+            min={.1}
+            max={3600}
+            step={.1}
+            precision={2}
+            suffix="s"
+            onChange={() => undefined}
+            onCommit={(duration) => onUpdateSceneDuration(duration)}
+          />
+          <button type="button" onClick={() => onUpdateSceneDuration(timelineRoundedDuration(Math.max(.1, contentEnd)))} title="Fit scene duration to the last layer, animation, or audio clip">Fit</button>
+          <small>{contentOverflow ? `Content ${formatTime(contentEnd)}` : "Scene end"}</small>
         </div>
         <div className="timeline-selection-actions animation-selection-expanded">
           {selectedAudioClip ? <AudioClipToolbar project={project} selectedClipId={selectedAudioClipId} onUpdate={onUpdateAudioClip} onDelete={onDeleteAudioClip} onDuplicate={onDuplicateAudioClip} /> : <AnimationWorkflowBar
@@ -758,11 +935,43 @@ export function Timeline({
               }}
             >{rulerMarks.map((mark) => <span key={mark} aria-hidden="true" data-ruler-time={mark} style={{ left: `${(mark / scene.duration) * 100}%` }}>{formatRuler(mark)}</span>)}</div>
           </div>
+          {contentEnd > .001 && contentEnd <= scene.duration + .001 ? <div className="timeline-content-end-marker" aria-hidden="true" style={{ left: LABEL_WIDTH + (contentEnd / Math.max(.001, scene.duration)) * laneWidth }}><span>{formatTime(contentEnd)}</span></div> : null}
           <div className={`playhead ${scrubbing ? "is-scrubbing" : ""}`} data-timeline-playhead="true" data-playhead-time={Number((frame / scene.fps).toFixed(3))} style={{ left: LABEL_WIDTH + (frame / Math.max(1, scene.duration * scene.fps)) * laneWidth }}><i />{scrubbing ? <span className="playhead-time-badge">{formatTime(frame / scene.fps)}</span> : null}</div>
           {timelineMarquee ? <div className="timeline-selection-marquee" style={{ left: timelineMarquee.left, top: timelineMarquee.top, width: timelineMarquee.right - timelineMarquee.left, height: timelineMarquee.bottom - timelineMarquee.top }} /> : null}
           <AudioTimelineTracks project={project} laneWidth={laneWidth} labelWidth={LABEL_WIDTH} selectedClipId={selectedAudioClipId} onSelect={onSelectAudioClip} onUpdate={onUpdateAudioClip} onDelete={onDeleteAudioClip} onDuplicate={onDuplicateAudioClip} onSeek={seekToTime} />
-          {[...layers].reverse().map((layer) => <div className="track" key={layer.id} style={{ gridTemplateColumns: `${LABEL_WIDTH}px ${laneWidth}px` }}>
-            <button type="button" aria-pressed={selectedLayerIds.includes(layer.id)} onClick={(event) => onSelectLayer(layer.id, event.shiftKey)} className={selectedLayerIds.includes(layer.id) ? "track-selected" : ""}><LayerThumbnail project={project} layer={layer} size={22} decorative /><span className="track-name">{layer.name}</span></button>
+          {timelineLayers.map((layer) => <div
+            className={`track timeline-layer-row ${layer.type === "group" ? "is-group" : ""} ${layer.parentId ? "is-group-child" : ""} ${reorderingLayerId === layer.id ? "is-reordering" : ""}`}
+            key={layer.id}
+            data-timeline-layer-row="true"
+            data-timeline-layer-id={layer.id}
+            data-timeline-parent-id={layer.parentId || undefined}
+            style={{ gridTemplateColumns: `${LABEL_WIDTH}px ${laneWidth}px` }}
+          >
+            {layerDropTarget?.targetId === layer.id ? <span className={`timeline-layer-drop-indicator is-${layerDropTarget.edge}`} aria-hidden="true" /> : null}
+            <button
+              type="button"
+              aria-pressed={selectedLayerIds.includes(layer.id)}
+              aria-label={`${layer.name} layer. Alt+Arrow Up or Alt+Arrow Down to reorder.`}
+              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+              onClick={(event) => onSelectLayer(layer.id, layerSelectionIsAdditive(event))}
+              onKeyDown={(event) => handleLayerRowKeyDown(event, layer)}
+              className={`timeline-layer-row-label ${selectedLayerIds.includes(layer.id) ? "track-selected" : ""}`}
+              title={`${layer.name} · Drag the grip to reorder · Alt+↑/↓ also moves this layer`}
+            >
+              <span
+                className="timeline-layer-reorder-grip"
+                data-timeline-no-marquee="true"
+                aria-hidden="true"
+                onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                onPointerDown={(event) => beginLayerReorder(event, layer)}
+                onPointerMove={moveLayerReorder}
+                onPointerUp={finishLayerReorder}
+                onPointerCancel={(event) => cleanupLayerReorder(event.pointerId)}
+                onLostPointerCapture={(event) => cleanupLayerReorder(event.pointerId)}
+              ><Icon name="grip" size={14} /></span>
+              <LayerThumbnail project={project} layer={layer} size={22} decorative />
+              <span className="track-name">{layer.name}</span>
+            </button>
             <div className="track-lane clean-track-lane">
               {(() => {
                 const timing = layerTimingGesture?.layerId === layer.id && layerTimingPreview ? layerTimingPreview : { startTime: layer.startTime ?? 0, duration: layer.duration ?? scene.duration - (layer.startTime ?? 0) };
@@ -774,10 +983,15 @@ export function Timeline({
               })()}
               {layer.animationActions.map((action) => {
                 const activePreview = preview[action.id] ?? action;
-                const effectiveStart = activePreview.startTime + action.delay;
+                const animationOffset = getLayerRenderTiming(layer, scene).animationOffset;
+                const effectiveStart = animationOffset + activePreview.startTime + action.delay;
+                const text = layer.type === "text" ? layer.text : "";
+                const spread = textAnimationStaggerSpread(action, text);
+                const visualDuration = activePreview.duration + spread;
+                const coreWidth = Math.min(100, (activePreview.duration / Math.max(.001, visualDuration)) * 100);
                 const preset = presetFor(action.type);
                 const selected = selectedActionIds.includes(action.id);
-                return <div role="button" tabIndex={0} aria-pressed={selected} aria-label={`Select ${preset.label} animation`} key={action.id} data-timeline-action-id={action.id} data-timeline-layer-id={layer.id} className={`timeline-action action-${action.category} action-${action.type} ${selected ? "selected multi-selected" : ""}`} onPointerDown={(event) => beginActionGesture(event, layer.id, action, "move")} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectAction(layer.id, action.id, event.shiftKey); } }} style={{ left: `${(effectiveStart / scene.duration) * 100}%`, width: `${Math.max(0, (activePreview.duration / scene.duration) * 100)}%` }} title={`${preset.label} · ${activePreview.duration.toFixed(2)}s`}><span className="action-category">{action.category}</span>{action.groupId ? <span className="action-group-badge">G</span> : null}<span className="action-name">{preset.label}</span><span className="action-resize" onPointerDown={(event) => beginActionGesture(event, layer.id, action, "resize")} /></div>;
+                return <div role="button" tabIndex={0} aria-pressed={selected} aria-label={`Select ${preset.label} animation`} key={action.id} data-timeline-action-id={action.id} data-timeline-layer-id={layer.id} className={`timeline-action action-${action.category} action-${action.type} ${spread > 0 ? "has-text-stagger" : ""} ${selected ? "selected multi-selected" : ""}`} onPointerDown={(event) => beginActionGesture(event, layer.id, action, "move")} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectAction(layer.id, action.id, event.shiftKey); } }} style={{ left: `${(effectiveStart / scene.duration) * 100}%`, width: `${Math.max(0, (visualDuration / scene.duration) * 100)}%` }} title={`${preset.label} · motion ${activePreview.duration.toFixed(2)}s · total ${visualDuration.toFixed(2)}s`}><span className="action-category">{action.category}</span>{action.groupId ? <span className="action-group-badge">G</span> : null}{layer.type === "text" ? <span className="timeline-action-scope">{textAnimationScopeBadge(textAnimationScope(action))}</span> : null}<span className="action-name">{preset.label}</span>{spread > 0 ? <span className="timeline-action-stagger-tail" aria-hidden="true" style={{ left: `${coreWidth}%` }} /> : null}<span className="action-resize" onPointerDown={(event) => beginActionGesture(event, layer.id, action, "resize")} /></div>;
               })}
             </div>
           </div>)}
@@ -818,7 +1032,7 @@ function AnimationWorkflowBar({ count, groupSelected, canPaste, staggerStep, sta
     <button type="button" onClick={onDuplicate}>Duplicate</button>
     {count >= 2 ? <button type="button" onClick={onGroup}>Group</button> : null}
     {groupSelected ? <button type="button" onClick={onUngroup}>Ungroup</button> : null}
-    {count >= 2 ? <div className="timeline-stagger-tools"><label>Stagger <input type="number" min="0" max="5" step=".01" value={staggerStep} onChange={(event) => onStaggerStep(Math.max(0, Number(event.currentTarget.value)))} /></label><select aria-label="Stagger order" value={staggerOrder} onChange={(event) => onStaggerOrder(event.currentTarget.value as StaggerOrder)}><option value="normal">Forward</option><option value="reverse">Reverse</option><option value="center">Center</option><option value="edges">Edges</option><option value="random">Random</option></select><button type="button" onClick={onStagger}>Apply</button></div> : null}
+    {count >= 2 ? <div className="timeline-stagger-tools"><label>Sequence <input aria-label="Sequence block gap" type="number" min="0" max="5" step=".01" value={staggerStep} onChange={(event) => onStaggerStep(Math.max(0, Number(event.currentTarget.value)))} /></label><select aria-label="Sequence block order" value={staggerOrder} onChange={(event) => onStaggerOrder(event.currentTarget.value as StaggerOrder)}><option value="normal">Forward</option><option value="reverse">Reverse</option><option value="center">Center</option><option value="edges">Edges</option><option value="random">Random</option></select><button type="button" onClick={onStagger}>Apply</button></div> : null}
     <button type="button" onClick={onSavePreset}>Save preset</button>
     <button type="button" className="danger-text" onClick={onDelete}>Delete</button>
   </div>;
@@ -837,7 +1051,11 @@ function actionSnapshots(project: KurogiProject, actionIds: string[]) {
   const wanted = new Set(actionIds);
   const snapshots: ActionSnapshot[] = [];
   for (const layer of Object.values(project.layers)) {
-    for (const action of layer.animationActions) if (wanted.has(action.id)) snapshots.push({ layerId: layer.id, actionId: action.id, startTime: action.startTime, duration: action.duration, delay: action.delay });
+    const scene = project.scenes[layer.sceneId];
+    if (!scene) continue;
+    const animationOffset = getLayerRenderTiming(layer, scene).animationOffset;
+    const text = layer.type === "text" ? layer.text : "";
+    for (const action of layer.animationActions) if (wanted.has(action.id)) snapshots.push({ layerId: layer.id, actionId: action.id, startTime: action.startTime, duration: action.duration, delay: action.delay, animationOffset, staggerSpread: textAnimationStaggerSpread(action, text) });
   }
   return snapshots;
 }
@@ -846,7 +1064,14 @@ function snapTime(time: number, project: KurogiProject, playheadTime: number, ig
   const scene = getActiveScene(project);
   const threshold = Math.max(.02, (8 / Math.max(1, laneWidth)) * scene.duration);
   const candidates = [0, scene.duration, playheadTime];
-  for (const layer of getSceneLayers(project)) for (const action of layer.animationActions) if (!ignoredActionIds.has(action.id)) { const start = action.startTime + action.delay; candidates.push(start, start + action.duration); }
+  for (const layer of getSceneLayers(project)) {
+    const timing = getLayerRenderTiming(layer, scene);
+    const text = layer.type === "text" ? layer.text : "";
+    for (const action of layer.animationActions) if (!ignoredActionIds.has(action.id)) {
+      const start = timing.animationOffset + action.startTime + action.delay;
+      candidates.push(start, start + textAnimationVisualDuration(action, text));
+    }
+  }
   let closest = time;
   let distance = threshold;
   for (const candidate of candidates) { const next = Math.abs(candidate - time); if (next <= distance) { closest = candidate; distance = next; } }
@@ -854,6 +1079,27 @@ function snapTime(time: number, project: KurogiProject, playheadTime: number, ig
 }
 
 function findAction(project: KurogiProject, actionId: string) { if (!actionId) return null; for (const layer of Object.values(project.layers)) { const action = layer.animationActions.find((candidate) => candidate.id === actionId); if (action) return { layerId: layer.id, action }; } return null; }
+function timelineContentEnd(project: KurogiProject, sceneId: string) {
+  const scene = project.scenes[sceneId];
+  if (!scene) return 0;
+  let end = 0;
+  for (const layerId of scene.layerIds) {
+    const layer = project.layers[layerId];
+    if (!layer) continue;
+    const start = Math.max(0, layer.startTime ?? 0);
+    const duration = Math.max(.01, layer.duration ?? 0);
+    end = Math.max(end, start + duration);
+    const timing = getLayerRenderTiming(layer, scene);
+    const text = layer.type === "text" ? layer.text : "";
+    for (const action of layer.animationActions) end = Math.max(end, timing.animationOffset + action.startTime + action.delay + textAnimationVisualDuration(action, text));
+  }
+  for (const clipId of scene.audioClipIds ?? []) {
+    const clip = project.audioClips[clipId];
+    if (clip) end = Math.max(end, clip.startTime + clip.duration);
+  }
+  return end;
+}
+function timelineRoundedDuration(duration: number) { return clamp(Math.ceil(duration * 10) / 10, .1, 3600); }
 function formatTime(seconds: number) { const minutes = Math.floor(seconds / 60); const remainder = Math.max(0, seconds - minutes * 60); return `${minutes}:${remainder.toFixed(2).padStart(5, "0")}`; }
 function formatRuler(seconds: number) { return seconds >= 10 ? `${seconds.toFixed(0)}s` : `${seconds.toFixed(seconds % 1 ? 1 : 0)}s`; }
 function timelineLaneWidth(duration: number, zoom: number) { return Math.max(760, duration * 150) * zoom; }

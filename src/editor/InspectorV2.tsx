@@ -8,6 +8,7 @@ import type {
   ExportProgress,
   KurogiProject,
   Layer,
+  TextAnimationUnit,
 } from "../types";
 import { Icon, animationIconName } from "../ui/Icon";
 import { AnimationPresetDialog } from "./AnimationPresetDialog";
@@ -17,6 +18,17 @@ import { EffectsPanel } from "./EffectsPanel";
 import { presetFor } from "./animationPresets";
 import { estimateAutoFitFontSize } from "../core/projectValidation";
 import type { SceneUpdatePatch } from "../core/sceneWorkspace";
+import { projectFontFamilies, SYSTEM_FONT_GROUPS } from "../core/fontCatalog";
+import { CommitNumberField, NumberField, type NumberFieldProps } from "./NumericField";
+import {
+  supportsTextAnimationUnit,
+  textAnimationScope,
+  textAnimationScopeBadge,
+  textAnimationScopeLabel,
+  textAnimationUnitCount,
+  textAnimationVisualDuration,
+  withTextAnimationScope,
+} from "../core/textAnimation";
 
 export type InspectorTab = "Design" | "Animation" | "Export";
 
@@ -34,7 +46,8 @@ interface InspectorProps {
   onCommitLayer: (layerId: string, updater: (layer: Layer) => Layer) => void;
   onPreviewAction: (layerId: string, actionId: string, updater: (action: AnimationAction) => AnimationAction) => void;
   onCommitAction: (layerId: string, actionId: string, updater: (action: AnimationAction) => AnimationAction) => void;
-  onAddAction: (category: AnimationCategory, type: AnimationType) => void;
+  onAddAction: (category: AnimationCategory, type: AnimationType, textUnit?: TextAnimationUnit) => void;
+  onPlayAction: (actionId: string) => void;
   onSelectAction: (actionId: string) => void;
   onDeleteAction: (actionId: string) => void;
   onDuplicateAction: (actionId: string) => void;
@@ -62,6 +75,7 @@ export function Inspector(props: InspectorProps) {
       </div>
       {props.tab === "Design" ? (
         props.selectedLayer ? <DesignInspector
+            project={props.project}
             layer={props.selectedLayer}
             onBegin={props.onBeginPropertyEdit}
             onFinish={props.onFinishPropertyEdit}
@@ -81,6 +95,7 @@ export function Inspector(props: InspectorProps) {
           onPreview={props.onPreviewAction}
           onCommit={props.onCommitAction}
           onAddAction={props.onAddAction}
+          onPlayAction={props.onPlayAction}
           onSelectAction={props.onSelectAction}
           onDeleteAction={props.onDeleteAction}
           onDuplicateAction={props.onDuplicateAction}
@@ -103,7 +118,8 @@ export function Inspector(props: InspectorProps) {
   );
 }
 
-function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onCommit }: {
+function DesignInspector({ project, layer, onBegin, onFinish, onCancel, onPreview, onCommit }: {
+  project: KurogiProject;
   layer: Layer | null;
   onBegin: () => void;
   onFinish: () => void;
@@ -112,10 +128,11 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
   onCommit: (layerId: string, updater: (layer: Layer) => Layer) => void;
 }) {
   if (!layer) return <InspectorEmpty title="Select a layer" message="Choose a layer on the canvas or timeline to edit its design." />;
+  const customFontFamilies = projectFontFamilies(project.assets);
   const preview = (updater: (current: Layer) => Layer) => onPreview(layer.id, updater);
   const commit = (updater: (current: Layer) => Layer) => onCommit(layer.id, updater);
   const number = (label: string, value: number, change: (current: Layer, value: number) => Layer, options: Partial<NumberFieldProps> = {}) => (
-    <NumberField label={label} value={value} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(next) => preview((current) => change(current, next))} {...options} />
+    <NumberField label={label} value={value} step={1} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(next) => preview((current) => change(current, next))} {...options} />
   );
 
   return (
@@ -125,14 +142,14 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
       <section className="property-section compact-property-section">
         <div className="section-label">Transform</div>
         <div className="property-grid two">
-          {number("X", layer.position.x, (current, value) => ({ ...current, position: { ...current.position, x: value } }))}
-          {number("Y", layer.position.y, (current, value) => ({ ...current, position: { ...current.position, y: value } }))}
-          {number("Width", layer.size.width, (current, value) => ({ ...current, size: { ...current.size, width: Math.max(1, value) } }), { min: 1 })}
-          {number("Height", layer.size.height, (current, value) => ({ ...current, size: { ...current.size, height: Math.max(1, value) } }), { min: 1 })}
-          {number("Rotation", layer.rotation, (current, value) => ({ ...current, rotation: value }))}
+          {number("X", layer.position.x, (current, value) => ({ ...current, position: { ...current.position, x: value } }), { suffix: "px" })}
+          {number("Y", layer.position.y, (current, value) => ({ ...current, position: { ...current.position, y: value } }), { suffix: "px" })}
+          {number("Width", layer.size.width, (current, value) => ({ ...current, size: { ...current.size, width: Math.max(1, value) } }), { min: 1, suffix: "px" })}
+          {number("Height", layer.size.height, (current, value) => ({ ...current, size: { ...current.size, height: Math.max(1, value) } }), { min: 1, suffix: "px" })}
+          {number("Rotation", layer.rotation, (current, value) => ({ ...current, rotation: value }), { suffix: "°" })}
           {number("Opacity", layer.opacity * 100, (current, value) => ({ ...current, opacity: clamp(value / 100, 0, 1) }), { min: 0, max: 100, suffix: "%" })}
-          {number("Scale X", layer.scale.x, (current, value) => ({ ...current, scale: { ...current.scale, x: value } }), { step: .01 })}
-          {number("Scale Y", layer.scale.y, (current, value) => ({ ...current, scale: { ...current.scale, y: value } }), { step: .01 })}
+          {number("Scale X", layer.scale.x, (current, value) => ({ ...current, scale: { ...current.scale, x: value } }), { step: .01, suffix: "×" })}
+          {number("Scale Y", layer.scale.y, (current, value) => ({ ...current, scale: { ...current.scale, y: value } }), { step: .01, suffix: "×" })}
         </div>
       </section>
 
@@ -144,12 +161,16 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
             const next = { ...current, text: event.currentTarget.value };
             return next.style.autoFit ? { ...next, style: { ...next.style, fontSize: estimateAutoFitFontSize(next) } } : next;
           })} onBlur={onFinish} onKeyDown={(event) => escapeField(event, onCancel)} /></label>
-          <label>Font family<select value={layer.style.fontFamily} onChange={(event) => commit((current) => current.type === "text" ? { ...current, style: { ...current.style, fontFamily: event.currentTarget.value } } : current)}><option>Inter</option><option>Arial</option><option>Georgia</option><option>Verdana</option><option>Trebuchet MS</option></select></label>
+          <label>Font family<select data-font-family-select="true" style={{ fontFamily: `${layer.style.fontFamily}, Inter, Arial, sans-serif` }} value={layer.style.fontFamily} onChange={(event) => commit((current) => current.type === "text" ? { ...current, style: { ...current.style, fontFamily: event.currentTarget.value } } : current)}>
+            {!SYSTEM_FONT_GROUPS.some((group) => group.families.some((family) => family === layer.style.fontFamily)) && !customFontFamilies.includes(layer.style.fontFamily) ? <option value={layer.style.fontFamily}>{layer.style.fontFamily}</option> : null}
+            {SYSTEM_FONT_GROUPS.map((group) => <optgroup key={group.label} label={group.label}>{group.families.map((family) => <option key={family} value={family}>{family}</option>)}</optgroup>)}
+            {customFontFamilies.length ? <optgroup label="Project fonts">{customFontFamilies.map((family) => <option key={family} value={family}>{family}</option>)}</optgroup> : null}
+          </select></label>
           <div className="property-grid two">
-            <NumberField label="Font size" value={layer.style.fontSize} min={1} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, fontSize: Math.max(1, value) } } : current)} />
+            <NumberField label="Font size" value={layer.style.fontSize} min={1} step={.5} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, fontSize: Math.max(1, value) } } : current)} />
             <label>Weight<select value={layer.style.fontWeight} onChange={(event) => commit((current) => current.type === "text" ? { ...current, style: { ...current.style, fontWeight: Number(event.currentTarget.value) } } : current)}><option value={400}>Regular</option><option value={500}>Medium</option><option value={600}>Semibold</option><option value={700}>Bold</option><option value={800}>Extra bold</option></select></label>
-            <NumberField label="Line height" value={layer.style.lineHeight} min={.1} step={.05} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, lineHeight: Math.max(.1, value) } } : current)} />
-            <NumberField label="Letter spacing" value={layer.style.letterSpacing} step={.1} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, letterSpacing: value } } : current)} />
+            <NumberField label="Line height" value={layer.style.lineHeight} min={.1} step={.05} suffix="×" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, lineHeight: Math.max(.1, value) } } : current)} />
+            <NumberField label="Letter spacing" value={layer.style.letterSpacing} step={.1} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, letterSpacing: value } } : current)} />
           </div>
           <div className="property-grid two">
             <label>Horizontal<select value={layer.style.align} onChange={(event) => commit((current) => current.type === "text" ? { ...current, style: { ...current.style, align: event.currentTarget.value as "left" | "center" | "right" } } : current)}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
@@ -158,7 +179,7 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
           <ColorField label="Color" value={layer.style.color} onBegin={onBegin} onFinish={onFinish} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, color: value } } : current)} />
           <div className="property-grid two">
             <ColorField label="Text stroke" value={normalizeColor(layer.style.stroke ?? "#000000")} onBegin={onBegin} onFinish={onFinish} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, stroke: value } } : current)} />
-            <NumberField label="Stroke width" value={layer.style.strokeWidth ?? 0} min={0} max={40} step={.5} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, strokeWidth: Math.max(0, value) } } : current)} />
+            <NumberField label="Stroke width" value={layer.style.strokeWidth ?? 0} min={0} max={40} step={.5} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "text" ? { ...current, style: { ...current.style, strokeWidth: Math.max(0, value) } } : current)} />
           </div>
           <label className="toggle-row"><span>Auto-fit text</span><ToggleSwitch checked={Boolean(layer.style.autoFit)} onChange={(checked) => commit((current) => {
             if (current.type !== "text") return current;
@@ -175,10 +196,10 @@ function DesignInspector({ layer, onBegin, onFinish, onCancel, onPreview, onComm
           <div className="property-grid two">
             <ColorField label="Fill" value={layer.style.fill} onBegin={onBegin} onFinish={onFinish} onChange={(value) => preview((current) => current.type === "shape" ? { ...current, style: { ...current.style, fill: value } } : current)} />
             <ColorField label="Stroke" value={normalizeColor(layer.style.stroke)} onBegin={onBegin} onFinish={onFinish} onChange={(value) => preview((current) => current.type === "shape" ? { ...current, style: { ...current.style, stroke: value } } : current)} />
-            <NumberField label="Stroke width" value={layer.style.strokeWidth} min={0} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "shape" ? { ...current, style: { ...current.style, strokeWidth: Math.max(0, value) } } : current)} />
-            <NumberField label="Radius" value={layer.style.borderRadius} min={0} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "shape" ? { ...current, style: { ...current.style, borderRadius: Math.max(0, value) } } : current)} />
-            <NumberField label="Shadow" value={layer.style.shadow} min={0} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "shape" ? { ...current, style: { ...current.style, shadow: Math.max(0, value) } } : current)} />
-            <NumberField label="Blur" value={layer.style.blur} min={0} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "shape" ? { ...current, style: { ...current.style, blur: Math.max(0, value) } } : current)} />
+            <NumberField label="Stroke width" value={layer.style.strokeWidth} min={0} step={.5} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "shape" ? { ...current, style: { ...current.style, strokeWidth: Math.max(0, value) } } : current)} />
+            <NumberField label="Radius" value={layer.style.borderRadius} min={0} step={1} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "shape" ? { ...current, style: { ...current.style, borderRadius: Math.max(0, value) } } : current)} />
+            <NumberField label="Shadow" value={layer.style.shadow} min={0} step={1} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "shape" ? { ...current, style: { ...current.style, shadow: Math.max(0, value) } } : current)} />
+            <NumberField label="Blur" value={layer.style.blur} min={0} step={.5} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((current) => current.type === "shape" ? { ...current, style: { ...current.style, blur: Math.max(0, value) } } : current)} />
           </div>
         </section>
       ) : null}
@@ -212,8 +233,8 @@ function SceneInspector({ project, onUpdate }: { project: KurogiProject; onUpdat
       <section className="property-section compact-property-section">
         <div className="section-label">Canvas</div>
         <div className="property-grid two">
-          <CommitNumberField label="Width" value={scene.width} min={64} max={7680} step={1} onCommit={(width) => onUpdate(scene.id, { width })} />
-          <CommitNumberField label="Height" value={scene.height} min={64} max={7680} step={1} onCommit={(height) => onUpdate(scene.id, { height })} />
+          <CommitNumberField label="Width" value={scene.width} min={64} max={7680} step={1} suffix="px" onCommit={(width) => onUpdate(scene.id, { width })} />
+          <CommitNumberField label="Height" value={scene.height} min={64} max={7680} step={1} suffix="px" onCommit={(height) => onUpdate(scene.id, { height })} />
         </div>
       </section>
 
@@ -236,7 +257,7 @@ function SceneInspector({ project, onUpdate }: { project: KurogiProject; onUpdat
   );
 }
 
-function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish, onCancel, onPreview, onCommit, onAddAction, onSelectAction, onDeleteAction, onDuplicateAction, onSavePreset, onApplyCustomPreset, onDeleteCustomPreset }: {
+function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish, onCancel, onPreview, onCommit, onAddAction, onPlayAction, onSelectAction, onDeleteAction, onDuplicateAction, onSavePreset, onApplyCustomPreset, onDeleteCustomPreset }: {
   project: KurogiProject;
   layer: Layer | null;
   selectedAction: AnimationAction | null;
@@ -245,7 +266,8 @@ function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish,
   onCancel: () => void;
   onPreview: (layerId: string, actionId: string, updater: (action: AnimationAction) => AnimationAction) => void;
   onCommit: (layerId: string, actionId: string, updater: (action: AnimationAction) => AnimationAction) => void;
-  onAddAction: (category: AnimationCategory, type: AnimationType) => void;
+  onAddAction: (category: AnimationCategory, type: AnimationType, textUnit?: TextAnimationUnit) => void;
+  onPlayAction: (actionId: string) => void;
   onSelectAction: (actionId: string) => void;
   onDeleteAction: (actionId: string) => void;
   onDuplicateAction: (actionId: string) => void;
@@ -286,7 +308,7 @@ function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish,
             {actions.map((action) => (
               <button type="button" key={action.id} className={activeAction?.id === action.id ? "active" : ""} onClick={() => onSelectAction(action.id)}>
                 <span className={`action-chip-icon preset-${action.category}`}><Icon name={animationIconName(action.type)} size={15} /></span>
-                <span><strong>{presetFor(action.type).label}</strong><small>{(action.startTime + action.delay).toFixed(2)}s · {action.duration.toFixed(2)}s</small></span>
+                <span><strong>{presetFor(action.type).label}</strong><small>{(action.startTime + action.delay).toFixed(2)}s · {action.duration.toFixed(2)}s{layer.type === "text" ? <em className="action-scope-badge">{textAnimationScopeBadge(textAnimationScope(action))}</em> : null}</small></span>
               </button>
             ))}
           </div>
@@ -299,7 +321,7 @@ function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish,
         <section className="property-section action-editor compact-action-editor">
           <div className="action-editor-title">
             <span><small>{activeAction.category.toUpperCase()}</small><strong>{presetFor(activeAction.type).label}</strong></span>
-            <span><button type="button" className="svg-button" title="Save reusable preset" onClick={onSavePreset}><Icon name="sparkles" size={14} /></button><button type="button" className="svg-button" title="Duplicate action" onClick={() => onDuplicateAction(activeAction.id)}><Icon name="copy" size={14} /></button><button type="button" className="svg-button danger-text" title="Delete action" onClick={() => onDeleteAction(activeAction.id)}><Icon name="trash" size={14} /></button></span>
+            <span><button type="button" className="svg-button" title="Replay this animation" aria-label="Replay this animation" onClick={() => onPlayAction(activeAction.id)}><Icon name="play" size={14} /></button><button type="button" className="svg-button" title="Save reusable preset" onClick={onSavePreset}><Icon name="sparkles" size={14} /></button><button type="button" className="svg-button" title="Duplicate action" onClick={() => onDuplicateAction(activeAction.id)}><Icon name="copy" size={14} /></button><button type="button" className="svg-button danger-text" title="Delete action" onClick={() => onDeleteAction(activeAction.id)}><Icon name="trash" size={14} /></button></span>
           </div>
           <div className="property-grid two">
             <NumberField label="Start" value={activeAction.startTime} min={0} max={scene.duration} step={.05} suffix="s" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, startTime: clamp(value, 0, scene.duration) }))} />
@@ -307,27 +329,14 @@ function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish,
             <NumberField label="Delay" value={activeAction.delay} min={0} max={scene.duration} step={.05} suffix="s" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, delay: clamp(value, 0, scene.duration) }))} />
             <label>Easing<select value={activeAction.easing} onChange={(event) => commit((action) => ({ ...action, easing: event.currentTarget.value as AnimationAction["easing"] }))}><option value="linear">Linear</option><option value="easeIn">Ease in</option><option value="easeOut">Ease out</option><option value="easeInOut">Ease in out</option><option value="backIn">Back in</option><option value="backOut">Back out</option><option value="overshoot">Overshoot</option><option value="bounce">Bounce</option><option value="elastic">Elastic</option><option value="custom">Custom cubic Bezier</option></select></label>
           </div>
-          {activeAction.easing === "custom" ? <CubicBezierEditor value={activeAction.easingCurve ?? { x1: .25, y1: .1, x2: .25, y2: 1 }} onBegin={onBegin} onPreview={(curve) => preview((action) => ({ ...action, easing: "custom", easingCurve: curve }))} onFinish={onFinish} /> : null}
+          {activeAction.easing === "custom" ? <CubicBezierEditor value={activeAction.easingCurve ?? { x1: .25, y1: .1, x2: .25, y2: 1 }} onBegin={onBegin} onPreview={(curve) => preview((action) => ({ ...action, easing: "custom", easingCurve: curve }))} onFinish={onFinish} onCancel={onCancel} /> : null}
           {activeAction.groupId ? <div className="action-group-name">Grouped as {project.animationGroups[activeAction.groupId]?.name ?? "Animation group"}</div> : null}
           {activeAction.type === "counter" && layer.type === "text" ? <div className="property-grid two"><NumberField label="From" value={Number(activeAction.parameters.from ?? 0)} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, from: value } }))} /><NumberField label="To" value={Number(activeAction.parameters.to ?? 100)} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, to: value } }))} /><NumberField label="Decimals" value={Number(activeAction.parameters.decimals ?? 0)} min={0} max={6} step={1} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, decimals: Math.round(clamp(value, 0, 6)) } }))} /><label>Prefix<input value={String(activeAction.parameters.prefix ?? "")} onChange={(event) => commit((action) => ({ ...action, parameters: { ...action.parameters, prefix: event.currentTarget.value } }))} /></label><label>Suffix<input value={String(activeAction.parameters.suffix ?? "")} onChange={(event) => commit((action) => ({ ...action, parameters: { ...action.parameters, suffix: event.currentTarget.value } }))} /></label></div> : null}
-          {activeAction.type === "motionPath" ? <div><label className="toggle-row"><span>Orient to path</span><ToggleSwitch checked={activeAction.motionPath?.orientToPath ?? false} onChange={(checked) => commit((action) => ({ ...action, motionPath: { ...(action.motionPath ?? defaultMotionPath()), orientToPath: checked } }))} /></label><div className="motion-path-fields">{(["start","control1","control2","end"] as const).flatMap((point) => ([<NumberField key={`${point}-x`} label={`${point} X`} value={(activeAction.motionPath ?? defaultMotionPath())[point].x} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, motionPath: { ...(action.motionPath ?? defaultMotionPath()), [point]: { ...(action.motionPath ?? defaultMotionPath())[point], x: value } } }))} />,<NumberField key={`${point}-y`} label={`${point} Y`} value={(activeAction.motionPath ?? defaultMotionPath())[point].y} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, motionPath: { ...(action.motionPath ?? defaultMotionPath()), [point]: { ...(action.motionPath ?? defaultMotionPath())[point], y: value } } }))} />]))}</div><small>Drag the four Bezier handles directly on the active canvas.</small></div> : null}
+          {activeAction.type === "motionPath" ? <div><label className="toggle-row"><span>Orient to path</span><ToggleSwitch checked={activeAction.motionPath?.orientToPath ?? false} onChange={(checked) => commit((action) => ({ ...action, motionPath: { ...(action.motionPath ?? defaultMotionPath()), orientToPath: checked } }))} /></label><div className="motion-path-fields">{(["start","control1","control2","end"] as const).flatMap((point) => ([<NumberField key={`${point}-x`} label={`${point} X`} value={(activeAction.motionPath ?? defaultMotionPath())[point].x} step={1} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, motionPath: { ...(action.motionPath ?? defaultMotionPath()), [point]: { ...(action.motionPath ?? defaultMotionPath())[point], x: value } } }))} />,<NumberField key={`${point}-y`} label={`${point} Y`} value={(activeAction.motionPath ?? defaultMotionPath())[point].y} step={1} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, motionPath: { ...(action.motionPath ?? defaultMotionPath()), [point]: { ...(action.motionPath ?? defaultMotionPath())[point], y: value } } }))} />]))}</div><small>Drag the four Bezier handles directly on the active canvas.</small></div> : null}
           {hasDirection(activeAction.type) ? <label>Direction<select value={String(activeAction.parameters.direction ?? "up")} onChange={(event) => commit((action) => ({ ...action, parameters: { ...action.parameters, direction: event.currentTarget.value } }))}><option value="up">Up</option><option value="down">Down</option><option value="left">Left</option><option value="right">Right</option></select></label> : null}
-          {hasDistance(activeAction.type) ? <NumberField label="Distance" value={Number(activeAction.parameters.distance ?? 120)} min={0} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, distance: Math.max(0, value) } }))} /> : null}
+          {hasDistance(activeAction.type) ? <NumberField label="Distance" value={Number(activeAction.parameters.distance ?? 120)} min={0} step={1} suffix="px" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, distance: Math.max(0, value) } }))} /> : null}
           {hasIntensity(activeAction.type) ? <NumberField label="Intensity" value={Number(activeAction.parameters.intensity ?? defaultIntensity(activeAction.type))} min={0} step={usesFractionalIntensity(activeAction.type) ? .01 : 1} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, parameters: { ...action.parameters, intensity: Math.max(0, value) } }))} /> : null}
-          {layer.type === "text" ? (
-            <div className="stagger-panel">
-              <label className="toggle-row"><span>Stagger text</span><ToggleSwitch checked={activeAction.stagger?.enabled ?? false} onChange={(checked) => commit((action) => ({ ...action, stagger: { enabled: checked, unit: action.stagger?.unit ?? "character", delay: action.stagger?.delay ?? .04, order: action.stagger?.order ?? "normal", seed: action.stagger?.seed ?? 42 } }))} /></label>
-              {activeAction.stagger?.enabled ? (
-                <>
-                  <div className="property-grid two">
-                    <label>Unit<select value={activeAction.stagger.unit} onChange={(event) => commit((action) => ({ ...action, stagger: { ...action.stagger!, unit: event.currentTarget.value as NonNullable<AnimationAction["stagger"]>["unit"] } }))}><option value="line">Line</option><option value="word">Word</option><option value="character">Character</option></select></label>
-                    <label>Order<select value={activeAction.stagger.order} onChange={(event) => commit((action) => ({ ...action, stagger: { ...action.stagger!, order: event.currentTarget.value as NonNullable<AnimationAction["stagger"]>["order"] } }))}><option value="normal">Normal</option><option value="reverse">Reverse</option><option value="center">Center outward</option><option value="edges">Edges inward</option><option value="random">Random seeded</option></select></label>
-                  </div>
-                  <NumberField label="Stagger delay" value={activeAction.stagger.delay} min={0} max={1} step={.01} suffix="s" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => preview((action) => ({ ...action, stagger: { ...action.stagger!, delay: clamp(value, 0, 1) } }))} />
-                </>
-              ) : null}
-            </div>
-          ) : null}
+          {layer.type === "text" ? <TextAnimationTargetEditor layer={layer} action={activeAction} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onPreview={preview} onCommit={commit} /> : null}
           {activeAction.category === "loop" ? (
             <div className="property-grid two">
               <label>Repeat<select value={String(activeAction.repeat?.count ?? "infinite")} onChange={(event) => commit((action) => ({ ...action, repeat: { count: event.currentTarget.value === "infinite" ? "infinite" : Number(event.currentTarget.value), delay: action.repeat?.delay ?? 0 } }))}><option value="infinite">Infinite</option><option value="1">1 time</option><option value="2">2 times</option><option value="3">3 times</option><option value="5">5 times</option></select></label>
@@ -343,16 +352,67 @@ function AnimationInspector({ project, layer, selectedAction, onBegin, onFinish,
           project={project}
           layer={layer}
           initialCategory={category}
+          initialTextUnit={activeAction ? textAnimationScope(activeAction) : "layer"}
           onClose={() => setBrowserOpen(false)}
-          onChoose={(nextCategory, type) => {
+          onChoose={(nextCategory, type, textUnit) => {
             setCategory(nextCategory);
-            onAddAction(nextCategory, type);
+            onAddAction(nextCategory, type, textUnit);
             setBrowserOpen(false);
           }}
           onChooseCustom={(presetId) => { onApplyCustomPreset(presetId); setBrowserOpen(false); }}
           onDeleteCustom={onDeleteCustomPreset}
         />
       ) : null}
+    </div>
+  );
+}
+
+function TextAnimationTargetEditor({ layer, action, onBegin, onFinish, onCancel, onPreview, onCommit }: {
+  layer: Extract<Layer, { type: "text" }>;
+  action: AnimationAction;
+  onBegin: () => void;
+  onFinish: () => void;
+  onCancel: () => void;
+  onPreview: (updater: (action: AnimationAction) => AnimationAction) => void;
+  onCommit: (updater: (action: AnimationAction) => AnimationAction) => void;
+}) {
+  const unit = textAnimationScope(action);
+  const supported = supportsTextAnimationUnit(action.type);
+  const count = textAnimationUnitCount(layer.text, unit);
+  const visualDuration = textAnimationVisualDuration(action, layer.text);
+  const scopes: Array<{ unit: TextAnimationUnit; label: string }> = [
+    { unit: "layer", label: "Whole" },
+    { unit: "line", label: "Lines" },
+    { unit: "word", label: "Words" },
+    { unit: "character", label: "Letters" },
+  ];
+
+  return (
+    <div className="text-motion-target">
+      <header>
+        <span><strong>Animate text</strong><small>Choose whether this action moves the text together or builds it in parts.</small></span>
+        <span className="text-motion-scope-status">{textAnimationScopeBadge(unit)}</span>
+      </header>
+      <div className="text-motion-scope-picker" role="radiogroup" aria-label="Animate text as">
+        {scopes.map((scope) => {
+          const disabled = scope.unit !== "layer" && !supported;
+          return <button type="button" role="radio" aria-checked={unit === scope.unit} disabled={disabled} title={disabled ? `${presetFor(action.type).label} animates the whole text value.` : `Animate ${scope.label.toLowerCase()}`} key={scope.unit} className={unit === scope.unit ? "active" : ""} onClick={() => onCommit((current) => withTextAnimationScope(current, scope.unit))}>{scope.label}</button>;
+        })}
+      </div>
+      {unit !== "layer" && action.stagger ? (
+        <div className="text-motion-stagger-controls">
+          <div className="property-grid two">
+            <label>Order<select value={action.stagger.order} onChange={(event) => onCommit((current) => ({ ...current, stagger: { ...current.stagger!, order: event.currentTarget.value as NonNullable<AnimationAction["stagger"]>["order"] } }))}><option value="normal">Forward</option><option value="reverse">Reverse</option><option value="center">Center outward</option><option value="edges">Edges inward</option><option value="random">Random seeded</option></select></label>
+            <NumberField label="Gap" value={action.stagger.delay} min={0} max={2} step={.005} precision={3} suffix="s" onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => onPreview((current) => ({ ...current, stagger: { ...current.stagger!, delay: clamp(value, 0, 2) } }))} />
+          </div>
+          {action.stagger.order === "random" ? <NumberField label="Random seed" value={action.stagger.seed ?? 42} step={1} precision={0} onBegin={onBegin} onFinish={onFinish} onCancel={onCancel} onChange={(value) => onPreview((current) => ({ ...current, stagger: { ...current.stagger!, seed: Math.round(value) } }))} /> : null}
+        </div>
+      ) : null}
+      <div className="text-motion-summary" aria-live="polite">
+        <span>{unit === "layer" ? "1 whole text layer" : `${count} ${textAnimationScopeLabel(unit, count)}`}</span>
+        <span>Motion {action.duration.toFixed(2)}s · total {visualDuration.toFixed(2)}s</span>
+      </div>
+      {!supported ? <small className="text-motion-note">Counter changes the text value itself, so it stays on Whole.</small> : null}
     </div>
   );
 }
@@ -375,49 +435,6 @@ function ExportInspector({ project, options, onChange, exporting, progress, onEx
       <button type="button" className="render-btn" disabled={exporting} onClick={onExport}>{exporting ? "Rendering…" : "Export motion"}<Icon name="export" size={16} /></button>
     </div>
   );
-}
-
-interface NumberFieldProps {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-  onBegin: () => void;
-  onFinish: () => void;
-  onCancel: () => void;
-  min?: number;
-  max?: number;
-  step?: number;
-  suffix?: string;
-}
-
-function CommitNumberField({ label, value, min, max, step = 1, suffix, onCommit }: {
-  label: string;
-  value: number;
-  min?: number;
-  max?: number;
-  step?: number;
-  suffix?: string;
-  onCommit: (value: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-
-  const commit = () => {
-    const parsed = Number(draft);
-    if (!Number.isFinite(parsed)) {
-      setDraft(String(value));
-      return;
-    }
-    const next = Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min ?? Number.NEGATIVE_INFINITY, parsed));
-    setDraft(String(next));
-    if (next !== value) onCommit(next);
-  };
-
-  return <label className="number-field">{label}<span><input type="number" value={draft} min={min} max={max} step={step} onChange={(event) => setDraft(event.currentTarget.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { setDraft(String(value)); event.currentTarget.blur(); } }} />{suffix ? <i>{suffix}</i> : null}</span></label>;
-}
-
-function NumberField({ label, value, onChange, onBegin, onFinish, onCancel, min, max, step = .1, suffix }: NumberFieldProps) {
-  return <label className="number-field">{label}<span><input type="number" value={Number.isFinite(value) ? Number(value.toFixed(4)) : 0} min={min} max={max} step={step} onFocus={onBegin} onChange={(event) => onChange(Number(event.currentTarget.value))} onBlur={onFinish} onKeyDown={(event) => escapeField(event, onCancel)} />{suffix ? <i>{suffix}</i> : null}</span></label>;
 }
 
 function ColorField({ label, value, onChange, onBegin, onFinish }: { label: string; value: string; onChange: (value: string) => void; onBegin: () => void; onFinish: () => void }) {

@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { evaluateLayer } from "../core/evaluator";
+import { getLayerRenderTiming } from "../core/layerTiming";
 import { getShapeDefinition } from "../core/shapeLibrary";
 import { textVerticalJustification } from "../core/textLayout";
 import type { KurogiProject, Layer, Scene } from "../types";
@@ -8,14 +9,18 @@ export function clippingMaskSceneStyle(
   project: KurogiProject,
   layer: Layer,
   scene: Scene,
-  time: number,
+  sceneTime: number,
 ): CSSProperties | undefined {
   const definition = layer.mask;
   if (!definition?.clipping) return undefined;
   const source = project.layers[definition.sourceLayerId];
   if (!source || source.sceneId !== scene.id || source.parentId) return emptyMaskStyle(scene);
 
-  const svg = buildSceneMaskSvg(project, source, scene, time);
+  const timing = getLayerRenderTiming(source, scene);
+  if (sceneTime < timing.startTime || sceneTime >= timing.startTime + timing.duration) {
+    return emptyMaskStyle(scene);
+  }
+  const svg = buildSceneMaskSvg(project, source, scene, sceneTime - timing.animationOffset);
   const dataUrl = `data:image/svg+xml,${encodeURIComponent(svg)}`;
   const value = `url(${JSON.stringify(dataUrl)})`;
   return {

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { AlignMode, DistributeMode } from "../core/designTools";
 import type { BlendMode, GradientFill, KurogiProject, Layer } from "../types";
 import { Icon, type IconName } from "../ui/Icon";
+import { projectFontFamilies, SYSTEM_FONT_GROUPS } from "../core/fontCatalog";
 
 interface DesignToolsPanelProps {
   project: KurogiProject;
@@ -30,7 +31,6 @@ const BLEND_MODES: BlendMode[] = [
   "saturation", "color", "luminosity",
 ];
 
-const SYSTEM_FONTS = ["Inter", "Arial", "Georgia", "Times New Roman", "Courier New", "Verdana"];
 const ALIGNMENT_ICONS: Record<AlignMode, IconName> = { left: "alignLeft", center: "alignCenterHorizontal", right: "alignRight", top: "alignTop", middle: "alignCenterVertical", bottom: "alignBottom" };
 
 export function DesignToolsPanel({
@@ -57,10 +57,7 @@ export function DesignToolsPanel({
   const [endColor, setEndColor] = useState(gradient?.endColor ?? "#22d3ee");
   const [angle, setAngle] = useState(gradient?.angle ?? 90);
   const fontInputRef = useRef<HTMLInputElement>(null);
-  const customFonts = useMemo(
-    () => Object.values(project.assets).filter((asset) => asset.type === "font" && asset.fontFamily),
-    [project.assets],
-  );
+  const customFonts = useMemo(() => projectFontFamilies(project.assets), [project.assets]);
 
   useEffect(() => {
     setPaintType(gradient?.type ?? "solid");
@@ -162,8 +159,8 @@ export function DesignToolsPanel({
           }} />
           <label>Family
             <select disabled={!textSelected} value={primary?.type === "text" ? primary.style.fontFamily : "Inter"} onChange={(event) => onFontFamily(event.target.value)}>
-              {SYSTEM_FONTS.map((font) => <option key={font} value={font}>{font}</option>)}
-              {customFonts.map((asset) => <option key={asset.id} value={asset.fontFamily}>{asset.fontFamily}</option>)}
+              {SYSTEM_FONT_GROUPS.map((group) => <optgroup key={group.label} label={group.label}>{group.families.map((font) => <option key={font} value={font}>{font}</option>)}</optgroup>)}
+              {customFonts.length ? <optgroup label="Project fonts">{customFonts.map((font) => <option key={font} value={font}>{font}</option>)}</optgroup> : null}
             </select>
           </label>
           <button type="button" onClick={() => fontInputRef.current?.click()}>Import font</button>

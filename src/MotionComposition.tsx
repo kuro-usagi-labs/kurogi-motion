@@ -1,29 +1,28 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AbsoluteFill, Audio, interpolate, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
-import {
-  evaluateCounterText,
-  evaluateLayer,
-  evaluateTextUnit,
-  getTextAnimationUnit,
-  splitTextUnits,
-} from "./core/evaluator";
+import { evaluateLayer } from "./core/evaluator";
 import { getActiveScene, getSceneLayers } from "./core/project";
 import { getLayerRenderTiming } from "./core/layerTiming";
 import { layerSelectionRect, selectionRect, selectionRectsIntersect, type SelectionRect } from "./core/marqueeSelection";
 import { audioClipVolumeAt, getSceneAudioClips } from "./core/audio";
-import { textVerticalJustification } from "./core/textLayout";
 import { snapLayerPosition, type AlignmentGuide } from "./core/designTools";
 import { getShapeDefinition, getShapeMaskStyle, isBoxShape } from "./core/shapeLibrary";
 import { LayerEffects } from "./renderer/LayerEffects";
 import { StaticLayerTree } from "./renderer/StaticLayerTree";
+import { AnimatedTextContent, TextFrame, textLayerStyle } from "./renderer/AnimatedTextContent";
 import { MotionPathOverlay } from "./editor/MotionPathOverlay";
-import { gradientToCss, layerCompositingStyle, projectFontFaceCss, textPaintStyle } from "./renderer/designStyles";
+import { gradientToCss, layerCompositingStyle, projectFontFaceCss } from "./renderer/designStyles";
 import { clippingMaskSceneStyle } from "./renderer/clippingMask";
+import {
+  projectWithCanvasDraft,
+  resizeLayerOnCanvas,
+  type CanvasResizeHandle,
+} from "./core/canvasDirectManipulation";
 import type { KurogiProject, Layer, MotionPathDefinition, TextLayer } from "./types";
 
-type TransformPatch = Partial<
-  Pick<Layer, "position" | "size" | "rotation" | "scale" | "anchor">
->;
+type TransformPatch = Partial<Pick<Layer, "position" | "size" | "rotation" | "scale" | "anchor">> & {
+  style?: TextLayer["style"];
+};
 
 type Props = {
   project: KurogiProject;
@@ -56,6 +55,7 @@ type Gesture = {
   offset?: { x: number; y: number };
   center?: { x: number; y: number };
   startAngle?: number;
+  resizeHandle?: CanvasResizeHandle;
 };
 
 type TextEdit = {
@@ -111,9 +111,13 @@ export const MotionComposition: React.FC<Props> = ({
     moveCaretToEnd(editor);
   }, [textEdit?.layerId]);
 
+  const renderedProject = useMemo(
+    () => projectWithCanvasDraft(project, draftLayer),
+    [draftLayer, project],
+  );
   const renderedLayers = useMemo(
-    () => layers.map((layer) => (draftLayer?.id === layer.id ? draftLayer : layer)),
-    [draftLayer, layers],
+    () => layers.map((layer) => renderedProject.layers[layer.id] ?? layer),
+    [layers, renderedProject],
   );
 
   function projectPoint(event: { clientX: number; clientY: number }) {
@@ -129,6 +133,7 @@ export const MotionComposition: React.FC<Props> = ({
     event: React.PointerEvent<HTMLElement>,
     layer: Layer,
     mode: Gesture["mode"],
+    resizeHandle?: CanvasResizeHandle,
   ) {
     if (event.button !== 0) return;
     if (!editable || layer.locked || textEdit) return;
@@ -163,6 +168,7 @@ export const MotionComposition: React.FC<Props> = ({
               point.x - (layer.position.x + layer.size.width / 2),
             )
           : undefined,
+      resizeHandle,
     };
     const initialDraft = cloneLayer(layer);
     draftLayerRef.current = initialDraft;
@@ -201,10 +207,13 @@ export const MotionComposition: React.FC<Props> = ({
       }
     } else if (gesture.mode === "resize") {
       setAlignmentGuides([]);
-      next.size = {
-        width: Math.max(24, gesture.initial.size.width + point.x - gesture.start.x),
-        height: Math.max(24, gesture.initial.size.height + point.y - gesture.start.y),
-      };
+      const resized = resizeLayerOnCanvas(
+        gesture.initial,
+        gesture.resizeHandle ?? "south-east",
+        { x: point.x - gesture.start.x, y: point.y - gesture.start.y },
+        event.shiftKey,
+      );
+      Object.assign(next, resized);
     } else {
       const center = gesture.center ?? { x: 0, y: 0 };
       const angle = Math.atan2(point.y - center.y, point.x - center.x);
@@ -251,13 +260,15 @@ export const MotionComposition: React.FC<Props> = ({
     draftLayerRef.current = null;
     setDraftLayer(null);
     if (!finalLayer || finalLayer.id !== gesture.id) return;
-    onTransformCommit?.(finalLayer.id, {
+    const patch: TransformPatch = {
       position: finalLayer.position,
       size: finalLayer.size,
       rotation: finalLayer.rotation,
       scale: finalLayer.scale,
       anchor: finalLayer.anchor,
-    });
+    };
+    if (finalLayer.type === "text") patch.style = finalLayer.style;
+    onTransformCommit?.(finalLayer.id, patch);
   }
 
   function beginCanvasMarquee(event: React.PointerEvent<HTMLDivElement>) {
@@ -340,7 +351,7 @@ export const MotionComposition: React.FC<Props> = ({
           pointerEvents: layer.mask?.clipping ? "auto" : undefined,
           ...layerCompositingStyle(project, layer),
         };
-        const clippingStyle = clippingMaskSceneStyle(project, layer, scene, layerTime);
+        const clippingStyle = clippingMaskSceneStyle(renderedProject, layer, scene, time);
         const animatedFilter = [
           visual.blur > 0 ? `blur(${visual.blur}px)` : "",
           visual.brightness !== 1 ? `brightness(${visual.brightness})` : "",
@@ -403,7 +414,7 @@ export const MotionComposition: React.FC<Props> = ({
                           }
                         }}
                         style={{
-                          ...textStyle(layer),
+                          ...textLayerStyle(layer),
                           width: "100%",
                           minHeight: layer.style.fontSize * layer.style.lineHeight,
                           maxHeight: "100%",
@@ -418,7 +429,7 @@ export const MotionComposition: React.FC<Props> = ({
                       />
                     </TextFrame>
                   ) : (
-                    <AnimatedText layer={layer} scene={scene} time={layerTime} />
+                    <AnimatedTextContent layer={layer} scene={scene} time={layerTime} />
                   )
                 ) : layer.type === "shape" ? (
                   <ShapeVisual layer={layer} />
@@ -430,7 +441,7 @@ export const MotionComposition: React.FC<Props> = ({
             {selected && selectedId === layer.id && !isEditing && !layer.locked ? (
               <SelectionHandles
                 sceneWidth={scene.width}
-                onResize={(event) => startGesture(event, layer, "resize")}
+                onResize={(event, handle) => startGesture(event, layer, "resize", handle)}
                 onRotate={(event) => startGesture(event, layer, "rotate")}
               />
             ) : null}
@@ -550,75 +561,6 @@ function AudioTracks({ project }: { project: KurogiProject }) {
   </>;
 }
 
-function AnimatedText({ layer, scene, time }: { layer: TextLayer; scene: ReturnType<typeof getActiveScene>; time: number }) {
-  const displayText = evaluateCounterText(layer, time) ?? layer.text;
-  const unit = getTextAnimationUnit(layer);
-  const units = splitTextUnits(displayText, unit);
-  if (unit === "layer") {
-    return <TextFrame layer={layer}><div style={{ ...textStyle(layer), width: "100%" }}>{displayText}</div></TextFrame>;
-  }
-
-  return (
-    <TextFrame layer={layer}>
-      <div style={{ ...textStyle(layer), width: "100%" }}>
-        {units.map((part, index) => {
-          if (part.text === "\n") return <br key={part.key} />;
-          const visual = evaluateTextUnit(layer, scene, time, index, units.length);
-          return (
-            <span
-              key={part.key}
-              style={{
-                display: "inline-block",
-                whiteSpace: "pre",
-                opacity: visual.opacity,
-                transform: `perspective(${scene.width}px) translate(${visual.translateX}px, ${visual.translateY}px) rotate(${visual.rotation}deg) rotateX(${visual.rotateX}deg) rotateY(${visual.rotateY}deg) scale(${visual.scale})`,
-                transformOrigin: "center",
-                filter: visual.blur > 0 ? `blur(${visual.blur}px)` : undefined,
-              }}
-            >
-              {part.text}
-            </span>
-          );
-        })}
-      </div>
-    </TextFrame>
-  );
-}
-
-function TextFrame({ layer, children }: { layer: TextLayer; children: React.ReactNode }) {
-  return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: textVerticalJustification(layer.style.verticalAlign),
-      width: "100%",
-      height: "100%",
-      minWidth: 0,
-      minHeight: 0,
-      overflow: "hidden",
-      boxSizing: "border-box",
-    }}>
-      {children}
-    </div>
-  );
-}
-
-function textStyle(layer: TextLayer): React.CSSProperties {
-  return {
-    whiteSpace: "pre-wrap",
-    overflowWrap: "break-word",
-    fontFamily: `${layer.style.fontFamily}, Inter, Arial, sans-serif`,
-    fontWeight: layer.style.fontWeight,
-    fontSize: layer.style.fontSize,
-    lineHeight: layer.style.lineHeight,
-    letterSpacing: layer.style.letterSpacing,
-    textAlign: layer.style.align,
-    ...textPaintStyle(layer),
-    boxSizing: "border-box",
-    minWidth: 0,
-  };
-}
-
 function findActionOwner(project: KurogiProject, actionId: string) { for (const layer of Object.values(project.layers)) { const action = layer.animationActions.find((candidate) => candidate.id === actionId); if (action) return { layer, action }; } return null; }
 
 function moveCaretToEnd(element: HTMLElement) {
@@ -689,13 +631,16 @@ function AssetVisual({ project, layer }: { project: KurogiProject; layer: Extrac
   );
 }
 
-function SelectionHandles({ sceneWidth, onResize, onRotate }: { sceneWidth: number; onResize: (event: React.PointerEvent<HTMLSpanElement>) => void; onRotate: (event: React.PointerEvent<HTMLSpanElement>) => void }) {
+function SelectionHandles({ sceneWidth, onResize, onRotate }: { sceneWidth: number; onResize: (event: React.PointerEvent<HTMLSpanElement>, handle: CanvasResizeHandle) => void; onRotate: (event: React.PointerEvent<HTMLSpanElement>) => void }) {
   const size = Math.max(12, sceneWidth / 72);
   const border = Math.max(2, sceneWidth / 540);
+  const sideSize = size * .72;
   return (
     <>
       <span aria-label="Rotate layer" onPointerDown={onRotate} style={{ position: "absolute", left: "50%", top: -size * 2.1, width: size, height: size, marginLeft: -size / 2, borderRadius: "50%", background: "#a78bfa", border: `${border}px solid white`, cursor: "grab", boxSizing: "border-box" }} />
-      <span aria-label="Resize layer" onPointerDown={onResize} style={{ position: "absolute", right: -size / 2, bottom: -size / 2, width: size, height: size, borderRadius: Math.max(2, size / 5), background: "white", border: `${border}px solid #7c5cff`, cursor: "nwse-resize", boxSizing: "border-box" }} />
+      <span aria-label="Resize layer width" onPointerDown={(event) => onResize(event, "east")} style={{ position: "absolute", right: -sideSize / 2, top: "50%", width: sideSize, height: size, marginTop: -size / 2, borderRadius: Math.max(2, sideSize / 3), background: "white", border: `${border}px solid #7c5cff`, cursor: "ew-resize", boxSizing: "border-box" }} />
+      <span aria-label="Resize layer height" onPointerDown={(event) => onResize(event, "south")} style={{ position: "absolute", left: "50%", bottom: -sideSize / 2, width: size, height: sideSize, marginLeft: -size / 2, borderRadius: Math.max(2, sideSize / 3), background: "white", border: `${border}px solid #7c5cff`, cursor: "ns-resize", boxSizing: "border-box" }} />
+      <span aria-label="Scale layer" onPointerDown={(event) => onResize(event, "south-east")} style={{ position: "absolute", right: -size / 2, bottom: -size / 2, width: size, height: size, borderRadius: Math.max(2, size / 5), background: "white", border: `${border}px solid #7c5cff`, cursor: "nwse-resize", boxSizing: "border-box" }} />
     </>
   );
 }

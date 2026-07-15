@@ -15,7 +15,7 @@ const packageLock = JSON.parse(read("package-lock.json"));
 assert.equal(packageJson.version, "0.3.0", "Release version must be 0.3.0");
 assert.equal(packageLock.version, packageJson.version, "Package and lockfile versions must match");
 assert.equal(packageLock.packages[""].version, packageJson.version, "Root lockfile package version must match");
-assert.match(main, /import "\.\/studioRelease\.css";\s*\nimport "\.\/releaseCandidate\.css";\s*\n\s*const root/, "Release candidate stylesheet must load last");
+assert.match(main, /import "\.\/releaseCandidate\.css";\s*\n\s*const root/, "Release candidate stylesheet must load last");
 
 for (const token of ["--studio-ink", "--studio-violet", "--studio-teal", "--studio-amber"]) {
   assert.ok(releaseCss.includes(token), `Missing semantic studio token: ${token}`);

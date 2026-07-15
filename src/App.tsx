@@ -26,6 +26,7 @@ import { ensureSceneWorkspace } from "./core/sceneWorkspace";
 import { createCatalogTemplateProject } from "./core/templateCatalog";
 import type { KurogiProject } from "./types";
 import type { McpBridgeRequest } from "./core/mcpCommands";
+import { useAppFeedback } from "./ui/AppFeedback";
 
 export default function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -36,6 +37,7 @@ export default function App() {
   const mcpEditorReadyWaitersRef = useRef(new Map<string, { resolve: () => void; reject: (error: Error) => void; timeout: number }>());
   const [loading, setLoading] = useState(true);
   const [bootReady, setBootReady] = useState(false);
+  const feedback = useAppFeedback();
 
   useEffect(() => {
     void initialize();
@@ -154,7 +156,13 @@ export default function App() {
     } catch (error) {
       console.error("Unable to initialize the project library", error);
       await minimumSplash;
-      window.alert("Kurogi Motion could not open the local project library. Reload the app and close any other Kurogi Motion windows if the problem continues.");
+      await feedback.showMessage({
+        tone: "error",
+        title: "Project library unavailable",
+        message: "Kurogi Motion could not open the local project library.",
+        detail: "Reload the app and close any other Kurogi Motion windows if the problem continues.",
+        acknowledgeLabel: "Understood",
+      });
     } finally {
       setLoading(false);
       setBootReady(true);
@@ -176,7 +184,12 @@ export default function App() {
     try {
       const project = await loadProject(projectId);
       if (!project) {
-        window.alert("This project could not be opened because its saved document is missing or invalid.");
+        await feedback.showMessage({
+          tone: "error",
+          title: "Project could not be opened",
+          message: "Its saved document is missing or invalid.",
+          detail: "The project library will now refresh so you can choose another project.",
+        });
         await refreshLibrary();
         return;
       }
@@ -186,7 +199,12 @@ export default function App() {
       setCurrentProject(workspaceProject);
     } catch (error) {
       console.error(`Unable to open project ${projectId}`, error);
-      window.alert(error instanceof Error ? error.message : "This project could not be opened.");
+      await feedback.showMessage({
+        tone: "error",
+        title: "Project could not be opened",
+        message: error instanceof Error ? error.message : "This project could not be opened.",
+        detail: "Refresh the library and try opening it again.",
+      });
       await refreshLibrary();
     }
   }
@@ -204,7 +222,12 @@ export default function App() {
       setCurrentProject(workspaceProject);
     } catch (error) {
       console.error("Unable to open recovery draft", error);
-      window.alert("The recovery draft could not be opened.");
+      await feedback.showMessage({
+        tone: "error",
+        title: "Recovery draft unavailable",
+        message: "The recovery draft could not be opened.",
+        detail: "The project library will refresh without changing your saved projects.",
+      });
       await refreshLibrary();
     }
   }
@@ -228,7 +251,13 @@ export default function App() {
 
   async function removeProject(projectId: string) {
     const project = projects.find((candidate) => candidate.id === projectId);
-    const confirmed = window.confirm(`Delete “${project?.name ?? "this project"}”? This cannot be undone.`);
+    const confirmed = await feedback.confirmAction({
+      tone: "danger",
+      title: `Delete “${project?.name ?? "this project"}”?`,
+      message: "This removes the project and its locally stored media permanently.",
+      detail: "This action cannot be undone.",
+      confirmLabel: "Delete project",
+    });
     if (!confirmed) return;
     await deleteProject(projectId);
     await refreshLibrary();
@@ -238,9 +267,16 @@ export default function App() {
     const project = await loadProject(projectId);
     if (!project) return;
     const proposed = `${project.name} template`;
-    const name = window.prompt("Template name", proposed)?.trim();
-    if (!name) return;
-    await saveUserTemplate(project, name);
+    const requestedName = await feedback.requestText({
+      title: "Save project as template",
+      message: "Choose a clear name so this reusable starting point is easy to find.",
+      label: "Template name",
+      initialValue: proposed,
+      confirmLabel: "Save template",
+      validate: (value) => value.trim() ? null : "Enter a template name.",
+    });
+    if (requestedName === null) return;
+    await saveUserTemplate(project, requestedName.trim());
     await refreshLibrary();
   }
 
@@ -264,13 +300,25 @@ export default function App() {
       activeProjectRef.current = project;
       setCurrentProject(project);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "The .kuromotion file could not be imported.");
+      await feedback.showMessage({
+        tone: "error",
+        title: "Project import failed",
+        message: error instanceof Error ? error.message : "The .kuromotion file could not be imported.",
+        detail: "Check that the file is a valid Kurogi Motion project and try again.",
+      });
     }
   }
 
   async function removeTemplate(templateId: string) {
     const template = templates.find((candidate) => candidate.id === templateId);
-    if (!window.confirm(`Delete template “${template?.name ?? "this template"}”?`)) return;
+    const confirmed = await feedback.confirmAction({
+      tone: "danger",
+      title: `Delete template “${template?.name ?? "this template"}”?`,
+      message: "This removes the reusable template from your local library.",
+      detail: "Projects that were created from it will not be affected.",
+      confirmLabel: "Delete template",
+    });
+    if (!confirmed) return;
     await deleteUserTemplate(templateId);
     await refreshLibrary();
   }
@@ -283,14 +331,20 @@ export default function App() {
       await refreshLibrary();
     } catch (error) {
       console.error("Unable to save the project before leaving the editor", error);
-      window.alert("The project could not be saved, so the editor will stay open. Check available storage and try again.");
+      await feedback.showMessage({
+        tone: "error",
+        title: "Project was not saved",
+        message: "The editor will stay open to protect your work.",
+        detail: "Check available storage, then try leaving the editor again.",
+      });
     }
   }
 
-  if (!bootReady) return <StartupSplash />;
+  if (!bootReady) return <><StartupSplash />{feedback.host}</>;
 
   if (currentProject) {
     return (
+      <>
       <Editor
         key={currentProject.id}
         initialProject={currentProject}
@@ -300,10 +354,13 @@ export default function App() {
           void exitEditor(project);
         }}
       />
+      {feedback.host}
+      </>
     );
   }
 
   return (
+    <>
     <DashboardV3
       projects={projects}
       templates={templates}
@@ -319,6 +376,8 @@ export default function App() {
       onExportProjectFile={(projectId) => void exportProjectFile(projectId)}
       onImportProjectFile={(file) => void importProjectFile(file)}
     />
+    {feedback.host}
+    </>
   );
 }
 

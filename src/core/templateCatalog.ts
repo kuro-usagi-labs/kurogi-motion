@@ -114,7 +114,7 @@ function buildChatbox(scene: Scene): Layer[] {
   const avatarA = f.circle("Alex avatar", sq(f, 0.065, 0.345, 0.09), "linear-gradient(145deg,#ff9c70,#ff6b5e)");
   const messageA = f.text("Message from Alex copy", "Alex · 09:42\nThe launch draft is ready.", f.rect(0.19, 0.335, 0.48, 0.105), "body", "#202235", { fontSize: 30 * f.unit });
   const messageSpark = f.shape("star", "Message sparkle", f.rect(.69, .385, .045, .026), "#ffb84d");
-  const bubbleB = f.card("Reply bubble", f.rect(0.2, 0.52, 0.78, 0.15), "linear-gradient(135deg,#8c68ff,#6e4fe2)", { radius: 42 * f.unit, shadow: 24 });
+  const bubbleB = f.card("Reply bubble", f.rect(0.2, 0.52, 0.78, 0.15), "#6243cf", { radius: 42 * f.unit, shadow: 24 });
   const messageB = f.text("Reply copy", "Perfect. Let’s make it move.", f.rect(0.27, 0.565, 0.62, 0.06), "body", "#ffffff", { fontSize: 32 * f.unit, weight: 700 });
   const typing = f.card("Typing indicator", f.rect(0.03, 0.75, 0.25, 0.065), "rgba(255,255,255,.78)", { radius: 999 });
   const dotA = f.circle("Typing dot A", sq(f, .085, .77, .022), "#7c5cff");
@@ -152,7 +152,7 @@ function buildNotification(scene: Scene): Layer[] {
   const headline = f.text("Headline", "THE WORKFLOW\nJUST GOT LIGHTER.", f.rect(.03, .1, .88, .17), "headline", "#f4f5fa", { fontSize: 66 * f.unit });
   const back = f.card("Back notification", f.rect(.09, .37, .82, .18), "rgba(45,49,66,.58)", { radius: 48 * f.unit, rotation: -3, opacity: .58 }); fx(back, "glass", 42, 18);
   const card = f.card("Notification", f.rect(.04, .42, .92, .23), "rgba(36,39,52,.9)", { radius: 48 * f.unit, shadow: 40 }); fx(card, "glass", 58, 22);
-  const icon = f.circle("App icon", sq(f, .1, .465, .14), "linear-gradient(145deg,#7cf3d5,#4fc8ad)"); fx(icon, "glow", 24, 22, "#67e8c3");
+  const icon = f.circle("App icon", sq(f, .1, .465, .14), "#67e8c3"); fx(icon, "glow", 24, 22, "#67e8c3");
   const symbol = f.text("App symbol", "K", f.rect(.132, .49, .075, .055), "title", "#15231f", { align: "center", fontSize: 42 * f.unit });
   const copy = f.text("Notification copy", "Kurogi Motion\nYour ProRes export is ready.", f.rect(.29, .465, .51, .115), "body", "#f4f5fa", { fontSize: 36 * f.unit });
   const time = f.text("Notification time", "now", f.rect(.81, .455, .1, .035), "meta", "#9ca2b4", { align: "right" });
@@ -168,7 +168,7 @@ function buildTestimonial(scene: Scene): Layer[] {
   const blob = f.decorativeCircle("Backdrop blob", sq(f, .58, -.04, .48), "linear-gradient(145deg,#c8b2ff,#8d68ed)", { opacity: .48 }); fx(blob, "blur", 22, 26); fx(blob, "waterDrop", 12, 10);
   const card = f.card("Testimonial card", f.rect(.02, .05, .96, .86), "rgba(255,255,255,.95)", { radius: 56 * f.unit, shadow: 38 }); fx(card, "glass", 18, 10);
   const quoteMark = f.text("Quote mark", "“", f.rect(.08, .075, .13, .09), "display", "#7c5cff", { fontSize: 110 * f.unit, lineHeight: .8 });
-  const avatar = f.circle("Customer avatar", sq(f, .09, .205, .105), "linear-gradient(145deg,#9270ef,#6541bd)");
+  const avatar = f.circle("Customer avatar", sq(f, .09, .205, .105), "#6541bd");
   const initials = f.text("Customer initials", "NP", f.rect(.112, .237, .06, .035), "meta", "#ffffff", { align: "center", weight: 800, fontSize: 22 * f.unit });
   const name = f.text("Customer name", "Nadia Pratama", f.rect(.24, .212, .53, .045), "title", "#2d2442", { fontSize: 30 * f.unit });
   const role = f.text("Customer role", "Social Media Designer", f.rect(.24, .265, .53, .035), "meta", "#827895", { fontSize: 19 * f.unit });
@@ -185,7 +185,7 @@ function buildTestimonial(scene: Scene): Layer[] {
 function buildQuote(scene: Scene): Layer[] {
   const f = createTemplateFrame(scene);
   const line = f.card("Accent line", f.rect(.02, .04, .18, .009), "#f08c72", { radius: 999 });
-  const mark = f.text("Quote mark", "“", f.rect(.02, .095, .16, .1), "display", "#f08c72", { fontSize: 120 * f.unit });
+  const mark = f.text("Quote mark", "“", f.rect(.02, .095, .16, .1), "display", "#b94a3a", { fontSize: 120 * f.unit });
   const quote = f.text("Quote", "MAKE\nEVERY IDEA\nMOVE.", f.rect(.04, .22, .78, .45), "display", "#4b2730", { fontSize: 102 * f.unit });
   const byline = f.text("Byline", "— KUROGI CREATIVE SYSTEM", f.rect(.04, .76, .62, .04), "label", "#8a5b65");
   const accentA = f.decorativeCircle("Accent A", sq(f, .72, .66, .2), "linear-gradient(145deg,#f5a58e,#ef735f)"); fx(accentA, "waterDrop", 18, 12);
@@ -217,8 +217,8 @@ function buildLogo(scene: Scene): Layer[] {
   const f = createTemplateFrame(scene);
   const glow = f.decorativeCircle("Logo glow", sq(f, .36, .02, .28), "radial-gradient(circle,#8d68f0,rgba(141,104,240,0))", { opacity: .62 }); fx(glow, "blur", 30, 36);
   const ring = f.circle("Outer ring", sq(f, .435, .2, .13), "rgba(255,255,255,.04)", { stroke: "#a78bfa", strokeWidth: 5 * f.unit });
-  const mark = f.card("Logo block", f.rect(.455, .31, .09, .2), "linear-gradient(145deg,#b39aff,#7249dd)", { radius: 42 * f.unit }); fx(mark, "waterDrop", 16, 10); fx(mark, "glow", 30, 32, "#9f7aea");
-  const letter = f.text("Logo letter", "K", f.rect(.467, .36, .066, .08), "headline", "#ffffff", { align: "center", fontSize: 72 * f.unit });
+  const mark = f.card("Logo block", f.rect(.455, .31, .09, .2), "linear-gradient(145deg,#b39aff,#8c68f0)", { radius: 42 * f.unit }); fx(mark, "waterDrop", 16, 10); fx(mark, "glow", 30, 32, "#9f7aea");
+  const letter = f.text("Logo letter", "K", f.rect(.467, .36, .066, .08), "headline", "#1b1231", { align: "center", fontSize: 72 * f.unit });
   const name = f.text("Brand name", "KUROGI MOTION", f.rect(.25, .65, .5, .08), "title", "#f4f1ff", { align: "center" });
   const tagline = f.text("Tagline", "CREATE MOTION, NOT KEYFRAMES", f.rect(.3, .76, .4, .035), "meta", "#9993aa", { align: "center" });
   enter(glow, "zoomBlurIn", 0, 1); loop(glow, "breathe", .9, 2.4, { intensity: .12 }); enter(ring, "scaleIn", .08, .8); loop(ring, "spin", .8, 5, { turns: 1 });
@@ -263,7 +263,7 @@ function buildAppPromo(scene: Scene): Layer[] {
   const cardA = f.card("Feature card A", f.rect(.3, .47, .4, .1), "rgba(255,255,255,.94)", { radius: 28 * f.unit });
   const cardAText = f.text("Feature A", "LIVE PREVIEW", f.rect(.35, .5, .3, .035), "label", "#11152b", { align: "center" });
   const cardB = f.card("Feature card B", f.rect(.33, .62, .34, .1), "rgba(255,255,255,.18)", { radius: 28 * f.unit }); fx(cardB, "glass", 35, 12);
-  const cardBText = f.text("Feature B", "ONE-TAP MOTION", f.rect(.37, .65, .26, .035), "meta", "#ffffff", { align: "center" });
+  const cardBText = f.text("Feature B", "ONE-TAP MOTION", f.rect(.37, .65, .26, .035), "meta", "#11152b", { align: "center", weight: 800 });
   enter(title, "moveIn", 0, .7, { direction: "up", distance: 80 }, true, "line"); enter(subtitle, "fadeIn", .5, .45); enter(phoneGlow, "zoomBlurIn", .25, .8); enter(phone, "springIn", .38, .85); enter(screen, "fadeIn", .7, .45); enter(cardA, "slideIn", .88, .55, { direction: "left", distance: 90 }); enter(cardAText, "fadeIn", 1.05, .3); enter(cardB, "slideIn", 1.15, .55, { direction: "right", distance: 90 }); enter(cardBText, "fadeIn", 1.32, .3);
   loop(phone, "hover", 1.7, 3.1, { intensity: 9 }); loop(cardA, "pulse", 1.7, 1.8, { intensity: .025 }); loop(cardB, "glowPulse", 1.8, 2.2, { intensity: 10 });
   return [title, subtitle, phoneGlow, phone, screen, cardA, cardAText, cardB, cardBText];
@@ -271,7 +271,7 @@ function buildAppPromo(scene: Scene): Layer[] {
 
 function buildCountdown(scene: Scene): Layer[] {
   const f = createTemplateFrame(scene);
-  const ring = f.circle("Countdown ring", sq(f, .2, .13, .6), "rgba(255,204,102,.04)", { stroke: "#ffcc66", strokeWidth: 5 * f.unit }); fx(ring, "glow", 25, 26, "#ffcc66");
+  const ring = f.circle("Countdown ring", sq(f, .2, .13, .6), "#12131b", { stroke: "#ffcc66", strokeWidth: 5 * f.unit }); fx(ring, "glow", 25, 26, "#ffcc66");
   const label = f.text("Countdown label", "LAUNCHING IN", f.rect(.22, .18, .56, .05), "label", "#ffcc66", { align: "center" });
   const number = f.text("Countdown number", "03", f.rect(.18, .3, .64, .34), "display", "#f7f4ff", { align: "center", fontSize: 245 * f.unit }); fx(number, "glow", 18, 20, "#8b5cf6");
   const footer = f.text("Countdown footer", "SAVE THE DATE · 13 JULY", f.rect(.2, .76, .6, .045), "label", "#a6a2b3", { align: "center" });
@@ -284,7 +284,7 @@ function buildStatCard(scene: Scene): Layer[] {
   const f = createTemplateFrame(scene);
   const back = f.decorativeCard("Backdrop card", f.rect(.1, .11, .8, .7), "rgba(40,184,148,.18)", { radius: 58 * f.unit, rotation: -4 }); fx(back, "blur", 4, 5);
   const card = f.card("Metric card", f.rect(.06, .16, .88, .66), "rgba(255,255,255,.95)", { radius: 58 * f.unit, shadow: 34 });
-  const eyebrow = f.text("Metric label", "CAMPAIGN LIFT", f.rect(.13, .27, .48, .045), "label", "#28b894");
+  const eyebrow = f.text("Metric label", "CAMPAIGN LIFT", f.rect(.13, .27, .48, .045), "label", "#14785f");
   const metric = f.text("Metric", "+42%", f.rect(.11, .38, .68, .2), "display", "#15342d", { fontSize: 145 * f.unit }); fx(metric, "grain", 8, 0);
   const detail = f.text("Metric detail", "More completed views after adding motion.", f.rect(.13, .66, .66, .075), "body", "#607b73", { fontSize: 26 * f.unit });
   const chip = f.card("Trend chip", f.rect(.65, .27, .2, .06), "#d9fff3", { radius: 999 });
@@ -335,8 +335,8 @@ function buildKineticType(scene: Scene): Layer[] {
 function buildLiquidTitle(scene: Scene): Layer[] {
   const f = createTemplateFrame(scene);
   const blobA = f.decorativeCircle("Liquid cyan", sq(f, .04, .04, .5), "linear-gradient(145deg,#79e4ff,#1aa7ce)"); fx(blobA, "waterDrop", 32, 24); fx(blobA, "glow", 24, 30, "#19a7ce");
-  const blobB = f.decorativeCircle("Liquid blue", sq(f, .49, .45, .43), "linear-gradient(145deg,#3ab7d8,#126c86)"); fx(blobB, "waterDrop", 26, 22); fx(blobB, "blur", 4, 5);
-  const title = f.text("Liquid title", "FLOW\nSTATE", f.rect(.11, .25, .78, .34), "display", "#ffffff", { align: "center", fontSize: 128 * f.unit }); fx(title, "glow", 16, 20, "#ffffff");
+  const blobB = f.decorativeCircle("Liquid blue", sq(f, .49, .6, .43), "linear-gradient(145deg,#3ab7d8,#126c86)"); fx(blobB, "waterDrop", 26, 22); fx(blobB, "blur", 4, 5);
+  const title = f.text("Liquid title", "FLOW\nSTATE", f.rect(.11, .25, .78, .34), "display", "#071f2b", { align: "center", fontSize: 128 * f.unit }); fx(title, "glow", 10, 12, "#79e4ff");
   const subtitle = f.text("Subtitle", "ORGANIC MOTION STUDY", f.rect(.22, .71, .56, .045), "label", "#113946", { align: "center" });
   enter(blobA, "elasticIn", 0, 1); enter(blobB, "springIn", .22, .9); loop(blobA, "liquid", 1, 2.6, { intensity: .1 }); loop(blobB, "liquid", 1, 3.1, { intensity: .12 }); loop(blobA, "orbit", 1, 4.5, { intensity: 20 }); enter(title, "zoomBlurIn", .42, .8, {}, true, "line"); loop(title, "ripple", 1.5, 2.4, { intensity: .025 }); enter(subtitle, "fadeIn", 1.15, .45);
   return [blobA, blobB, title, subtitle];
@@ -410,9 +410,9 @@ function buildChartReveal(scene: Scene): Layer[] {
   const label = f.text("Dashboard label", "PERFORMANCE · Q3", f.rect(.01, .04, .4, .035), "label", "#67e8c3");
   const title = f.text("Dashboard title", "GROWTH\nAT A GLANCE", f.rect(.01, .14, .38, .2), "headline", "#f4f7fb", { fontSize: 66 * f.unit });
   const note = f.text("Chart note", "Motion increased completed views", f.rect(.01, .53, .32, .075), "body", "#a9b2c2", { fontSize: 24 * f.unit });
-  const panel = f.card("Chart panel", f.rect(.45, .09, .5, .76), "rgba(255,255,255,.06)", { radius: 34 * f.unit }); fx(panel, "glass", 48, 18);
+  const panel = f.card("Chart panel", f.rect(.45, .09, .5, .76), "#202631", { radius: 34 * f.unit }); fx(panel, "glass", 48, 18);
   const value = f.text("Chart value", "+38.4%", f.rect(.52, .19, .34, .1), "headline", "#67e8c3", { fontSize: 68 * f.unit });
-  const valueLabel = f.text("Value label", "CONVERSION LIFT", f.rect(.53, .31, .27, .03), "meta", "#a9b2c2");
+  const valueLabel = f.text("Value label", "CONVERSION LIFT", f.rect(.53, .31, .27, .03), "meta", "#d9e1ee", { weight: 700 });
   const baseline = f.card("Chart baseline", f.rect(.53, .71, .31, .007), "rgba(255,255,255,.16)", { radius: 999 });
   const barA = f.card("Bar A", f.rect(.55, .56, .035, .15), "#39566a", { radius: 999 });
   const barB = f.card("Bar B", f.rect(.62, .5, .035, .21), "#497a7a", { radius: 999 });

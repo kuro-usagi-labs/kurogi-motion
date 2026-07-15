@@ -107,6 +107,12 @@ jobs:
           set -o pipefail
           npm run audit:ui-cleanup 2>&1 | tee ui-cleanup-audit.log
 
+      - name: Audit desktop dialogs and notifications
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:desktop-dialogs 2>&1 | tee desktop-dialog-audit.log
+
       - name: Audit MCP integration
         shell: bash
         run: |
@@ -175,6 +181,7 @@ jobs:
             preview-recovery-audit.log
             editor-command-ui-audit.log
             ui-cleanup-audit.log
+            desktop-dialog-audit.log
             mcp-audit.log
             audio-mcp-audit.log
             effect-audit.log

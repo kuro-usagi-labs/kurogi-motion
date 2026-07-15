@@ -86,6 +86,7 @@ import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
 import { Timeline, type TimelineActionPatch } from "../editor/TimelineV3";
 import { CommandPalette, type CommandPaletteAction } from "../editor/CommandPalette";
 import { ExportDialog, ExportToast, type ExportNotice } from "../editor/ExportDialog";
+import { useAppFeedback } from "../ui/AppFeedback";
 import type {
   AnimationAction,
   AnimationCategory,
@@ -160,6 +161,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null);
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const [timelineEditNotice, setTimelineEditNotice] = useState<{ id: number; message: string } | null>(null);
+  const feedback = useAppFeedback();
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
     format: "mp4",
     fps: scene.fps as 24 | 30 | 60,
@@ -615,12 +617,24 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     const mimeType = normalizeMediaMime(file.name, file.type);
     const accepted = ["image/png", "image/jpeg", "image/webp", "image/svg+xml", "audio/mpeg", "audio/wav", "audio/mp4", "audio/aac", "audio/ogg", "audio/webm"];
     if (!accepted.includes(mimeType)) {
-      window.alert("Use PNG, JPG, WebP, SVG, MP3, WAV, M4A, AAC, OGG, or WebM audio files.");
+      feedback.notify({
+        tone: "error",
+        title: "Unsupported media format",
+        message: "Use PNG, JPG, WebP, SVG, MP3, WAV, M4A, AAC, OGG, or WebM audio files.",
+      });
       return { imported: false };
     }
     const isAudio = mimeType.startsWith("audio/");
     const maximum = isAudio ? 120 : mimeType === "image/svg+xml" ? 10 : 20;
-    if (file.size > maximum * 1024 * 1024) { window.alert("This file is larger than " + maximum + " MB."); return { imported: false }; }
+    if (file.size > maximum * 1024 * 1024) {
+      feedback.notify({
+        tone: "error",
+        title: "Media file is too large",
+        message: `Choose a file no larger than ${maximum} MB.`,
+        detail: file.name,
+      });
+      return { imported: false };
+    }
 
     let temporaryUrl = "";
     try {
@@ -657,7 +671,12 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
       return { imported: true, assetId, layerId: layer.id, sceneId: targetSceneId };
     } catch (error) {
       if (temporaryUrl) URL.revokeObjectURL(temporaryUrl);
-      window.alert(error instanceof Error ? error.message : "The asset could not be imported.");
+      feedback.notify({
+        tone: "error",
+        title: "Asset import failed",
+        message: error instanceof Error ? error.message : "The asset could not be imported.",
+        detail: file.name,
+      });
       return { imported: false };
     }
   }
@@ -877,17 +896,31 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   }
 
   function staggerSelectedActions(step: number, order: StaggerOrder) { commitProject((current) => staggerAnimationActions(current, refsFromActionIds(current, selectedActionIds), step, order)); }
-  function groupSelectedActions() {
-    const name = window.prompt("Animation group name", "Animation group") ?? "";
-    if (!name.trim()) return;
-    commitProject((current) => createAnimationGroup(current, refsFromActionIds(current, selectedActionIds), name).project);
+  async function groupSelectedActions() {
+    const name = await feedback.requestText({
+      title: "Group animation actions",
+      message: "Name this action group so it stays recognizable on the timeline.",
+      label: "Group name",
+      initialValue: "Animation group",
+      confirmLabel: "Create group",
+      validate: (value) => value.trim() ? null : "Enter an animation group name.",
+    });
+    if (name === null) return;
+    commitProject((current) => createAnimationGroup(current, refsFromActionIds(current, selectedActionIds), name.trim()).project);
   }
   function ungroupSelectedActions() { commitProject((current) => ungroupAnimationActions(current, refsFromActionIds(current, selectedActionIds))); }
-  function saveSelectedAnimationPreset() {
+  async function saveSelectedAnimationPreset() {
     if (!selectedActionIds.length) return;
-    const name = window.prompt("Preset name", "Custom motion") ?? "";
-    if (!name.trim()) return;
-    commitProject((current) => saveCustomAnimationPreset(current, name, refsFromActionIds(current, selectedActionIds)).project);
+    const name = await feedback.requestText({
+      title: "Save custom motion preset",
+      message: "Save the selected actions as a reusable motion preset.",
+      label: "Preset name",
+      initialValue: "Custom motion",
+      confirmLabel: "Save preset",
+      validate: (value) => value.trim() ? null : "Enter a preset name.",
+    });
+    if (name === null) return;
+    commitProject((current) => saveCustomAnimationPreset(current, name.trim(), refsFromActionIds(current, selectedActionIds)).project);
   }
   function applyAnimationPreset(presetId: string) {
     if (!selectedLayerIds.length) return;
@@ -957,10 +990,17 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     });
   }
 
-  function deleteWorkspaceScene(sceneId: string) {
+  async function deleteWorkspaceScene(sceneId: string) {
     const target = project.scenes[sceneId];
     if (!target || Object.keys(project.scenes).length <= 1) return;
-    if (!window.confirm(`Delete scene “${target.name}” and all of its layers?`)) return;
+    const confirmed = await feedback.confirmAction({
+      tone: "danger",
+      title: `Delete scene “${target.name}”?`,
+      message: "Every layer and animation in this scene will be removed.",
+      detail: "This action can be reversed with Undo while the project remains open.",
+      confirmLabel: "Delete scene",
+    });
+    if (!confirmed) return;
     commitProject((current) => {
       const result = removeWorkspaceScene(current, sceneId);
       window.queueMicrotask(() => {
@@ -1050,7 +1090,12 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   async function importFont(file: File) {
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
     if (!["woff", "woff2", "ttf", "otf"].includes(extension) || file.size > 12 * 1024 * 1024) {
-      window.alert("Use a WOFF, WOFF2, TTF, or OTF font up to 12 MB.");
+      feedback.notify({
+        tone: "error",
+        title: "Unsupported font file",
+        message: "Use a WOFF, WOFF2, TTF, or OTF font up to 12 MB.",
+        detail: file.name,
+      });
       return;
     }
     try {
@@ -1060,7 +1105,14 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
       const asset: ProjectAsset = { id: assetId, projectId: project.id, name: family, type: "font", mimeType: file.type || `font/${extension}`, sourceUrl: stored.sourceUrl, storage: "blob", blobId: stored.blobId, byteSize: stored.byteSize, fontFamily: family, fontWeight: 400, fontStyle: "normal" };
       commitProject((current) => { const next = cloneProject(current); next.assets[assetId] = asset; return touchProject(next); });
       if (selectedLayers.some((layer) => layer.type === "text")) commitProject((current) => setFontFamily(current, selectedLayerIds, family));
-    } catch { window.alert("The font could not be imported."); }
+    } catch {
+      feedback.notify({
+        tone: "error",
+        title: "Font import failed",
+        message: "The font could not be imported. Check the file and try again.",
+        detail: file.name,
+      });
+    }
   }
 
   function issueWorkspaceCommand(type: WorkspaceCommand["type"]) {
@@ -1102,12 +1154,23 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     setOnlyAction(action?.id ?? "");
   }
 
-  function staggerFromMenu() {
+  async function staggerFromMenu() {
     if (!selectedActionIds.length) return;
-    const value = window.prompt("Stagger interval in seconds", "0.08");
+    const value = await feedback.requestText({
+      title: "Stagger animation actions",
+      message: "Offset each selected action by a consistent time interval.",
+      label: "Interval in seconds",
+      initialValue: "0.08",
+      helperText: "Enter zero or a positive decimal value.",
+      inputMode: "decimal",
+      confirmLabel: "Apply stagger",
+      validate: (candidate) => {
+        const step = Number(candidate.trim());
+        return candidate.trim() && Number.isFinite(step) && step >= 0 ? null : "Enter a valid non-negative interval.";
+      },
+    });
     if (value === null) return;
-    const step = Number(value);
-    if (!Number.isFinite(step) || step < 0) { window.alert("Enter a valid stagger interval."); return; }
+    const step = Number(value.trim());
     staggerSelectedActions(step, "normal");
   }
 
@@ -1145,7 +1208,12 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
       setSaveStatus("Copied");
       window.setTimeout(() => setSaveStatus("Saved"), 1200);
     } catch {
-      window.alert("Project data could not be copied.");
+      feedback.notify({
+        tone: "error",
+        title: "Copy failed",
+        message: "Project data could not be copied to the clipboard.",
+        detail: "Check clipboard permissions and try again.",
+      });
     }
   }
 
@@ -1216,6 +1284,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
 
   return (
     <main className={`app editor-app workspace-mode-${inspectorTab.toLowerCase()}`}>
+      {feedback.host}
       <CommandPalette open={commandPaletteOpen} actions={commandPaletteActions} onClose={() => setCommandPaletteOpen(false)} />
       <McpIntegrationDialog open={mcpDialogOpen} onClose={() => setMcpDialogOpen(false)} />
       <EditorInfoDialog kind={infoDialog} onClose={() => setInfoDialog(null)} />
@@ -1297,7 +1366,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           onToggleDesignToolbar={toggleDesignToolbar}
           onCreateScene={addWorkspaceScene}
           onDuplicateScene={() => duplicateActiveWorkspaceScene(scene.id)}
-          onDeleteScene={() => deleteWorkspaceScene(scene.id)}
+          onDeleteScene={() => void deleteWorkspaceScene(scene.id)}
           onSceneSettings={() => issueWorkspaceCommand("scene-settings")}
           onBringForward={bringSelectedForward}
           onSendBackward={sendSelectedBackward}

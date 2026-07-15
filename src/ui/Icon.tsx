@@ -2,7 +2,7 @@ import React from "react";
 
 export type IconName =
   | "layers" | "assets" | "text" | "shapes" | "templates" | "help"
-  | "status" | "chevronRight" | "paragraph" | "command"
+  | "status" | "chevronRight" | "paragraph" | "command" | "info" | "warning"
   | "undo" | "redo" | "minus" | "plus" | "frame" | "play" | "pause"
   | "share" | "export" | "eye" | "eyeOff" | "lock" | "unlock"
   | "chevronUp" | "chevronDown" | "upload" | "copy" | "trash" | "close" | "check"
@@ -25,6 +25,8 @@ const paths: Record<IconName, React.ReactNode> = {
   chevronRight: <path d="m9 6 6 6-6 6"/>,
   paragraph: <><path d="M10 4h7v16"/><path d="M13 4v16"/><path d="M10 4a4 4 0 0 0 0 8h3"/></>,
   command: <><path d="M9 8V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6"/></>,
+  info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7h.01"/></>,
+  warning: <><path d="M10.3 4.3 2.8 17.2A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.8L13.7 4.3a2 2 0 0 0-3.4 0Z"/><path d="M12 8v5"/><path d="M12 17h.01"/></>,
   undo: <><path d="M9 7 4 12l5 5"/><path d="M20 17a8 8 0 0 0-8-8H4"/></>,
   redo: <><path d="m15 7 5 5-5 5"/><path d="M4 17a8 8 0 0 1 8-8h8"/></>,
   minus: <path d="M5 12h14"/>, plus: <><path d="M12 5v14"/><path d="M5 12h14"/></>,

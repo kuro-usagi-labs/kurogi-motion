@@ -6,15 +6,14 @@ import { loadProject, type ProjectSummary } from "../core/persistence";
 import type { KurogiProject } from "../types";
 import { Icon } from "../ui/Icon";
 import { useMotionPreview } from "../ui/useMotionPreview";
-import { previewDurationInFrames, PROJECT_PREVIEW_MAX_SECONDS } from "./previewPolicy";
+import { previewDurationInFrames, projectPreviewLoopLabel } from "./previewPolicy";
 import "../previewExperience.css";
 
 interface ProjectMotionPreviewProps {
   project: ProjectSummary;
-  latest?: boolean;
 }
 
-export function ProjectMotionPreview({ project: summary, latest = false }: ProjectMotionPreviewProps) {
+export function ProjectMotionPreview({ project: summary }: ProjectMotionPreviewProps) {
   const { hostRef, shouldLoad, shouldPlay, reducedMotion, previewEvents } = useMotionPreview<HTMLDivElement>();
   const playerRef = useRef<PlayerRef>(null);
   const requestedRef = useRef(false);
@@ -41,6 +40,13 @@ export function ProjectMotionPreview({ project: summary, latest = false }: Proje
   const orientation = summary.height > summary.width ? "portrait" : summary.width > summary.height ? "landscape" : "square";
   const frames = scene ? previewDurationInFrames(scene.duration, scene.fps) : 1;
   const posterFrame = scene ? Math.min(frames - 1, Math.round(Math.min(.8, scene.duration * .3) * scene.fps)) : 0;
+  const loopLabel = projectPreviewLoopLabel(summary.duration);
+  const unavailable = status === "missing" || status === "error";
+  const accessibleLabel = unavailable
+    ? `${summary.name} preview unavailable. Open the project to rebuild it.`
+    : status === "ready"
+      ? `${summary.name} animated preview, ${loopLabel}.`
+      : `${summary.name} preview is loading.`;
 
   useEffect(() => {
     const player = playerRef.current;
@@ -55,13 +61,14 @@ export function ProjectMotionPreview({ project: summary, latest = false }: Proje
   return (
     <div
       ref={hostRef}
-      className={`project-motion-preview project-preview-${orientation} ${status === "ready" ? "is-ready" : "is-pending"}`}
+      className={`project-motion-preview project-preview-${orientation} ${summary.background === "transparent" ? "is-transparent" : ""} is-${status}`}
       style={{ "--project-preview-color": summary.background === "transparent" ? "#dad7e2" : summary.background } as React.CSSProperties}
+      role="img"
+      aria-label={accessibleLabel}
+      aria-busy={status === "idle" || status === "loading"}
       {...previewEvents}
     >
-      <div className="project-preview-workbench" aria-hidden="true">
-        <span className="project-preview-ruler project-preview-ruler-x" />
-        <span className="project-preview-ruler project-preview-ruler-y" />
+      <div className="project-preview-gallery" aria-hidden="true">
         <div className="project-preview-stage" style={{ aspectRatio: `${summary.width} / ${summary.height}` }}>
           {scene && project ? (
             <Player
@@ -81,22 +88,20 @@ export function ProjectMotionPreview({ project: summary, latest = false }: Proje
               style={{ width: "100%", height: "100%" }}
             />
           ) : (
-            <ProjectPreviewFallback status={status} background={summary.background} />
+            <ProjectPreviewFallback status={status} />
           )}
         </div>
       </div>
-      <span className="project-preview-status">
-        {latest ? <b>Latest</b> : null}
-        <i><Icon name="play" size={10} />{status === "ready" ? `${Math.min(PROJECT_PREVIEW_MAX_SECONDS, summary.duration).toFixed(summary.duration < 10 ? 1 : 0)}s loop` : "Motion preview"}</i>
+      <span className="project-preview-a11y" aria-live="polite">
+        {status === "ready" ? loopLabel : unavailable ? "Preview unavailable" : "Loading preview"}
       </span>
-      <span className="project-preview-resolution">{summary.width} × {summary.height}</span>
     </div>
   );
 }
 
-function ProjectPreviewFallback({ status, background }: { status: "idle" | "loading" | "ready" | "missing" | "error"; background: string }) {
+function ProjectPreviewFallback({ status }: { status: "idle" | "loading" | "ready" | "missing" | "error" }) {
   if (status === "missing" || status === "error") {
     return <span className="project-preview-unavailable"><Icon name="assets" size={20} /><strong>Preview unavailable</strong><small>Open the project to rebuild it</small></span>;
   }
-  return <span className="project-preview-skeleton" style={{ background: background === "transparent" ? undefined : background }}><i /><i /><i /><small>{status === "loading" ? "Preparing preview" : "Preview loads on view"}</small></span>;
+  return <span className="project-preview-skeleton"><i aria-hidden="true" /><small>{status === "loading" ? "Preparing preview" : "Loading preview"}</small></span>;
 }

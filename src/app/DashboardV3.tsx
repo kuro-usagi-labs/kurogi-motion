@@ -145,14 +145,21 @@ function ProjectsView({ projects, draft, loading, onOpen, onOpenDraft, onDelete,
 
 function ProjectCard({ project, latest, onOpen, onDelete, onSaveAsTemplate, onExportFile }: { project: ProjectSummary; latest: boolean; onOpen: () => void; onDelete: () => void; onSaveAsTemplate: () => void; onExportFile: () => void }) {
   return <article className={`recent-project-card project-card-v3 ${latest ? "latest" : ""}`}>
-    <button type="button" className="recent-project-open" onClick={onOpen}>
-      <div className="recent-project-cover"><ProjectMotionPreview project={project} latest={latest} /></div>
-      <span><strong>{project.name}</strong><small>Saved {relativeTime(project.updatedAt)} · {project.duration.toFixed(1)} sec</small></span>
+    <button type="button" className="recent-project-open" aria-label={`Open project ${project.name}`} onClick={onOpen}>
+      <div className="recent-project-cover"><ProjectMotionPreview project={project} /></div>
+      <span className="project-card-copy">
+        <span className="project-card-title-line">
+          <strong>{project.name}</strong>
+          <span className="project-card-title-meta">{latest ? <small className="project-card-latest">Latest</small> : null}<Icon name="arrow" size={14} /></span>
+        </span>
+        <small className="project-card-updated">Saved {relativeTime(project.updatedAt)}</small>
+        <span className="project-card-facts"><small>{Math.round(project.width)} × {Math.round(project.height)}</small><i aria-hidden="true" /><small>{formatProjectDuration(project.duration)}</small></span>
+      </span>
     </button>
-    <div className="project-card-actions">
-      <button type="button" title="Save as template" onClick={onSaveAsTemplate}><Icon name="templates" size={14} /></button>
-      <button type="button" title="Export .kuromotion" onClick={onExportFile}><Icon name="share" size={14} /></button>
-      <button type="button" className="danger-text" title="Delete project" onClick={onDelete}><Icon name="trash" size={14} /></button>
+    <div className="project-card-actions" role="group" aria-label={`Actions for ${project.name}`}>
+      <button type="button" aria-label="Save as template" title="Save as template" onClick={onSaveAsTemplate}><Icon name="templates" size={14} /></button>
+      <button type="button" aria-label="Export project file" title="Export .kuromotion" onClick={onExportFile}><Icon name="share" size={14} /></button>
+      <button type="button" className="danger-text" aria-label="Delete project" title="Delete project" onClick={onDelete}><Icon name="trash" size={14} /></button>
     </div>
   </article>;
 }
@@ -202,6 +209,18 @@ function CreateProjectDialog({ onClose, onCreate }: { onClose: () => void; onCre
 }
 
 function DashboardSwitch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) { return <span className={`switch-control ${checked ? "is-on" : ""}`}><input type="checkbox" checked={checked} onChange={(event) => onChange(event.currentTarget.checked)} /><i aria-hidden="true" /></span>; }
+
+function formatProjectDuration(value: number) {
+  const duration = Number.isFinite(value) ? Math.max(0, value) : 0;
+  if (duration < 60) return `${duration.toFixed(Number.isInteger(duration) ? 0 : 1)} sec`;
+  const totalSeconds = Math.round(duration);
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes}:${String(seconds).padStart(2, "0")}`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
 
 function relativeTime(value: string) {
   const time = new Date(value).getTime();

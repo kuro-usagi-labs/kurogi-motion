@@ -4,6 +4,7 @@ import { getActiveScene, getSceneLayers } from "../core/project";
 import type { AnimationAction, AudioClip, KurogiProject, Layer, StaggerOrder } from "../types";
 import { AudioClipToolbar, AudioTimelineTracks } from "./AudioTimeline";
 import { Icon } from "../ui/Icon";
+import { LayerThumbnail } from "../app/LayerThumbnail";
 import { presetFor } from "./animationPresets";
 import { normalizeWheelDelta } from "./canvasMath";
 import { selectionRect, selectionRectsIntersect, type SelectionRect } from "../core/marqueeSelection";
@@ -15,6 +16,7 @@ import {
   timelinePointerSelection,
   timelineReleaseIntent,
   timelineTimeAtClientX,
+  visibleTimelineRulerMarks,
 } from "./timelineInteractions";
 
 export interface TimelineActionPatch {
@@ -53,6 +55,7 @@ interface TimelineProps {
   onDeleteAudioClip: (clipId: string) => void;
   onDuplicateAudioClip: (clipId: string) => void;
   canPaste: boolean;
+  onCollapse: () => void;
 }
 
 type ActionSnapshot = {
@@ -94,11 +97,18 @@ type TimelineMarqueeGesture = {
   additive: boolean;
   moved: boolean;
 };
+type TimelineScrubGesture = {
+  pointerId: number;
+  captureTarget: HTMLDivElement;
+  wasPlaying: boolean;
+};
 
 const LABEL_WIDTH = 188;
 const MIN_HEIGHT = 190;
 const MAX_HEIGHT = 620;
 const DEFAULT_HEIGHT = 300;
+const MIN_WORKSPACE_HEIGHT = 220;
+const EDITOR_CHROME_HEIGHT = 90;
 const HEIGHT_KEY = "kurogi.timeline.height";
 
 export function Timeline({
@@ -130,25 +140,31 @@ export function Timeline({
   onDeleteAudioClip,
   onDuplicateAudioClip,
   canPaste,
+  onCollapse,
 }: TimelineProps) {
   const scene = getActiveScene(project);
   const layers = getSceneLayers(project);
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [height, setHeight] = useState(() => clamp(Number(localStorage.getItem(HEIGHT_KEY)) || DEFAULT_HEIGHT, MIN_HEIGHT, MAX_HEIGHT));
+  const [maximumHeight, setMaximumHeight] = useState(() => timelineMaximumHeight(window.innerHeight));
+  const [height, setHeight] = useState(() => clamp(Number(localStorage.getItem(HEIGHT_KEY)) || DEFAULT_HEIGHT, MIN_HEIGHT, timelineMaximumHeight(window.innerHeight)));
   const [gesture, setGesture] = useState<ActionGesture | null>(null);
   const [preview, setPreview] = useState<ActionPreviewMap>({});
   const [layerTimingGesture, setLayerTimingGesture] = useState<LayerTimingGesture | null>(null);
   const [layerTimingPreview, setLayerTimingPreview] = useState<{ startTime: number; duration: number } | null>(null);
   const [timelineMarquee, setTimelineMarquee] = useState<SelectionRect | null>(null);
+  const [scrubbing, setScrubbing] = useState(false);
+  const [timelineViewport, setTimelineViewport] = useState(() => ({ scrollLeft: 0, width: window.innerWidth }));
   const layerTimingPreviewRef = useRef<{ startTime: number; duration: number } | null>(null);
   const timelineMarqueeRef = useRef<TimelineMarqueeGesture | null>(null);
+  const timelineScrubRef = useRef<TimelineScrubGesture | null>(null);
   const tracksRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<ActionPreviewMap>({});
   const actionGestureCancelledRef = useRef(false);
   const layerTimingGestureCancelledRef = useRef(false);
   const resizeRef = useRef<{ pointerId: number; startY: number; height: number } | null>(null);
+  const maximumHeightRef = useRef(maximumHeight);
   const [staggerStep, setStaggerStep] = useState(.08);
   const [staggerOrder, setStaggerOrder] = useState<StaggerOrder>("normal");
 
@@ -177,6 +193,44 @@ export function Timeline({
     localStorage.setItem(HEIGHT_KEY, String(height));
     return () => { editor?.style.removeProperty("--timeline-height"); };
   }, [height]);
+
+  useEffect(() => {
+    const fitTimeline = () => {
+      const nextMaximum = timelineMaximumHeight(window.innerHeight);
+      maximumHeightRef.current = nextMaximum;
+      setMaximumHeight(nextMaximum);
+      setHeight((current) => clamp(current, MIN_HEIGHT, nextMaximum));
+    };
+    fitTimeline();
+    window.addEventListener("resize", fitTimeline);
+    return () => window.removeEventListener("resize", fitTimeline);
+  }, []);
+
+  useEffect(() => {
+    const tracks = tracksRef.current;
+    if (!tracks) return;
+    let animationFrame = 0;
+    const syncViewport = () => {
+      animationFrame = 0;
+      const next = { scrollLeft: tracks.scrollLeft, width: tracks.clientWidth };
+      setTimelineViewport((current) => current.scrollLeft === next.scrollLeft && current.width === next.width ? current : next);
+    };
+    const scheduleViewportSync = () => {
+      if (animationFrame) return;
+      animationFrame = window.requestAnimationFrame(syncViewport);
+    };
+    syncViewport();
+    tracks.addEventListener("scroll", scheduleViewportSync, { passive: true });
+    window.addEventListener("resize", scheduleViewportSync);
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleViewportSync);
+    resizeObserver?.observe(tracks);
+    return () => {
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      tracks.removeEventListener("scroll", scheduleViewportSync);
+      window.removeEventListener("resize", scheduleViewportSync);
+      resizeObserver?.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     if (!gesture) return;
@@ -313,7 +367,7 @@ export function Timeline({
     const move = (event: PointerEvent) => {
       const active = resizeRef.current;
       if (!active) return;
-      setHeight(clamp(active.height + active.startY - event.clientY, MIN_HEIGHT, MAX_HEIGHT));
+      setHeight(clamp(active.height + active.startY - event.clientY, MIN_HEIGHT, maximumHeightRef.current));
     };
     const finish = () => { resizeRef.current = null; document.body.classList.remove("timeline-resizing"); };
     window.addEventListener("pointermove", move);
@@ -363,13 +417,13 @@ export function Timeline({
   }, [gesture, layerTimingGesture, onMarqueeSelect, selectedActionIds.length, selectedAudioClipId, selectedLayerIds.length]);
 
   const laneWidth = timelineLaneWidth(scene.duration, zoom);
-  const rulerMarks = useMemo(() => {
-    const step = niceRulerStep(scene.duration / Math.max(2, Math.floor(laneWidth / 110)));
-    const marks: number[] = [];
-    for (let time = 0; time < scene.duration; time += step) marks.push(time);
-    if (!marks.length || Math.abs(marks.at(-1)! - scene.duration) > .001) marks.push(scene.duration);
-    return marks;
-  }, [laneWidth, scene.duration]);
+  const rulerMarks = useMemo(() => visibleTimelineRulerMarks({
+    duration: scene.duration,
+    laneWidth,
+    scrollLeft: timelineViewport.scrollLeft,
+    viewportWidth: timelineViewport.width,
+    labelWidth: LABEL_WIDTH,
+  }), [laneWidth, scene.duration, timelineViewport]);
   const primaryActionId = selectedActionIds.at(-1) ?? "";
   const selectedAction = findAction(project, primaryActionId);
   const selectedAudioClip = selectedAudioClipId ? project.audioClips[selectedAudioClipId] ?? null : null;
@@ -386,6 +440,58 @@ export function Timeline({
     const targetFrame = Math.min(Math.max(0, Math.round(time * scene.fps)), Math.max(0, Math.round(scene.duration * scene.fps) - 1));
     playerRef.current?.seekTo(targetFrame);
     setFrame(targetFrame);
+  }
+
+  function seekToFrame(nextFrame: number) {
+    const targetFrame = clamp(Math.round(nextFrame), 0, Math.max(0, Math.round(scene.duration * scene.fps) - 1));
+    playerRef.current?.seekTo(targetFrame);
+    setFrame(targetFrame);
+  }
+
+  function seekFromRulerPointer(event: React.PointerEvent<HTMLDivElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+    seekToTime(ratio * scene.duration);
+  }
+
+  function beginRulerScrub(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !event.isPrimary) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const wasPlaying = playing;
+    playerRef.current?.pause();
+    const captureTarget = event.currentTarget;
+    setPointerCaptureSafely(captureTarget, event.pointerId);
+    timelineScrubRef.current = { pointerId: event.pointerId, captureTarget, wasPlaying };
+    setScrubbing(true);
+    seekFromRulerPointer(event);
+  }
+
+  function moveRulerScrub(event: React.PointerEvent<HTMLDivElement>) {
+    const active = timelineScrubRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    seekFromRulerPointer(event);
+  }
+
+  function finishRulerScrub(event: React.PointerEvent<HTMLDivElement>) {
+    const active = timelineScrubRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    seekFromRulerPointer(event);
+    timelineScrubRef.current = null;
+    setScrubbing(false);
+    releasePointerCaptureSafely(active.captureTarget, active.pointerId);
+    if (active.wasPlaying) playerRef.current?.play();
+  }
+
+  function cancelRulerScrub(pointerId?: number) {
+    const active = timelineScrubRef.current;
+    if (!active || (pointerId !== undefined && active.pointerId !== pointerId)) return;
+    timelineScrubRef.current = null;
+    setScrubbing(false);
+    releasePointerCaptureSafely(active.captureTarget, active.pointerId);
+    if (active.wasPlaying) playerRef.current?.play();
   }
 
   function seekFromTimelinePointer(event: React.PointerEvent<HTMLDivElement>) {
@@ -540,13 +646,29 @@ export function Timeline({
     setLayerTimingGesture(null);
     setLayerTimingPreview(null);
     cancelTimelineMarquee();
+    cancelRulerScrub();
   }
 
   return (
     <section className="timeline behavior-timeline timeline-v3" style={{ height }}>
       <div
         className="timeline-resize-handle"
-        title="Drag to resize timeline"
+        role="separator"
+        aria-label="Resize timeline"
+        aria-orientation="horizontal"
+        aria-valuemin={MIN_HEIGHT}
+        aria-valuemax={maximumHeight}
+        aria-valuenow={height}
+        tabIndex={0}
+        title="Drag to resize timeline. Double-click to reset."
+        onDoubleClick={() => setHeight(DEFAULT_HEIGHT)}
+        onKeyDown={(event) => {
+          const step = event.shiftKey ? 36 : 12;
+          if (event.key === "ArrowUp") { event.preventDefault(); setHeight((current) => clamp(current + step, MIN_HEIGHT, maximumHeight)); }
+          else if (event.key === "ArrowDown") { event.preventDefault(); setHeight((current) => clamp(current - step, MIN_HEIGHT, MAX_HEIGHT)); }
+          else if (event.key === "Home") { event.preventDefault(); setHeight(MIN_HEIGHT); }
+          else if (event.key === "End") { event.preventDefault(); setHeight(maximumHeight); }
+        }}
         onPointerDown={(event) => {
           event.preventDefault();
           resizeRef.current = { pointerId: event.pointerId, startY: event.clientY, height };
@@ -587,7 +709,10 @@ export function Timeline({
           />}
           {!selectedAudioClip && selectedAction ? <span className="action-group-name">{presetFor(selectedAction.action.type).label}{selectedAction.action.groupId ? ` · ${project.animationGroups[selectedAction.action.groupId]?.name ?? "Group"}` : ""}</span> : null}
         </div>
-        <div className="timeline-zoom" title="Ctrl/Cmd + scroll to zoom around the pointer"><button type="button" aria-label="Zoom timeline out" onClick={() => setZoom((value) => Math.max(.25, value / 1.2))}><Icon name="minus" size={14} /></button><span>{Math.round(zoom * 100)}%</span><button type="button" aria-label="Zoom timeline in" onClick={() => setZoom((value) => Math.min(8, value * 1.2))}><Icon name="plus" size={14} /></button></div>
+        <div className="timeline-view-controls">
+          <div className="timeline-zoom" title="Ctrl/Cmd + scroll to zoom around the pointer"><button type="button" aria-label="Zoom timeline out" onClick={() => setZoom((value) => Math.max(.25, value / 1.2))}><Icon name="minus" size={14} /></button><span>{Math.round(zoom * 100)}%</span><button type="button" aria-label="Zoom timeline in" onClick={() => setZoom((value) => Math.min(8, value * 1.2))}><Icon name="plus" size={14} /></button></div>
+          <button type="button" className="panel-collapse-button timeline-collapse-button" onClick={onCollapse} title="Hide timeline" aria-label="Hide timeline"><Icon name="chevronDown" size={14} /></button>
+        </div>
       </div>
       {editNotice ? <div className="timeline-edit-notice"><Icon name="check" size={13} />{editNotice}</div> : null}
 
@@ -601,12 +726,43 @@ export function Timeline({
           onPointerCancel={(event) => cancelTimelineMarquee(event.pointerId)}
           onLostPointerCapture={(event) => cancelTimelineMarquee(event.pointerId)}
         >
-          <div className="ruler clean-ruler" style={{ left: LABEL_WIDTH, width: laneWidth }}>{rulerMarks.map((mark) => <span key={mark} style={{ left: `${(mark / scene.duration) * 100}%` }}>{formatRuler(mark)}</span>)}</div>
-          <div className="playhead" style={{ left: LABEL_WIDTH + (frame / Math.max(1, scene.duration * scene.fps)) * laneWidth }}><i /></div>
+          <div className="timeline-ruler-row" data-timeline-no-marquee="true" style={{ gridTemplateColumns: `${LABEL_WIDTH}px ${laneWidth}px` }}>
+            <div className="timeline-ruler-corner" aria-hidden="true"><span>Time</span><strong>{formatTime(frame / scene.fps)}</strong></div>
+            <div
+              className={`ruler clean-ruler timeline-scrub-ruler ${scrubbing ? "is-scrubbing" : ""}`}
+              data-timeline-ruler="true"
+              data-scrubbing={scrubbing ? "true" : "false"}
+              role="slider"
+              tabIndex={0}
+              aria-label="Timeline playhead"
+              aria-orientation="horizontal"
+              aria-valuemin={0}
+              aria-valuemax={Number(scene.duration.toFixed(3))}
+              aria-valuenow={Number((frame / scene.fps).toFixed(3))}
+              aria-valuetext={formatTime(frame / scene.fps)}
+              title="Click or drag to scrub the playhead"
+              style={{ width: laneWidth }}
+              onPointerDown={beginRulerScrub}
+              onPointerMove={moveRulerScrub}
+              onPointerUp={finishRulerScrub}
+              onPointerCancel={(event) => cancelRulerScrub(event.pointerId)}
+              onLostPointerCapture={(event) => cancelRulerScrub(event.pointerId)}
+              onKeyDown={(event) => {
+                const step = event.shiftKey ? 10 : 1;
+                if (event.key === "ArrowLeft" || event.key === "ArrowDown") { event.preventDefault(); seekToFrame(frame - step); }
+                else if (event.key === "ArrowRight" || event.key === "ArrowUp") { event.preventDefault(); seekToFrame(frame + step); }
+                else if (event.key === "PageDown") { event.preventDefault(); seekToFrame(frame - scene.fps); }
+                else if (event.key === "PageUp") { event.preventDefault(); seekToFrame(frame + scene.fps); }
+                else if (event.key === "Home") { event.preventDefault(); seekToFrame(0); }
+                else if (event.key === "End") { event.preventDefault(); seekToFrame(scene.duration * scene.fps - 1); }
+              }}
+            >{rulerMarks.map((mark) => <span key={mark} aria-hidden="true" data-ruler-time={mark} style={{ left: `${(mark / scene.duration) * 100}%` }}>{formatRuler(mark)}</span>)}</div>
+          </div>
+          <div className={`playhead ${scrubbing ? "is-scrubbing" : ""}`} data-timeline-playhead="true" data-playhead-time={Number((frame / scene.fps).toFixed(3))} style={{ left: LABEL_WIDTH + (frame / Math.max(1, scene.duration * scene.fps)) * laneWidth }}><i />{scrubbing ? <span className="playhead-time-badge">{formatTime(frame / scene.fps)}</span> : null}</div>
           {timelineMarquee ? <div className="timeline-selection-marquee" style={{ left: timelineMarquee.left, top: timelineMarquee.top, width: timelineMarquee.right - timelineMarquee.left, height: timelineMarquee.bottom - timelineMarquee.top }} /> : null}
           <AudioTimelineTracks project={project} laneWidth={laneWidth} labelWidth={LABEL_WIDTH} selectedClipId={selectedAudioClipId} onSelect={onSelectAudioClip} onUpdate={onUpdateAudioClip} onDelete={onDeleteAudioClip} onDuplicate={onDuplicateAudioClip} onSeek={seekToTime} />
           {[...layers].reverse().map((layer) => <div className="track" key={layer.id} style={{ gridTemplateColumns: `${LABEL_WIDTH}px ${laneWidth}px` }}>
-            <button type="button" aria-pressed={selectedLayerIds.includes(layer.id)} onClick={(event) => onSelectLayer(layer.id, event.shiftKey)} className={selectedLayerIds.includes(layer.id) ? "track-selected" : ""}><span className={`layer-thumb ${layer.type}`}><Icon name={layer.type === "text" ? "text" : layer.type === "shape" ? "shapes" : "assets"} size={13} /></span><span className="track-name">{layer.name}</span></button>
+            <button type="button" aria-pressed={selectedLayerIds.includes(layer.id)} onClick={(event) => onSelectLayer(layer.id, event.shiftKey)} className={selectedLayerIds.includes(layer.id) ? "track-selected" : ""}><LayerThumbnail project={project} layer={layer} size={22} decorative /><span className="track-name">{layer.name}</span></button>
             <div className="track-lane clean-track-lane">
               {(() => {
                 const timing = layerTimingGesture?.layerId === layer.id && layerTimingPreview ? layerTimingPreview : { startTime: layer.startTime ?? 0, duration: layer.duration ?? scene.duration - (layer.startTime ?? 0) };
@@ -701,17 +857,15 @@ function findAction(project: KurogiProject, actionId: string) { if (!actionId) r
 function formatTime(seconds: number) { const minutes = Math.floor(seconds / 60); const remainder = Math.max(0, seconds - minutes * 60); return `${minutes}:${remainder.toFixed(2).padStart(5, "0")}`; }
 function formatRuler(seconds: number) { return seconds >= 10 ? `${seconds.toFixed(0)}s` : `${seconds.toFixed(seconds % 1 ? 1 : 0)}s`; }
 function timelineLaneWidth(duration: number, zoom: number) { return Math.max(760, duration * 150) * zoom; }
-function niceRulerStep(raw: number) {
-  const safe = Math.max(1 / 60, raw);
-  const power = 10 ** Math.floor(Math.log10(safe));
-  const normalized = safe / power;
-  const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
-  return factor * power;
-}
 function setPointerCaptureSafely(target: HTMLElement, pointerId: number) {
   try { target.setPointerCapture(pointerId); } catch { /* Pointer may already have ended. */ }
 }
 function releasePointerCaptureSafely(target: HTMLElement, pointerId: number) {
   try { if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId); } catch { /* Element may have detached. */ }
 }
+function timelineMaximumHeight(viewportHeight: number) {
+  const available = Math.floor(viewportHeight - EDITOR_CHROME_HEIGHT - MIN_WORKSPACE_HEIGHT);
+  return clamp(available, MIN_HEIGHT, MAX_HEIGHT);
+}
+
 function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }

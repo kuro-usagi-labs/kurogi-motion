@@ -7,7 +7,7 @@ const { createMcpBridge } = require("./mcpBridge.cjs");
 const { stageProjectAssetsForRender } = require("./renderAssetStage.cjs");
 
 const MCP_INTEGRATION_VERSION = 4;
-const MCP_TOOL_COUNT = 58;
+const MCP_TOOL_COUNT = 62;
 let packagedBundlePromise = null;
 let exportInProgress = false;
 let activeRenderJobId = null;

@@ -19,6 +19,9 @@ interface EditorMenuBarProps {
   safeAreaEnabled: boolean;
   snapEnabled: boolean;
   designToolbarVisible: boolean;
+  sidebarVisible: boolean;
+  inspectorVisible: boolean;
+  timelineVisible: boolean;
   onNewProject: () => void;
   onOpenProject: () => void;
   onSave: () => void;
@@ -41,6 +44,9 @@ interface EditorMenuBarProps {
   onToggleSafeArea: () => void;
   onToggleSnap: () => void;
   onToggleDesignToolbar: () => void;
+  onToggleSidebar: () => void;
+  onToggleInspector: () => void;
+  onToggleTimeline: () => void;
   onCreateScene: () => void;
   onDuplicateScene: () => void;
   onDeleteScene: () => void;
@@ -137,6 +143,9 @@ export function EditorMenuBar(props: EditorMenuBarProps) {
         <MenuItem label="Smart Snap" checked={props.snapEnabled} onSelect={() => run(props.onToggleSnap)} />
         <MenuSeparator />
         <MenuSection label="Panels" />
+        <MenuItem label="Layer Panel" checked={props.sidebarVisible} onSelect={() => run(props.onToggleSidebar)} />
+        <MenuItem label="Inspector" checked={props.inspectorVisible} onSelect={() => run(props.onToggleInspector)} />
+        <MenuItem label="Timeline" checked={props.timelineVisible} onSelect={() => run(props.onToggleTimeline)} />
         <MenuItem label="Design Toolbar" checked={props.designToolbarVisible} onSelect={() => run(props.onToggleDesignToolbar)} />
       </Menu>
 

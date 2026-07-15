@@ -71,6 +71,7 @@ import {
 } from "../core/animationWorkflow";
 import { useProjectHistory } from "../core/useProjectHistory";
 import { Inspector, type InspectorTab } from "../editor/InspectorV2";
+import { PanelResizeHandle } from "../editor/PanelResizeHandle";
 import { MultiSceneCanvasStage, type WorkspaceCommand } from "../editor/MultiSceneCanvasStage";
 import { DesignToolsPanel } from "../editor/DesignToolsPanel";
 import { EditorMenuBar } from "../editor/EditorMenuBar";
@@ -78,12 +79,14 @@ import { McpIntegrationDialog } from "../editor/McpIntegrationDialog";
 import { LayerContextMenu, type LayerContextMenuState } from "../editor/LayerContextMenu";
 import { executeMcpProjectCommand, type McpBridgeRequest } from "../core/mcpCommands";
 import { estimateAutoFitFontSize } from "../core/projectValidation";
-import { loadEditorUiPreferences, saveEditorUiPreferences, type EditorUiPreferences } from "../core/editorUiPreferences";
+import { EDITOR_PANEL_LIMITS, fitEditorPanelWidths, loadEditorUiPreferences, saveEditorUiPreferences, type EditorUiPreferences } from "../core/editorUiPreferences";
 import { cutTimelineSelection, trimTimelineSelection, type TrimEdge } from "../core/timelineEditing";
+import { getNudgeableLayerIds, isCanvasArrowKey, nudgeCanvasLayers, resolveCanvasArrowAction, type CanvasArrowKey } from "../core/canvasNudge";
 import { Icon, type IconName } from "../ui/Icon";
 import { ShapeIcon } from "../ui/ShapeIcon";
 import { SHAPE_DEFINITIONS, type ShapeGroup } from "../core/shapeLibrary";
 import { Timeline, type TimelineActionPatch } from "../editor/TimelineV3";
+import { LayerThumbnail } from "./LayerThumbnail";
 import { CommandPalette, type CommandPaletteAction } from "../editor/CommandPalette";
 import { ExportDialog, ExportToast, type ExportNotice } from "../editor/ExportDialog";
 import { useAppFeedback } from "../ui/AppFeedback";
@@ -119,6 +122,11 @@ type LayerReorderGesture = {
   startX: number;
   startY: number;
   dragging: boolean;
+};
+type CanvasNudgeGesture = {
+  layerIds: string[];
+  selectionKey: string;
+  pressedKeys: Set<CanvasArrowKey>;
 };
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; icon: IconName; label: string }> = [
@@ -174,6 +182,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   const playerRef = useRef<PlayerRef>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
   const layerReorderRef = useRef<LayerReorderGesture | null>(null);
+  const canvasNudgeGestureRef = useRef<CanvasNudgeGesture | null>(null);
   const mcpCheckpointsRef = useRef(new Map<string, { id: string; name: string; createdAt: string; project: KurogiProject }>());
 
   const selectedLayer = selectedLayerId ? project.layers[selectedLayerId] ?? null : null;
@@ -187,6 +196,12 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     }
     return null;
   }, [project.layers, selectedActionId]);
+
+  function finishCanvasNudgeGesture() {
+    if (!canvasNudgeGestureRef.current) return false;
+    canvasNudgeGestureRef.current = null;
+    return history.finishGesture();
+  }
 
   useEffect(() => {
     const active = project.scenes[project.activeSceneId];
@@ -252,19 +267,38 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     const onKeyDown = (event: KeyboardEvent) => {
       const editable = isEditableTarget(event.target);
       const modifier = event.ctrlKey || event.metaKey;
+      if (canvasNudgeGestureRef.current && !isCanvasArrowKey(event.key)) finishCanvasNudgeGesture();
+      const nudgeableLayerIds = getNudgeableLayerIds(history.projectRef.current, selectedLayerIds);
+      const arrowAction = resolveCanvasArrowAction({
+        key: event.key,
+        shiftKey: event.shiftKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+        shortcutBlocked: editable || event.defaultPrevented || isCanvasArrowControlTarget(event.target) || Boolean(document.querySelector('[aria-modal="true"]')),
+        editableLayerCount: nudgeableLayerIds.length,
+      });
+      if (arrowAction.type === "nudge") {
+        event.preventDefault();
+        const selectionKey = nudgeableLayerIds.join("\u0000");
+        let gesture = canvasNudgeGestureRef.current;
+        if (!gesture || gesture.selectionKey !== selectionKey) {
+          if (gesture) finishCanvasNudgeGesture();
+          history.beginGesture();
+          gesture = { layerIds: nudgeableLayerIds, selectionKey, pressedKeys: new Set<CanvasArrowKey>() };
+          canvasNudgeGestureRef.current = gesture;
+        }
+        gesture.pressedKeys.add(arrowAction.key);
+        history.preview((current) => nudgeCanvasLayers(current, gesture.layerIds, arrowAction.delta));
+      } else if (arrowAction.type === "seek") {
+        event.preventDefault();
+        const current = playerRef.current?.getCurrentFrame() ?? 0;
+        const lastFrame = Math.max(0, scene.duration * scene.fps - 1);
+        playerRef.current?.seekTo(Math.min(lastFrame, Math.max(0, current + arrowAction.frames)));
+      }
       if (!editable && event.code === "Space") {
         event.preventDefault();
         togglePlay();
-      }
-      if (!editable && event.key === "ArrowLeft") {
-        event.preventDefault();
-        const current = playerRef.current?.getCurrentFrame() ?? 0;
-        playerRef.current?.seekTo(Math.max(0, current - 1));
-      }
-      if (!editable && event.key === "ArrowRight") {
-        event.preventDefault();
-        const current = playerRef.current?.getCurrentFrame() ?? 0;
-        playerRef.current?.seekTo(Math.min(scene.duration * scene.fps - 1, current + 1));
       }
       if (!editable && modifier && event.key.toLowerCase() === "n") { event.preventDefault(); void leaveEditor(); }
       if (!editable && modifier && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandPaletteOpen(true); }
@@ -306,9 +340,25 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
         else deleteSelectedLayer();
       }
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (!isCanvasArrowKey(event.key)) return;
+      const gesture = canvasNudgeGestureRef.current;
+      if (!gesture) return;
+      gesture.pressedKeys.delete(event.key);
+      if (!gesture.pressedKeys.size) finishCanvasNudgeGesture();
+    };
+    const onWindowBlur = () => finishCanvasNudgeGesture();
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onWindowBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onWindowBlur);
+    };
   });
+
+  useEffect(() => () => { finishCanvasNudgeGesture(); }, [history.finishGesture]);
 
   useEffect(() => {
     const unsubscribe = window.kurogi?.onExportProgress?.((progress) => setExportProgress(progress));
@@ -324,6 +374,13 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   useEffect(() => {
     saveEditorUiPreferences(uiPreferences);
   }, [uiPreferences]);
+
+  useEffect(() => {
+    const fitPanels = () => setUiPreferences((current) => fitEditorPanelWidths(current, window.innerWidth));
+    fitPanels();
+    window.addEventListener("resize", fitPanels);
+    return () => window.removeEventListener("resize", fitPanels);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = window.kurogi?.onMcpRequest?.((request) => { void handleMcpRequest(request); });
@@ -1087,6 +1144,15 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   function toggleDesignToolbar() {
     setUiPreferences((current) => ({ ...current, showDesignToolbar: !current.showDesignToolbar }));
   }
+  function toggleSidebar() {
+    setUiPreferences((current) => fitEditorPanelWidths({ ...current, sidebarVisible: !current.sidebarVisible }, window.innerWidth));
+  }
+  function toggleInspector() {
+    setUiPreferences((current) => fitEditorPanelWidths({ ...current, inspectorVisible: !current.inspectorVisible }, window.innerWidth));
+  }
+  function toggleTimeline() {
+    setUiPreferences((current) => ({ ...current, timelineVisible: !current.timelineVisible }));
+  }
   async function importFont(file: File) {
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
     if (!["woff", "woff2", "ttf", "otf"].includes(extension) || file.size > 12 * 1024 * 1024) {
@@ -1277,13 +1343,22 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     { id: "group", label: "Group selected layers", section: "Arrange", hint: "Ctrl G", disabled: selectedLayerIds.length < 2, run: groupSelected },
     { id: "toggle-snap", label: project.settings.snapEnabled ? "Disable smart snap" : "Enable smart snap", section: "View", run: toggleSmartSnap },
     { id: "toggle-safe", label: showSafeArea ? "Hide safe area" : "Show safe area", section: "View", run: () => setShowSafeArea((value) => !value) },
+    { id: "toggle-sidebar", label: uiPreferences.sidebarVisible ? "Hide layer panel" : "Show layer panel", section: "View", run: toggleSidebar },
+    { id: "toggle-inspector", label: uiPreferences.inspectorVisible ? "Hide inspector" : "Show inspector", section: "View", run: toggleInspector },
+    { id: "toggle-timeline", label: uiPreferences.timelineVisible ? "Hide timeline" : "Show timeline", section: "View", run: toggleTimeline },
     { id: "save", label: "Save project", section: "Project", hint: "Ctrl S", run: () => void saveNow() },
     { id: "export", label: "Export video", section: "Project", hint: "Ctrl E", run: () => { setExportProgress(null); setExportDialogOpen(true); } },
     { id: "mcp", label: "Open MCP integration", section: "Automation", run: () => setMcpDialogOpen(true) },
   ];
 
   return (
-    <main className={`app editor-app workspace-mode-${inspectorTab.toLowerCase()}`}>
+    <main
+      className={`app editor-app workspace-mode-${inspectorTab.toLowerCase()} ${uiPreferences.sidebarVisible ? "" : "is-sidebar-hidden"} ${uiPreferences.inspectorVisible ? "" : "is-inspector-hidden"} ${inspectorTab === "Animation" && !uiPreferences.timelineVisible ? "is-timeline-hidden" : ""}`}
+      style={{
+        "--editor-sidebar-width": `${uiPreferences.sidebarWidth}px`,
+        "--editor-inspector-width": `${uiPreferences.inspectorWidth}px`,
+      } as React.CSSProperties}
+    >
       {feedback.host}
       <CommandPalette open={commandPaletteOpen} actions={commandPaletteActions} onClose={() => setCommandPaletteOpen(false)} />
       <McpIntegrationDialog open={mcpDialogOpen} onClose={() => setMcpDialogOpen(false)} />
@@ -1342,6 +1417,9 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           safeAreaEnabled={showSafeArea}
           snapEnabled={project.settings.snapEnabled}
           designToolbarVisible={uiPreferences.showDesignToolbar}
+          sidebarVisible={uiPreferences.sidebarVisible}
+          inspectorVisible={uiPreferences.inspectorVisible}
+          timelineVisible={uiPreferences.timelineVisible}
           onNewProject={() => void leaveEditor()}
           onOpenProject={() => void leaveEditor()}
           onSave={() => void saveNow()}
@@ -1364,6 +1442,9 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           onToggleSafeArea={() => setShowSafeArea((value) => !value)}
           onToggleSnap={toggleSmartSnap}
           onToggleDesignToolbar={toggleDesignToolbar}
+          onToggleSidebar={toggleSidebar}
+          onToggleInspector={toggleInspector}
+          onToggleTimeline={toggleTimeline}
           onCreateScene={addWorkspaceScene}
           onDuplicateScene={() => duplicateActiveWorkspaceScene(scene.id)}
           onDeleteScene={() => void deleteWorkspaceScene(scene.id)}
@@ -1422,8 +1503,14 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           <div className="rail-bottom"><button type="button" onClick={showKeyboardShortcuts}><b><Icon name="help" size={18} /></b><span>Help</span></button></div>
         </aside>
 
-        <aside className="sidebar editor-sidebar">
-          <div className="panel-title"><span>{SIDEBAR_TABS.find((item) => item.id === sidebarTab)?.label}</span>{sidebarTab === "assets" ? <button type="button" onClick={() => assetInputRef.current?.click()} aria-label="Import asset"><Icon name="plus" size={16} /></button> : null}</div>
+        <aside className="sidebar editor-sidebar" aria-hidden={!uiPreferences.sidebarVisible || undefined}>
+          <div className="panel-title">
+            <span>{SIDEBAR_TABS.find((item) => item.id === sidebarTab)?.label}</span>
+            <div className="panel-title-actions">
+              {sidebarTab === "assets" ? <button type="button" onClick={() => assetInputRef.current?.click()} aria-label="Import asset"><Icon name="plus" size={16} /></button> : null}
+              <button type="button" className="panel-collapse-button sidebar-collapse-button" onClick={toggleSidebar} title="Hide layer panel" aria-label="Hide layer panel"><Icon name="chevronRight" className="panel-collapse-icon is-left" size={14} /></button>
+            </div>
+          </div>
           {sidebarTab === "layers" ? (
             <div className="sidebar-scroll">
               <div className="scene-row"><span><Icon name="chevronDown" size={13} /></span><b>{scene.name}</b><small>{scene.width} × {scene.height}</small></div>
@@ -1460,7 +1547,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
                       onPointerUp={finishLayerReorder}
                       onPointerCancel={finishLayerReorder}
                     ><Icon name="grip" size={15} /></button>
-                    <span className={`layer-thumb ${layer.type}`}><Icon name={layer.type === "text" ? "text" : layer.type === "shape" ? "shapes" : "assets"} size={13} /></span>
+                    <LayerThumbnail project={project} layer={layer} size={28} decorative />
                     <input
                       className="layer-name-editor"
                       value={layer.name}
@@ -1543,6 +1630,12 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           ) : null}
         </aside>
 
+        {uiPreferences.sidebarVisible ? <PanelResizeHandle edge="sidebar" value={uiPreferences.sidebarWidth} minimum={EDITOR_PANEL_LIMITS.sidebar.minimum} maximum={EDITOR_PANEL_LIMITS.sidebar.maximum} defaultValue={EDITOR_PANEL_LIMITS.sidebar.defaultValue} onChange={(sidebarWidth) => setUiPreferences((current) => fitEditorPanelWidths({ ...current, sidebarWidth }, window.innerWidth))} /> : null}
+
+        {!uiPreferences.sidebarVisible ? <button type="button" className="workspace-panel-restore is-sidebar" onClick={toggleSidebar} title="Show layer panel"><Icon name="chevronRight" size={14} /><span>Layers</span></button> : null}
+        {!uiPreferences.inspectorVisible ? <button type="button" className="workspace-panel-restore is-inspector" onClick={toggleInspector} title="Show inspector"><span>Inspector</span><Icon name="chevronRight" className="panel-collapse-icon is-left" size={14} /></button> : null}
+        {inspectorTab === "Animation" && !uiPreferences.timelineVisible ? <button type="button" className="workspace-panel-restore is-timeline" onClick={toggleTimeline} title="Show timeline"><Icon name="chevronUp" size={14} /><span>Timeline</span></button> : null}
+
         {inspectorTab === "Design" && uiPreferences.showDesignToolbar ? (
           <DesignToolsPanel
             project={project}
@@ -1601,6 +1694,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
               setPlaying(false);
             }
           }}
+          onCollapse={toggleInspector}
           onBeginPropertyEdit={history.beginGesture}
           onFinishPropertyEdit={history.finishGesture}
           onCancelPropertyEdit={history.cancelGesture}
@@ -1622,9 +1716,11 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           exportProgress={exportProgress}
           onExport={() => void exportVideo()}
         />
+
+        {uiPreferences.inspectorVisible ? <PanelResizeHandle edge="inspector" value={uiPreferences.inspectorWidth} minimum={EDITOR_PANEL_LIMITS.inspector.minimum} maximum={EDITOR_PANEL_LIMITS.inspector.maximum} defaultValue={EDITOR_PANEL_LIMITS.inspector.defaultValue} onChange={(inspectorWidth) => setUiPreferences((current) => fitEditorPanelWidths({ ...current, inspectorWidth }, window.innerWidth))} /> : null}
       </section>
 
-      {inspectorTab === "Animation" ? <Timeline
+      {inspectorTab === "Animation" && uiPreferences.timelineVisible ? <Timeline
         project={project}
         playerRef={playerRef}
         selectedLayerId={selectedLayerId}
@@ -1653,6 +1749,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
         onDeleteAudioClip={deleteAudioClipById}
         onDuplicateAudioClip={duplicateAudioClipById}
         canPaste={Boolean(animationClipboard)}
+        onCollapse={toggleTimeline}
       /> : null}
     </main>
   );
@@ -1678,7 +1775,8 @@ function EditorInfoDialog({ kind, onClose }: { kind: EditorInfoDialogKind | null
     ["Ctrl B", "Cut selection at playhead"],
     ["Ctrl + wheel", "Zoom timeline or canvas"],
     ["Space", "Play or pause"],
-    ["Arrow keys", "Previous or next frame"],
+    ["Arrow keys", "Nudge selected layers by 1 px · seek frames when none are editable"],
+    ["Shift + Arrow", "Nudge selected layers by 10 px"],
     ["Shift + drag", "Add to marquee selection"],
     ["Ctrl S", "Save project"],
     ["Ctrl Z / Ctrl Shift Z", "Undo / redo"],
@@ -1712,6 +1810,10 @@ function isEditableTarget(target: EventTarget | null) {
     target.tagName === "TEXTAREA" ||
     target.tagName === "SELECT"
   );
+}
+
+function isCanvasArrowControlTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest('button, a, [role="separator"], [role="slider"], [role="button"], [role="menuitem"], [role="option"]'));
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {

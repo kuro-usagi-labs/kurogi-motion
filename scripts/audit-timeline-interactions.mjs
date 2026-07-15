@@ -52,6 +52,20 @@ try {
   assert.equal(timeAtOneHundredPercent, 5.12);
   assert.equal(timeAtTwoHundredPercent, 2.56);
 
+  // A 17-minute project at 8x zoom has more than ten thousand logical ruler
+  // ticks. Only the visible labels plus overscan should reach the DOM.
+  const longDuration = 17 * 60;
+  const longLaneWidth = longDuration * 150 * 8;
+  const visibleMarks = interactions.visibleTimelineRulerMarks({
+    duration: longDuration,
+    laneWidth: longLaneWidth,
+    scrollLeft: longLaneWidth * .5,
+    viewportWidth: 1560,
+    labelWidth: 188,
+  });
+  assert.ok(visibleMarks.length > 2 && visibleMarks.length < 40, `Visible ruler virtualization mounted ${visibleMarks.length} labels.`);
+  assert.ok(visibleMarks[0] > longDuration * .45 && visibleMarks.at(-1) < longDuration * .55, "Ruler labels must stay near the visible scroll range.");
+
   // Shift toggles exactly once and a drag on an already selected member keeps
   // the existing multi-selection intact.
   assert.deepEqual(interactions.timelinePointerSelection(["a"], ["b"], true), ["a", "b"]);
@@ -73,7 +87,7 @@ try {
   assert.ok(!source.includes("Math.max(.6, (activePreview.duration / scene.duration)"), "Long projects must not inflate short actions with percentage-based minimum widths.");
   assert.ok(!source.includes("Math.max(.3, (timing.duration / scene.duration)"), "Long projects must not inflate short layer spans with percentage-based minimum widths.");
 
-  console.log("Timeline interaction audit passed: scrolled/zoomed coordinates, drag thresholds, Shift selection, blank-click/Escape deselection, pointer capture, and cancellation are wired.");
+  console.log("Timeline interaction audit passed: scrolled/zoomed coordinates, virtualized ruler labels, drag thresholds, Shift selection, blank-click/Escape deselection, pointer capture, and cancellation are wired.");
 } finally {
   await server.close();
 }

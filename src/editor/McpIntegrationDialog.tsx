@@ -94,13 +94,14 @@ export function McpIntegrationDialog({ open, onClose }: McpIntegrationDialogProp
           <div className="mcp-tools-summary">
             <h3>{info ? `Available in V${info.mcpVersion} · ${info.toolCount} tools` : "Loading MCP capabilities…"}</h3>
             <div>
-              <span>Preview frames and validation</span>
+              <span>Project inspection and export preflight</span>
+              <span>Multi-frame visual preview strips</span>
+              <span>Project and template discovery</span>
               <span>Async render jobs and cancellation</span>
               <span>Atomic workflows with assign/$ref</span>
               <span>Advanced design and effects</span>
               <span>Scene transitions and layer timing</span>
               <span>Asset reuse and metadata</span>
-              <span>Undo, redo, and checkpoints</span>
               <span>One-call autonomous video</span>
             </div>
           </div>

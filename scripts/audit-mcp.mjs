@@ -44,11 +44,17 @@ expect(preload.includes("renderPreviewFrame") && preload.includes("startRenderJo
 expect(serverSource.includes("StdioServerTransport"), "MCP server must use the local stdio transport.");
 expect(serverSource.includes("McpServer") && serverSource.includes("server.registerTool"), "MCP server must use the modern high-level registration API.");
 expect(serverSource.includes('"kurogi://active-project"'), "MCP server must expose the active project resource.");
+expect(serverSource.includes('"kurogi://active-project/validation"'), "MCP server must expose active-project validation as a resource.");
+expect(serverSource.includes('"kurogi://templates"'), "MCP server must expose the complete template catalog as a resource.");
 expect(serverSource.includes('"kurogi://capabilities"'), "MCP server must expose machine-readable capabilities.");
 expect((serverSource.match(/bridgeTool\("kurogi_/g) ?? []).length >= 50, "MCP V4 should expose at least 50 focused tools.");
-for (const tool of ["kurogi_apply_edit_plan", "kurogi_apply_workflow", "kurogi_render_preview_frame", "kurogi_validate_project", "kurogi_start_render", "kurogi_get_render_progress", "kurogi_cancel_render", "kurogi_group_layers", "kurogi_set_gradient", "kurogi_set_layer_timing", "kurogi_search_assets", "kurogi_create_checkpoint", "kurogi_create_video"]) {
+for (const tool of ["kurogi_apply_edit_plan", "kurogi_apply_workflow", "kurogi_list_projects", "kurogi_list_templates", "kurogi_inspect_project", "kurogi_render_preview_frame", "kurogi_render_preview_strip", "kurogi_validate_project", "kurogi_preflight_export", "kurogi_start_render", "kurogi_get_render_progress", "kurogi_cancel_render", "kurogi_group_layers", "kurogi_set_gradient", "kurogi_set_layer_timing", "kurogi_search_assets", "kurogi_create_checkpoint", "kurogi_create_video"]) {
   expect(serverSource.includes(tool), `MCP V4 must expose ${tool}.`);
 }
+expect(serverSource.includes('id: "podcast-cover"'), "MCP template discovery and project creation must include the podcast-cover template.");
+expect(serverSource.includes("paginatedResult") && serverSource.includes("hasMore") && serverSource.includes("nextOffset"), "MCP project and template listing must expose bounded pagination metadata.");
+expect(serverSource.includes("PROJECT_VALIDATION_FAILED") && serverSource.includes("ALPHA_FORMAT_UNSUPPORTED") && serverSource.includes("PREVIEW_RENDER_FAILED"), "MCP export preflight must report actionable validation, alpha, and preview failures.");
+expect(!serverSource.includes("experimental/tasks") && !serverSource.includes("@modelcontextprotocol/sdk/v2"), "Production stdio MCP must not migrate to experimental SDK APIs.");
 expect(serverSource.includes("structuredContent"), "MCP tools must return structured content.");
 expect(serverSource.includes("readOnlyHint") && serverSource.includes("destructiveHint") && serverSource.includes("idempotentHint") && serverSource.includes("openWorldHint"), "MCP tools must provide complete risk annotations.");
 expect(serverSource.includes("resolveReferences") && serverSource.includes('entries[0][0] === "$ref"'), "Autonomous workflow steps must support result references.");

@@ -72,6 +72,57 @@ export function timelineTimeAtClientX({
 }
 
 /**
+ * Return only ruler labels close to the visible viewport. At high zoom a long
+ * project can contain thousands of logical ticks; mounting all of them would
+ * make horizontal scrolling feel progressively slower.
+ */
+export function visibleTimelineRulerMarks({
+  duration,
+  laneWidth,
+  scrollLeft,
+  viewportWidth,
+  labelWidth,
+  targetPixelGap = 110,
+  overscanPixels = 140,
+  maximumMarks = 256,
+}: {
+  duration: number;
+  laneWidth: number;
+  scrollLeft: number;
+  viewportWidth: number;
+  labelWidth: number;
+  targetPixelGap?: number;
+  overscanPixels?: number;
+  maximumMarks?: number;
+}) {
+  const safeDuration = Math.max(0, duration);
+  const safeLaneWidth = Math.max(1, laneWidth);
+  const step = niceTimelineRulerStep(safeDuration / Math.max(2, Math.floor(safeLaneWidth / Math.max(24, targetPixelGap))));
+  const visibleStartPixels = clampTimelineValue(scrollLeft - labelWidth - overscanPixels, 0, safeLaneWidth);
+  const visibleEndPixels = clampTimelineValue(scrollLeft + Math.max(0, viewportWidth) - labelWidth + overscanPixels, 0, safeLaneWidth);
+  const visibleStart = (visibleStartPixels / safeLaneWidth) * safeDuration;
+  const visibleEnd = (visibleEndPixels / safeLaneWidth) * safeDuration;
+  const firstIndex = Math.max(0, Math.floor(visibleStart / step));
+  const lastIndex = Math.min(Math.ceil(safeDuration / step), Math.ceil(visibleEnd / step));
+  const marks: number[] = [];
+  for (let index = firstIndex; index <= lastIndex && marks.length < Math.max(2, maximumMarks); index += 1) {
+    const time = Number((index * step).toFixed(6));
+    if (time <= safeDuration + .000001) marks.push(Math.min(safeDuration, time));
+  }
+  if (visibleStartPixels <= .5 && marks[0] !== 0) marks.unshift(0);
+  if (visibleEndPixels >= safeLaneWidth - .5 && Math.abs((marks.at(-1) ?? -1) - safeDuration) > .001) marks.push(safeDuration);
+  return [...new Set(marks)];
+}
+
+export function niceTimelineRulerStep(raw: number) {
+  const safe = Math.max(1 / 60, raw);
+  const power = 10 ** Math.floor(Math.log10(safe));
+  const normalized = safe / power;
+  const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return factor * power;
+}
+
+/**
  * Resolve the ids a pointer-down gesture owns. This mirrors Shift toggling,
  * while preserving an existing multi-selection when one member is dragged.
  */
@@ -89,4 +140,8 @@ export function timelinePointerSelection(currentIds: string[], targetIds: string
 
 export function timelineReleaseIntent(moved: boolean): "marquee" | "clear" {
   return moved ? "marquee" : "clear";
+}
+
+function clampTimelineValue(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value));
 }

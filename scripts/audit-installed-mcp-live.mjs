@@ -20,7 +20,7 @@ try {
   const listed = await client.listTools();
   const toolNames = new Set(listed.tools.map((tool) => tool.name));
   const requiredTools = [
-    "kurogi_render_preview_frame", "kurogi_validate_project", "kurogi_start_render", "kurogi_get_render_progress", "kurogi_cancel_render", "kurogi_apply_workflow",
+    "kurogi_list_projects", "kurogi_list_templates", "kurogi_inspect_project", "kurogi_render_preview_frame", "kurogi_render_preview_strip", "kurogi_validate_project", "kurogi_preflight_export", "kurogi_start_render", "kurogi_get_render_progress", "kurogi_cancel_render", "kurogi_apply_workflow",
     "kurogi_group_layers", "kurogi_ungroup_layer", "kurogi_align_layers", "kurogi_distribute_layers", "kurogi_set_gradient", "kurogi_set_blend_mode",
     "kurogi_create_clipping_mask", "kurogi_release_clipping_mask", "kurogi_add_effect", "kurogi_set_layer_timing", "kurogi_update_layers", "kurogi_reorder_scene", "kurogi_set_scene_transition",
     "kurogi_search_assets", "kurogi_get_asset_metadata", "kurogi_replace_layer_asset", "kurogi_delete_unused_assets", "kurogi_undo", "kurogi_redo", "kurogi_create_checkpoint", "kurogi_list_checkpoints", "kurogi_restore_checkpoint",

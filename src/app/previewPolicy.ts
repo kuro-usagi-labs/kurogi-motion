@@ -12,6 +12,12 @@ export function previewDurationInFrames(duration: number, fps: number) {
   return Math.max(1, Math.round(projectPreviewDuration(duration) * safeFps));
 }
 
+export function projectPreviewLoopLabel(duration: number) {
+  const seconds = projectPreviewDuration(duration);
+  const decimals = seconds < .1 ? 2 : seconds < 10 && !Number.isInteger(seconds) ? 1 : 0;
+  return `${seconds.toFixed(decimals)}s loop`;
+}
+
 export function fitPresetLayer(width: number, height: number) {
   const safeWidth = Math.max(1, Number.isFinite(width) ? width : 1);
   const safeHeight = Math.max(1, Number.isFinite(height) ? height : 1);

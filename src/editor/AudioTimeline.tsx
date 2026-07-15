@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getSceneAudioClips } from "../core/audio";
 import type { AudioClip, KurogiProject } from "../types";
 import { Icon } from "../ui/Icon";
+import { LayerThumbnail } from "../app/LayerThumbnail";
 
 interface AudioTimelineProps {
   project: KurogiProject;
@@ -100,7 +101,7 @@ export function AudioTimelineTracks({ project, laneWidth, labelWidth, selectedCl
         return (
           <div className="track audio-track" key={clip.id} style={{ gridTemplateColumns: `${labelWidth}px ${laneWidth}px` }}>
             <button type="button" className={selected ? "track-selected" : ""} onClick={() => onSelect(clip.id)}>
-              <span className="layer-thumb audio"><Icon name="audio" size={13} /></span>
+              <LayerThumbnail project={project} audioClip={clip} size={22} decorative />
               <span className="track-name">{clip.name}</span>
               {clip.muted ? <small>Muted</small> : null}
             </button>

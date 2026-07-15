@@ -8,6 +8,9 @@ const editor = read("src/app/Editor.tsx");
 const inspector = read("src/editor/InspectorV2.tsx");
 const canvas = read("src/editor/MultiSceneCanvasStage.tsx");
 const timeline = read("src/editor/TimelineV3.tsx");
+const layerThumbnail = read("src/app/LayerThumbnail.tsx");
+const panelResizer = read("src/editor/PanelResizeHandle.tsx");
+const preferences = read("src/core/editorUiPreferences.ts");
 const releaseCss = read("src/studioRelease.css");
 const finalCss = read("src/releaseCandidate.css");
 const packageLock = JSON.parse(read("package-lock.json"));
@@ -34,7 +37,11 @@ assert.match(editor, /setExportDialogOpen\(true\)/, "Export must use the dedicat
 assert.match(editor, /aria-multiselectable="true"/, "Layer list must expose multi-selection");
 assert.match(editor, /role="option"/, "Layer rows must be keyboard-addressable options");
 assert.match(editor, /focusActiveScene=\{inspectorTab === "Design"\}/, "Design mode must focus the active scene");
-assert.match(editor, /inspectorTab === "Animation" \? <Timeline/, "Timeline must only be visible in Animation mode");
+assert.match(editor, /inspectorTab === "Animation" && uiPreferences\.timelineVisible \? <Timeline/, "Timeline must only be visible in Animation mode when its panel is enabled");
+assert.match(editor, /<LayerThumbnail project=\{project\} layer=\{layer\}/, "Layer rows must expose content-aware previews");
+assert.match(editor, /<PanelResizeHandle edge="sidebar"/, "Layer panel must be resizable");
+assert.match(editor, /<PanelResizeHandle edge="inspector"/, "Inspector must be resizable");
+assert.match(editor, /workspace-panel-restore is-sidebar/, "Collapsed panels need an in-workspace restore affordance");
 assert.doesNotMatch(editor, /\sdraggable\s/, "Layer reordering must not use native HTML drag and drop");
 assert.match(editor, /onClick=\{showKeyboardShortcuts\}/, "Help rail button must open an in-product surface");
 assert.match(editor, /function EditorInfoDialog/, "About and shortcut help must use an in-product dialog");
@@ -44,5 +51,13 @@ assert.match(canvas, /className="canvas-view-controls"/, "Canvas navigation must
 assert.match(canvas, /aria-controls="scene-settings-popover"/, "Scene settings must expose their controlled surface");
 assert.match(timeline, /className="timeline-selection-empty"/, "Timeline controls must use progressive disclosure");
 assert.match(timeline, /className="timeline-stagger-tools"/, "Multi-block timing tools must remain available");
+assert.match(timeline, /aria-label="Resize timeline"/, "Timeline resizing must expose keyboard separator semantics");
+assert.match(timeline, /onCollapse/, "Timeline must be collapsible");
+assert.match(layerThumbnail, /asset\.thumbnailUrl/, "Layer thumbnails must use real saved media previews");
+assert.match(panelResizer, /role="separator"/, "Panel resizing must expose separator semantics");
+assert.match(panelResizer, /onDoubleClick/, "Panel resizing must provide a reset gesture");
+for (const key of ["sidebarVisible", "inspectorVisible", "timelineVisible", "sidebarWidth", "inspectorWidth"]) {
+  assert.ok(preferences.includes(key), `Editor UI preferences must persist ${key}`);
+}
 
 console.log("Release-ready audit passed: professional shell, reachable flows, accessibility, and editing ergonomics verified.");

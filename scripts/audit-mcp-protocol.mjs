@@ -8,6 +8,9 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const token = "audit-token-0123456789";
 const requests = [];
+const previewPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAF/gL+3j8pGQAAAABJRU5ErkJggg==", "base64");
+let previewSequence = 0;
+let validationBlocked = false;
 let activeProject = { id: "project-audit", name: "Protocol audit", activeSceneId: "scene-audit", audioClipCount: 1 };
 
 const bridge = http.createServer(async (request, response) => {
@@ -24,7 +27,11 @@ const bridge = http.createServer(async (request, response) => {
     if (payload.method === "bridge.status") {
       result = { appRunning: true, windowReady: true, pid: process.pid };
     } else if (payload.method === "library.list_projects") {
-      result = { projects: [{ id: activeProject.id, name: activeProject.name }] };
+      result = { projects: [
+        { id: activeProject.id, name: activeProject.name, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-15T10:00:00.000Z", width: 1920, height: 1080, duration: 4, background: "#10131a" },
+        { id: "project-alpha", name: "Alpha Launch", createdAt: "2026-05-01T00:00:00.000Z", updatedAt: "2026-06-01T00:00:00.000Z", width: 1080, height: 1080, duration: 6, background: "#ffffff" },
+        { id: "project-campaign", name: "Campaign Archive", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-02-01T00:00:00.000Z", width: 1080, height: 1920, duration: 12, background: "#201744" },
+      ] };
     } else if (payload.method === "library.create_project") {
       activeProject = { id: "project-auto", name: payload.params.name, activeSceneId: "scene-auto", audioClipCount: 0 };
       result = { created: true, projectId: activeProject.id, activeSceneId: activeProject.activeSceneId, name: activeProject.name, templateId: payload.params.templateId };
@@ -34,9 +41,39 @@ const bridge = http.createServer(async (request, response) => {
     } else if (payload.method === "project.get_context") {
       result = {
         project: activeProject,
-        scenes: [{ id: activeProject.activeSceneId, name: "Scene 01", layers: [], audioClips: activeProject.audioClipCount ? [{ id: "audio-audit", name: "Voice over" }] : [] }],
+        scenes: [{
+          id: activeProject.activeSceneId,
+          name: "Scene 01",
+          width: 1920,
+          height: 1080,
+          duration: 4,
+          fps: 30,
+          background: { type: "solid", color: "#10131a" },
+          active: true,
+          layers: [
+            { id: "layer-title", sceneId: activeProject.activeSceneId, name: "Hero title", type: "text", text: "AUTONOMOUS LAUNCH", visible: true, animationActions: [{ id: "action-title", type: "moveIn" }] },
+            { id: "layer-card", sceneId: activeProject.activeSceneId, name: "Backdrop card", type: "shape", shape: "rectangle", visible: true, animationActions: [] },
+          ],
+          audioClips: activeProject.audioClipCount ? [{ id: "audio-audit", name: "Voice over" }] : [],
+        }],
         assets: activeProject.audioClipCount ? [{ id: "asset-audio", name: "Voice over", type: "audio", duration: 4 }] : [],
       };
+    } else if (payload.method === "project.validate") {
+      result = {
+        valid: !validationBlocked,
+        errors: validationBlocked ? 1 : 0,
+        warnings: validationBlocked ? 0 : 1,
+        infos: 0,
+        sceneCount: 1,
+        layerCount: 2,
+        issues: validationBlocked
+          ? [{ severity: "error", code: "ASSET_SOURCE_MISSING", message: "A project asset has no readable source.", sceneId: activeProject.activeSceneId, assetId: "asset-missing", suggestion: "Re-import the missing asset." }]
+          : [{ severity: "warning", code: "FONT_UNVERIFIED", message: "A project font is not embedded.", sceneId: activeProject.activeSceneId, layerId: "layer-title", suggestion: "Embed the font before final delivery." }],
+      };
+    } else if (payload.method === "project.preview_frame") {
+      const previewPath = path.join(directory, `preview-${++previewSequence}.png`);
+      await fs.writeFile(previewPath, previewPng);
+      result = { path: previewPath, mimeType: "image/png", width: 1920, height: 1080, time: payload.params.time, scale: payload.params.scale };
     } else if (payload.method === "project.apply_edit_plan") {
       result = { applied: payload.params.operations.length, operations: payload.params.operations };
     } else if (payload.method === "project.apply_workflow") {
@@ -102,9 +139,12 @@ try {
   await client.connect(transport);
 
   const tools = await client.listTools();
-  assert.ok(tools.tools.length >= 28);
+  assert.ok(tools.tools.length >= 62);
   for (const name of [
     "kurogi_status",
+    "kurogi_list_projects",
+    "kurogi_list_templates",
+    "kurogi_inspect_project",
     "kurogi_create_project",
     "kurogi_open_project",
     "kurogi_create_layer",
@@ -114,7 +154,9 @@ try {
     "kurogi_apply_edit_plan",
     "kurogi_apply_workflow",
     "kurogi_render_preview_frame",
+    "kurogi_render_preview_strip",
     "kurogi_validate_project",
+    "kurogi_preflight_export",
     "kurogi_start_render",
     "kurogi_get_render_progress",
     "kurogi_cancel_render",
@@ -134,6 +176,79 @@ try {
   const status = await client.callTool({ name: "kurogi_status", arguments: {} });
   assert.equal(status.isError, undefined);
   assert.equal(status.structuredContent.appRunning, true);
+
+  const projectIndex = await client.callTool({
+    name: "kurogi_list_projects",
+    arguments: { sortBy: "name", order: "asc", limit: 1, offset: 0 },
+  });
+  assert.equal(projectIndex.isError, undefined);
+  assert.equal(projectIndex.structuredContent.total, 3);
+  assert.equal(projectIndex.structuredContent.count, 1);
+  assert.equal(projectIndex.structuredContent.projects[0].name, "Alpha Launch");
+  assert.equal(projectIndex.structuredContent.hasMore, true);
+  assert.equal(projectIndex.structuredContent.nextOffset, 1);
+
+  const templates = await client.callTool({ name: "kurogi_list_templates", arguments: { query: "podcast" } });
+  assert.equal(templates.isError, undefined);
+  assert.equal(templates.structuredContent.total, 1);
+  assert.equal(templates.structuredContent.templates[0].id, "podcast-cover");
+
+  const inspection = await client.callTool({
+    name: "kurogi_inspect_project",
+    arguments: { query: "hero", layerTypes: ["text"], includeValidation: true, includeAssets: false, limit: 5 },
+  });
+  assert.equal(inspection.isError, undefined);
+  assert.equal(inspection.structuredContent.count, 1);
+  assert.equal(inspection.structuredContent.layers[0].id, "layer-title");
+  assert.equal(inspection.structuredContent.validation.warnings, 1);
+
+  const previewStrip = await client.callTool({
+    name: "kurogi_render_preview_strip",
+    arguments: { count: 3, scale: .2 },
+  });
+  assert.equal(previewStrip.isError, undefined);
+  assert.equal(previewStrip.structuredContent.complete, true);
+  assert.equal(previewStrip.structuredContent.frames.length, 3);
+  assert.equal(previewStrip.content.filter((item) => item.type === "image").length, 3);
+  assert.deepEqual(previewStrip.structuredContent.frames.map((frame) => frame.time), [.4, 2, 3.6]);
+
+  const preflight = await client.callTool({
+    name: "kurogi_preflight_export",
+    arguments: { format: "mov", transparent: true, allScenes: true, includePreview: true, previewScale: .2 },
+  });
+  assert.equal(preflight.isError, undefined);
+  assert.equal(preflight.structuredContent.ready, true);
+  assert.equal(preflight.structuredContent.status, "review");
+  assert.equal(preflight.structuredContent.export.alphaChannelExpected, true);
+  assert.match(preflight.structuredContent.export.outputVerification, /ProRes 4444/);
+  assert.equal(preflight.content.filter((item) => item.type === "image").length, 1);
+
+  const blockedPreflight = await client.callTool({
+    name: "kurogi_preflight_export",
+    arguments: { format: "mp4", transparent: true, includePreview: false },
+  });
+  assert.equal(blockedPreflight.isError, undefined);
+  assert.equal(blockedPreflight.structuredContent.ready, false);
+  assert.equal(blockedPreflight.structuredContent.status, "blocked");
+  assert.equal(blockedPreflight.structuredContent.blockingIssues[0].code, "ALPHA_FORMAT_UNSUPPORTED");
+
+  validationBlocked = true;
+  const validationPreflight = await client.callTool({
+    name: "kurogi_preflight_export",
+    arguments: { format: "mp4", transparent: false, includePreview: false },
+  });
+  validationBlocked = false;
+  assert.equal(validationPreflight.isError, undefined);
+  assert.equal(validationPreflight.structuredContent.ready, false);
+  assert.equal(validationPreflight.structuredContent.status, "blocked");
+  assert.deepEqual(validationPreflight.structuredContent.blockingIssues[0], {
+    severity: "error",
+    code: "ASSET_SOURCE_MISSING",
+    message: "A project asset has no readable source.",
+    sceneId: activeProject.activeSceneId,
+    assetId: "asset-missing",
+    suggestion: "Re-import the missing asset.",
+  });
 
   const plan = await client.callTool({
     name: "kurogi_apply_edit_plan",
@@ -178,8 +293,10 @@ try {
   const resources = await client.listResources();
   assert.deepEqual(resources.resources.map((resource) => resource.uri).sort(), [
     "kurogi://active-project",
+    "kurogi://active-project/validation",
     "kurogi://capabilities",
     "kurogi://projects",
+    "kurogi://templates",
   ]);
 
   const active = await client.readResource({ uri: "kurogi://active-project" });
@@ -189,13 +306,23 @@ try {
   const projects = await client.readResource({ uri: "kurogi://projects" });
   assert.match(projects.contents[0].text, /project-auto/);
 
+  const templateCatalog = await client.readResource({ uri: "kurogi://templates" });
+  assert.match(templateCatalog.contents[0].text, /podcast-cover/);
+  assert.match(templateCatalog.contents[0].text, /After Hours podcast/);
+
+  const projectValidation = await client.readResource({ uri: "kurogi://active-project/validation" });
+  assert.match(projectValidation.contents[0].text, /FONT_UNVERIFIED/);
+
   const capabilities = await client.readResource({ uri: "kurogi://capabilities" });
   assert.match(capabilities.contents[0].text, /single-call create-save-render/);
   assert.match(capabilities.contents[0].text, /no in-app confirmation/);
+  assert.match(capabilities.contents[0].text, /verified ProRes 4444 alpha/);
 
   assert.ok(requests.some((request) => request.method === "bridge.status"));
   assert.ok(requests.some((request) => request.method === "library.create_project"));
   assert.ok(requests.some((request) => request.method === "project.apply_edit_plan"));
+  assert.ok(requests.some((request) => request.method === "project.validate"));
+  assert.ok(requests.some((request) => request.method === "project.preview_frame"));
   assert.ok(requests.some((request) => request.method === "project.save"));
   assert.ok(requests.some((request) => request.method === "project.export"));
 } finally {

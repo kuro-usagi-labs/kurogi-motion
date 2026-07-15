@@ -15,6 +15,7 @@ try {
   const audioCore = await server.ssrLoadModule("/src/core/audio.ts");
   const timeline = await server.ssrLoadModule("/src/core/timelineEditing.ts");
   const marquee = await server.ssrLoadModule("/src/core/marqueeSelection.ts");
+  const editorPreferences = await server.ssrLoadModule("/src/core/editorUiPreferences.ts");
 
   let project = projectCore.createProject({ name: "Pro editor audit", format: "landscape", duration: 10, fps: 30 });
   const scene = projectCore.getActiveScene(project);
@@ -74,6 +75,15 @@ try {
   assert.deepEqual(roundRect(layerRect), { left: 150, top: 0, right: 250, bottom: 200 });
   assert.equal(marquee.selectionRectsIntersect(rect, layerRect), true);
 
+  const fittedPanels = editorPreferences.fitEditorPanelWidths({
+    ...editorPreferences.DEFAULT_EDITOR_UI_PREFERENCES,
+    sidebarWidth: 420,
+    inspectorWidth: 480,
+  }, 1080);
+  assert.ok(fittedPanels.sidebarWidth + fittedPanels.inspectorWidth <= 664, "Wide panels must preserve the minimum canvas width when the window shrinks.");
+  const hiddenInspectorPanels = editorPreferences.fitEditorPanelWidths({ ...fittedPanels, inspectorVisible: false, sidebarWidth: 420 }, 1080);
+  assert.equal(hiddenInspectorPanels.sidebarWidth, 420, "A hidden inspector must release its width budget to the canvas and visible sidebar.");
+
   const editor = await readFile(new URL("../src/app/Editor.tsx", import.meta.url), "utf8");
   const motion = await readFile(new URL("../src/MotionComposition.tsx", import.meta.url), "utf8");
   const timelineSource = await readFile(new URL("../src/editor/TimelineV3.tsx", import.meta.url), "utf8");
@@ -85,7 +95,7 @@ try {
   assert.match(css, /user-select:\s*none/);
   assert.match(css, /\[contenteditable="true"\][\s\S]*user-select:\s*text/);
 
-  console.log("Pro editor audit passed: trim/cut operations, anchored timeline zoom, canvas/timeline marquee selection, and desktop text-selection behavior are wired.");
+  console.log("Pro editor audit passed: trim/cut operations, anchored timeline zoom, responsive panel sizing, canvas/timeline marquee selection, and desktop text-selection behavior are wired.");
 } finally {
   await server.close();
 }

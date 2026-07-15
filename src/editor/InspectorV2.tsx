@@ -26,6 +26,7 @@ interface InspectorProps {
   selectedAction: AnimationAction | null;
   tab: InspectorTab;
   onTabChange: (tab: InspectorTab) => void;
+  onCollapse: () => void;
   onBeginPropertyEdit: () => void;
   onFinishPropertyEdit: () => void;
   onCancelPropertyEdit: () => void;
@@ -51,10 +52,13 @@ interface InspectorProps {
 export function Inspector(props: InspectorProps) {
   return (
     <aside className="inspector inspector-v2">
-      <div className="inspector-tabs" role="tablist" aria-label="Inspector panels">
-        {(["Design", "Animation"] as const).map((candidate) => (
-          <button type="button" role="tab" aria-selected={props.tab === candidate} key={candidate} className={props.tab === candidate ? "active" : ""} onClick={() => props.onTabChange(candidate)}>{candidate}</button>
-        ))}
+      <div className="inspector-tabs">
+        <div className="inspector-tab-list" role="tablist" aria-label="Inspector panels">
+          {(["Design", "Animation"] as const).map((candidate) => (
+            <button type="button" role="tab" aria-selected={props.tab === candidate} key={candidate} className={props.tab === candidate ? "active" : ""} onClick={() => props.onTabChange(candidate)}>{candidate}</button>
+          ))}
+        </div>
+        <button type="button" className="panel-collapse-button inspector-collapse-button" onClick={props.onCollapse} title="Hide inspector" aria-label="Hide inspector"><Icon name="chevronRight" size={14} /></button>
       </div>
       {props.tab === "Design" ? (
         props.selectedLayer ? <DesignInspector

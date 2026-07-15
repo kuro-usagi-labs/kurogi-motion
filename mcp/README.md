@@ -33,11 +33,19 @@ Use `kurogi_create_video` for a complete create, edit, save, and render operatio
 
 For an existing project, prefer `kurogi_apply_workflow`. It applies up to 200 ordered steps as one undo entry, supports `assign` and `{"$ref":"alias.path"}`, and commits nothing when a step fails.
 
+Before a final render, use `kurogi_preflight_export`. It combines project validation, alpha-format compatibility, the intended export settings, and an optional midpoint preview into one structured `ready`, `review`, or `blocked` result. For broader visual QA, `kurogi_render_preview_strip` returns up to six representative frames from the active scene as MCP image content.
+
+Discovery calls are intentionally bounded:
+
+- `kurogi_list_projects` supports query, sorting, limit, and offset without opening a project.
+- `kurogi_list_templates` exposes every production template, including `podcast-cover`, with stable IDs and creation metadata.
+- `kurogi_inspect_project` filters and paginates layers while optionally attaching audio, assets, and validation findings.
+
 The V4 tool set also includes:
 
 - `kurogi_get_project_context`
 - `kurogi_create_project` and `kurogi_open_project`
-- `kurogi_render_preview_frame` and `kurogi_validate_project`
+- `kurogi_render_preview_frame`, `kurogi_render_preview_strip`, `kurogi_validate_project`, and `kurogi_preflight_export`
 - `kurogi_start_render`, `kurogi_get_render_progress`, and `kurogi_cancel_render`
 - scene ordering, transitions, layer timing, and multi-layer movement
 - grouping, alignment, distribution, gradients, blend modes, clipping masks, and effects
@@ -48,7 +56,14 @@ The V4 tool set also includes:
 - `kurogi_save_project`
 - `kurogi_export_active_project`
 
-The server exposes `kurogi://projects`, `kurogi://active-project`, and `kurogi://capabilities` resources. Tools return both text and `structuredContent` and include complete MCP risk annotations.
+The server exposes `kurogi://projects`, `kurogi://templates`, `kurogi://active-project`, `kurogi://active-project/validation`, and `kurogi://capabilities` resources. Tools return both text and `structuredContent` and include complete MCP risk annotations.
+
+## Inspection limits
+
+- The desktop application must be open because it owns IndexedDB project data and the renderer.
+- Focused inspection and preview tools operate on the active project. Reading another saved project in full requires opening it, which intentionally changes the editor state.
+- Preview frames inspect only the active scene; they do not render scene transitions or prove that a long full-video encode will finish.
+- Preflight reports problems and suggested recovery steps but does not silently change the project.
 
 ## Security and automation
 

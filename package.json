@@ -1,6 +1,6 @@
 {
   "name": "kurogi-motion",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Local-first motion design editor with autonomous MCP video workflows.",
   "author": "Kurogi Motion",
   "private": true,
@@ -11,6 +11,7 @@
     "web": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "typecheck": "tsc --noEmit",
     "audit:templates": "node scripts/audit-templates.mjs",
+    "audit:template-previews": "node scripts/audit-template-previews.mjs",
     "audit:effects": "node scripts/audit-effects.mjs",
     "audit:loops": "node scripts/audit-loops.mjs",
     "audit:text-canvas": "node scripts/audit-text-canvas.mjs",

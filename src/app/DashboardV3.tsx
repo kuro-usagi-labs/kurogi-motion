@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Player } from "@remotion/player";
-import { MotionComposition } from "../MotionComposition";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CreateProjectOptions, ProjectFormat } from "../core/project";
 import { getActiveScene } from "../core/project";
 import type { DraftRecord, ProjectSummary, UserTemplateRecord } from "../core/persistence";
 import { createCatalogTemplateProject, MOTION_TEMPLATES, type MotionTemplateDefinition, type TemplateCategory } from "../core/templateCatalog";
 import { Icon } from "../ui/Icon";
+import { TemplateCard } from "./TemplateCard";
 
 interface DashboardProps {
   projects: ProjectSummary[];
@@ -24,7 +23,7 @@ interface DashboardProps {
 }
 
 type DashboardTab = "projects" | "templates";
-type CategoryFilter = "All" | TemplateCategory | "Custom";
+type CategoryFilter = "Featured" | "All" | TemplateCategory | "Custom";
 
 const FORMATS: Array<{ id: ProjectFormat; label: string; size: string; ratio: string }> = [
   { id: "square", label: "Square", size: "1080 × 1080", ratio: "1 / 1" },
@@ -34,19 +33,19 @@ const FORMATS: Array<{ id: ProjectFormat; label: string; size: string; ratio: st
   { id: "custom", label: "Custom", size: "Your dimensions", ratio: "1 / 1" },
 ];
 
-const CATEGORIES: CategoryFilter[] = ["All", "Social", "Marketing", "Brand", "UI", "Typography", "Custom"];
+const CATEGORIES: CategoryFilter[] = ["Featured", "All", "Social", "Marketing", "Brand", "UI", "Typography", "Custom"];
 
 export function DashboardV3({ projects, templates, draft, loading, onOpen, onOpenDraft, onDelete, onCreate, onUseTemplate, onDeleteTemplate, onSaveProjectAsTemplate, onExportProjectFile, onImportProjectFile }: DashboardProps) {
   const [tab, setTab] = useState<DashboardTab>("projects");
   const [createOpen, setCreateOpen] = useState(false);
-  const [category, setCategory] = useState<CategoryFilter>("All");
+  const [category, setCategory] = useState<CategoryFilter>("Featured");
   const [query, setQuery] = useState("");
   const importRef = useRef<HTMLInputElement>(null);
 
   const catalogTemplates = useMemo(() => MOTION_TEMPLATES.filter((template) =>
-    (category === "All" || template.category === category) &&
+    (category === "All" || (category === "Featured" && template.featured) || template.category === category) &&
     `${template.name} ${template.description} ${template.category}`.toLowerCase().includes(query.toLowerCase()),
-  ), [category, query]);
+  ).sort((left, right) => Number(Boolean(right.featured)) - Number(Boolean(left.featured))), [category, query]);
   const customTemplates = useMemo(() => templates.filter((template) =>
     (category === "All" || category === "Custom") &&
     `${template.name} custom template`.toLowerCase().includes(query.toLowerCase()),
@@ -94,11 +93,12 @@ export function DashboardV3({ projects, templates, draft, loading, onOpen, onOpe
         ) : (
           <section className="template-library-page template-library-v3">
             <div className="template-library-hero">
-              <div><span className="eyebrow">TEMPLATE LIBRARY</span><h1>Ready-made motion, fully editable.</h1><p>Pick a polished starting point, then change every layer, color, word, and action.</p></div>
+              <div><span className="eyebrow">CURATED MOTION SYSTEMS</span><h1>Start from something worth finishing.</h1><p>Campaign-ready compositions with live animation, editable layers, and production-safe assets.</p></div>
+              <div className="template-library-stats"><span><strong>{MOTION_TEMPLATES.length}</strong><small>templates</small></span><span><strong>5</strong><small>categories</small></span><span><strong>Live</strong><small>previews</small></span></div>
               <button type="button" className="secondary-dashboard-button" onClick={() => setCreateOpen(true)}><Icon name="plus" size={15} />Blank project</button>
             </div>
             <div className="template-library-controls sticky-template-controls">
-              <div className="template-category-tabs">{CATEGORIES.map((item) => <button type="button" key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div>
+              <div className="template-category-tabs">{CATEGORIES.map((item) => <button type="button" key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}<small>{templateCategoryCount(item, templates.length)}</small></button>)}</div>
               <label className="template-search"><Icon name="search" size={17} /><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Search templates" /></label>
             </div>
             <div className="template-library-grid live-template-grid">
@@ -158,41 +158,12 @@ function ProjectCard({ project, latest, onOpen, onDelete, onSaveAsTemplate, onEx
 
 function CatalogTemplateCard({ template, onUse }: { template: MotionTemplateDefinition; onUse: () => void }) {
   const project = useMemo(() => createCatalogTemplateProject({ name: template.name, format: template.format, duration: template.duration, fps: 30, background: template.palette[0] }, template.id), [template]);
-  return <TemplateCardShell name={template.name} category={template.category} description={template.description} duration={template.duration} project={project} onUse={onUse} />;
+  return <TemplateCard name={template.name} category={template.category} description={template.description} duration={template.duration} project={project} onUse={onUse} featured={template.featured} palette={template.palette} />;
 }
 
 function UserTemplateCard({ template, onUse, onDelete }: { template: UserTemplateRecord; onUse: () => void; onDelete: () => void }) {
   const scene = getActiveScene(template.project);
-  return <TemplateCardShell name={template.name} category="Custom" description="Your reusable Kurogi Motion project template." duration={scene.duration} project={template.project} onUse={onUse} onDelete={onDelete} />;
-}
-
-function TemplateCardShell({ name, category, description, duration, project, onUse, onDelete }: { name: string; category: string; description: string; duration: number; project: UserTemplateRecord["project"]; onUse: () => void; onDelete?: () => void }) {
-  const scene = getActiveScene(project);
-  const orientation = scene.height > scene.width ? "portrait" : scene.width > scene.height ? "landscape" : "square";
-  const sceneColor = scene.background.type === "solid" ? scene.background.color ?? "#171821" : "#171821";
-  return <article className={`library-template-card live-template-card template-${orientation}`}>
-    <button type="button" className="live-template-preview-button" onClick={onUse}>
-      <div className="live-template-player" style={{ "--template-scene-color": sceneColor } as React.CSSProperties}>
-        <div className="live-template-player-frame" style={{ aspectRatio: `${scene.width} / ${scene.height}` }}>
-          <Player
-            component={MotionComposition}
-            inputProps={{ project, editable: false, showSelection: false, showSafeArea: false }}
-            durationInFrames={Math.max(1, Math.round(scene.duration * scene.fps))}
-            compositionWidth={scene.width}
-            compositionHeight={scene.height}
-            fps={scene.fps}
-            autoPlay
-            loop
-            controls={false}
-            style={{ width: "100%", height: "100%" }}
-          />
-        </div>
-      </div>
-      <span className="template-duration">{duration}s</span>
-    </button>
-    <div className="library-template-copy"><span><small>{category}</small><strong>{name}</strong><p>{description}</p></span><button type="button" className="template-use-action" onClick={onUse}><span>Open template</span><Icon name="arrow" size={15} /></button></div>
-    {onDelete ? <button type="button" className="custom-template-delete" title="Delete custom template" onClick={onDelete}><Icon name="trash" size={14} /></button> : null}
-  </article>;
+  return <TemplateCard name={template.name} category="Custom" description="Your reusable Kurogi Motion project template." duration={scene.duration} project={template.project} onUse={onUse} onDelete={onDelete} />;
 }
 
 function CreateProjectDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (options: CreateProjectOptions) => void }) {
@@ -245,3 +216,10 @@ function relativeTime(value: string) {
 }
 
 function checkerBackground() { return "linear-gradient(45deg,#eceaf0 25%,transparent 25%),linear-gradient(-45deg,#eceaf0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#eceaf0 75%),linear-gradient(-45deg,transparent 75%,#eceaf0 75%),#fff"; }
+
+function templateCategoryCount(category: CategoryFilter, customCount: number) {
+  if (category === "Custom") return customCount;
+  if (category === "All") return MOTION_TEMPLATES.length + customCount;
+  if (category === "Featured") return MOTION_TEMPLATES.filter((template) => template.featured).length;
+  return MOTION_TEMPLATES.filter((template) => template.category === category).length;
+}

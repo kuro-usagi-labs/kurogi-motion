@@ -19,6 +19,7 @@ import "./uiCleanup.css";
 import "./layerContextMenu.css";
 import "./desktopFlow.css";
 import "./editorPro.css";
+import "./templateLibraryV4.css";
 import "./studioRelease.css";
 
 const root = document.getElementById("root");

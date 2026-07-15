@@ -1,8 +1,18 @@
 import type { CreateProjectOptions, ProjectFormat } from "./project";
-import { addLayers, createAnimationAction, createProject, getActiveScene } from "./project";
+import {
+  addLayers,
+  createAnimationAction,
+  createAssetLayer,
+  createId,
+  createProject,
+  getActiveScene,
+} from "./project";
 import { auditTemplateProject, logTemplateAudit, type TemplateAuditReport } from "./templateAudit";
 import { createTemplateFrame, normalizeTemplateLayers, type TemplateFrame, type TemplateRect } from "./templateLayout";
-import type { AnimationType, KurogiProject, Layer, LayerEffectType, Scene, ShapeLayer, TextLayer } from "../types";
+import type { AnimationType, ImageLayer, KurogiProject, Layer, LayerEffectType, ProjectAsset, Scene, ShapeLayer, TextLayer } from "../types";
+import mediterraneanEditorialUrl from "../assets/templates/mediterranean-editorial.jpg?inline";
+import podcastStudioUrl from "../assets/templates/podcast-studio.jpg?inline";
+import violetSpeakerLaunchUrl from "../assets/templates/violet-speaker-launch.jpg?inline";
 
 export type TemplateCategory = "Social" | "Marketing" | "Brand" | "UI" | "Typography";
 
@@ -14,14 +24,15 @@ export interface MotionTemplateDefinition {
   duration: number;
   description: string;
   palette: [string, string, string];
-  preview: "chat" | "comment" | "notification" | "product" | "quote" | "logo" | "announcement" | "lower-third" | "phone" | "countdown" | "testimonial" | "stat" | "orbit" | "stack" | "kinetic" | "liquid" | "gallery" | "sale" | "button" | "chart";
+  preview: "chat" | "comment" | "notification" | "product" | "quote" | "logo" | "announcement" | "lower-third" | "phone" | "countdown" | "testimonial" | "stat" | "orbit" | "stack" | "kinetic" | "liquid" | "gallery" | "podcast" | "sale" | "button" | "chart";
+  featured?: boolean;
 }
 
 export const MOTION_TEMPLATES: MotionTemplateDefinition[] = [
   { id: "chatbox", name: "Chatbox conversation", category: "Social", format: "vertical", duration: 6, description: "Layered message bubbles with balanced spacing and staggered replies.", palette: ["#dfe7ff", "#7c5cff", "#17192b"], preview: "chat" },
-  { id: "comment", name: "Comment spotlight", category: "Social", format: "square", duration: 5, description: "A premium viewer comment card with clean social micro-motion.", palette: ["#fff4df", "#ff8a5b", "#24212c"], preview: "comment" },
+  { id: "comment", name: "Creator comment spotlight", category: "Social", format: "square", duration: 5, description: "A creator-ready comment card with staged engagement and tactile reactions.", palette: ["#fff4df", "#ff8a5b", "#24212c"], preview: "comment", featured: true },
   { id: "notification", name: "App notification", category: "UI", format: "vertical", duration: 4.5, description: "A glass notification stack with strong product hierarchy.", palette: ["#11131c", "#67e8c3", "#f4f5fa"], preview: "notification" },
-  { id: "product", name: "Product reveal", category: "Marketing", format: "square", duration: 6, description: "A bold launch scene with orbiting labels and dimensional depth.", palette: ["#f8f4ff", "#9f7aea", "#261b43"], preview: "product" },
+  { id: "product", name: "Aura speaker launch", category: "Marketing", format: "square", duration: 6, description: "Luxury product photography, campaign typography, and a restrained premium reveal.", palette: ["#09080f", "#9f7aea", "#f7f2ff"], preview: "product", featured: true },
   { id: "quote", name: "Editorial quote", category: "Typography", format: "portrait", duration: 5.5, description: "Editorial kinetic typography with measured whitespace.", palette: ["#fff1e8", "#f08c72", "#4b2730"], preview: "quote" },
   { id: "logo", name: "Liquid logo reveal", category: "Brand", format: "landscape", duration: 5.5, description: "An elastic logo reveal with luminous liquid distortion.", palette: ["#11121a", "#a78bfa", "#f4f1ff"], preview: "logo" },
   { id: "announcement", name: "Collection announcement", category: "Social", format: "vertical", duration: 5.5, description: "Mask-driven announcement type with playful accents.", palette: ["#dffbf2", "#62d4ad", "#163c31"], preview: "announcement" },
@@ -32,9 +43,10 @@ export const MOTION_TEMPLATES: MotionTemplateDefinition[] = [
   { id: "stat-card", name: "Animated stat card", category: "Marketing", format: "square", duration: 5.5, description: "A metric reveal with orbiting indicators and subtle grain.", palette: ["#e8fff7", "#28b894", "#15342d"], preview: "stat" },
   { id: "gradient-orbit", name: "Gradient orbit", category: "Brand", format: "square", duration: 6, description: "A looping brand backdrop with layered orbital motion.", palette: ["#12131f", "#845ef7", "#67e8c3"], preview: "orbit" },
   { id: "card-stack", name: "Orbiting card stack", category: "UI", format: "landscape", duration: 7, description: "A dynamic product card stack for websites and showreels.", palette: ["#14151e", "#ff8a5b", "#f7f4ff"], preview: "stack" },
-  { id: "kinetic-type", name: "Kinetic type wall", category: "Typography", format: "landscape", duration: 5, description: "Oversized type that stretches, flips, and snaps into rhythm.", palette: ["#f5f0ff", "#241b45", "#9f7aea"], preview: "kinetic" },
+  { id: "kinetic-type", name: "Kinetic type wall", category: "Typography", format: "landscape", duration: 5, description: "Oversized editorial type that stretches, flips, and snaps into rhythm.", palette: ["#f5f0ff", "#241b45", "#9f7aea"], preview: "kinetic", featured: true },
   { id: "liquid-title", name: "Liquid title", category: "Typography", format: "square", duration: 6, description: "Organic type and blobs with water-drop distortion.", palette: ["#e8fbff", "#19a7ce", "#113946"], preview: "liquid" },
-  { id: "gallery-swipe", name: "Gallery swipe", category: "Social", format: "vertical", duration: 7, description: "A layered photo-story structure with wipe transitions.", palette: ["#f5f1ea", "#f08c72", "#2a2630"], preview: "gallery" },
+  { id: "gallery-swipe", name: "Mediterranean photo story", category: "Social", format: "vertical", duration: 7, description: "Editorial travel photography with cinematic type, chapter markers, and a gentle camera drift.", palette: ["#102c48", "#e65f2f", "#fffaf2"], preview: "gallery", featured: true },
+  { id: "podcast-cover", name: "After Hours podcast", category: "Social", format: "square", duration: 6, description: "A cinematic episode cover with broadcast photography and reactive waveform motion.", palette: ["#070912", "#ef2f3a", "#f4f7ff"], preview: "podcast", featured: true },
   { id: "sale-poster", name: "Flash sale poster", category: "Marketing", format: "portrait", duration: 5, description: "High-energy retail typography with badges and glow.", palette: ["#1b1630", "#ff4d8d", "#fff4a3"], preview: "sale" },
   { id: "button-micro", name: "Button microinteraction", category: "UI", format: "landscape", duration: 4.5, description: "A polished call-to-action button with feedback states.", palette: ["#f3f4f8", "#7254d6", "#171821"], preview: "button" },
   { id: "chart-reveal", name: "Growth chart reveal", category: "UI", format: "landscape", duration: 6, description: "A clean dashboard chart with sequential data motion.", palette: ["#111722", "#67e8c3", "#f4f7fb"], preview: "chart" },
@@ -46,7 +58,9 @@ export function createCatalogTemplateProject(options: CreateProjectOptions, temp
   const definition = MOTION_TEMPLATES.find((item) => item.id === templateId);
   const scene = getActiveScene(project);
   if (definition) project.scenes[scene.id].background = { type: "solid", color: definition.palette[0] };
-  const normalized = normalizeTemplateLayers(scene, buildTemplateLayers(scene, templateId));
+  const assets: Record<string, ProjectAsset> = {};
+  const normalized = normalizeTemplateLayers(scene, buildTemplateLayers(scene, templateId, { projectId: project.id, assets }));
+  project.assets = { ...project.assets, ...assets };
   project = addLayers(project, normalized);
   const report = auditTemplateProject(project, templateId);
   if (import.meta.env.DEV) logTemplateAudit(report);
@@ -60,8 +74,13 @@ export function auditAllCatalogTemplates(): TemplateAuditReport[] {
   });
 }
 
-function buildTemplateLayers(scene: Scene, id: string): Layer[] {
-  const builders: Record<string, (scene: Scene) => Layer[]> = {
+interface TemplateBuildContext {
+  projectId: string;
+  assets: Record<string, ProjectAsset>;
+}
+
+function buildTemplateLayers(scene: Scene, id: string, context: TemplateBuildContext): Layer[] {
+  const builders: Record<string, (scene: Scene, context: TemplateBuildContext) => Layer[]> = {
     chatbox: buildChatbox,
     comment: buildComment,
     notification: buildNotification,
@@ -79,11 +98,12 @@ function buildTemplateLayers(scene: Scene, id: string): Layer[] {
     "kinetic-type": buildKineticType,
     "liquid-title": buildLiquidTitle,
     "gallery-swipe": buildGallerySwipe,
+    "podcast-cover": buildPodcastCover,
     "sale-poster": buildSalePoster,
     "button-micro": buildButtonMicro,
     "chart-reveal": buildChartReveal,
   };
-  return builders[id]?.(scene) ?? [];
+  return builders[id]?.(scene, context) ?? [];
 }
 
 function buildChatbox(scene: Scene): Layer[] {
@@ -121,7 +141,7 @@ function buildComment(scene: Scene): Layer[] {
   const reply = f.text("Reply", "Reply  ·  Share", f.rect(.58, .69, .3, .04), "meta", "#77717f", { align: "right" });
   enter(halo, "scaleIn", 0, .8); loop(halo, "breathe", .8, 2.2, { intensity: .1 }); enter(card, "springIn", .08, .8);
   enter(avatar, "popIn", .32, .45); enter(user, "slideIn", .4, .52, { direction: "left", distance: 90 }); enter(badge, "stretchIn", .55, .48, { axis: "x" }); enter(badgeText, "fadeIn", .68, .3);
-  enter(comment, "moveIn", .66, .68, { direction: "up", distance: 70 }, true, "word"); enter(likeHeart, "popIn", 1.12, .42); enter(likes, "fadeIn", 1.22, .32); enter(reply, "fadeIn", 1.28, .36); loop(likeHeart, "heartbeat", 1.6, 1.45, { intensity: .1 }); loop(avatar, "glowPulse", 1.25, 2.1, { intensity: 16 });
+  enter(comment, "moveIn", .66, .68, { direction: "up", distance: 70 }); enter(likeHeart, "popIn", 1.12, .42); enter(likes, "fadeIn", 1.22, .32); enter(reply, "fadeIn", 1.28, .36); loop(likeHeart, "heartbeat", 1.6, 1.45, { intensity: .1 }); loop(avatar, "glowPulse", 1.25, 2.1, { intensity: 16 });
   return [halo, card, avatar, user, badge, badgeText, comment, likeHeart, likes, reply];
 }
 
@@ -175,21 +195,22 @@ function buildQuote(scene: Scene): Layer[] {
   return [line, mark, quote, byline, accentA, accentB];
 }
 
-function buildProduct(scene: Scene): Layer[] {
+function buildProduct(scene: Scene, context: TemplateBuildContext): Layer[] {
   const f = createTemplateFrame(scene);
-  const orbA = f.decorativeCircle("Purple orb", sq(f, .55, .01, .43), "linear-gradient(145deg,#b89aff,#7d55e7)"); fx(orbA, "blur", 8, 10); fx(orbA, "glow", 22, 30, "#9f7aea");
-  const orbB = f.decorativeCircle("Mint orb", sq(f, -.06, .66, .31), "linear-gradient(145deg,#9af4d7,#62d4ad)"); fx(orbB, "blur", 5, 8);
-  const product = f.card("Product card", f.rect(.53, .17, .37, .59), "linear-gradient(155deg,#9f7aea,#6d46c7)", { radius: 58 * f.unit, shadow: 44 }); fx(product, "glass", 22, 14);
-  const inner = f.card("Product face", f.rect(.58, .25, .27, .35), "linear-gradient(160deg,#ffffff,#e9e1ff)", { radius: 38 * f.unit });
-  const mark = f.text("Product mark", "K", f.rect(.64, .36, .15, .12), "display", "#5d3dae", { align: "center", fontSize: 105 * f.unit });
-  const title = f.text("Launch headline", "NEW\nDROP.", f.rect(.02, .16, .5, .29), "display", "#261b43", { fontSize: 118 * f.unit });
-  const subtitle = f.text("Subtitle", "DESIGNED TO MOVE", f.rect(.03, .61, .4, .04), "label", "#6e6688");
-  const badge = f.card("Launch badge", f.rect(.03, .71, .29, .07), "#261b43", { radius: 999 });
-  const badgeText = f.text("Badge text", "LIMITED EDITION", f.rect(.07, .73, .21, .03), "meta", "#ffffff", { align: "center", fontSize: 16 * f.unit });
-  enter(orbA, "zoomBlurIn", 0, .9); enter(orbB, "scaleIn", .15, .7); loop(orbA, "orbit", .8, 4, { intensity: 18 }); loop(orbB, "drift", .8, 3.4, { intensity: 14 });
-  enter(product, "springIn", .2, .9); enter(inner, "flipIn", .52, .75); enter(mark, "popIn", .78, .48); loop(product, "hover", 1.15, 2.8, { intensity: 13 });
-  enter(title, "stretchIn", .05, .72, { axis: "y" }, true, "line"); enter(subtitle, "slideIn", .55, .55, { direction: "left", distance: 100 }); enter(badge, "popIn", .82, .45); enter(badgeText, "fadeIn", .96, .3);
-  return [orbA, orbB, product, inner, mark, title, subtitle, badge, badgeText];
+  const campaignImage = templateImage(scene, context, "Aura speaker campaign", violetSpeakerLaunchUrl, 1254, 1254, f.bleedRect(0, 0, 1, 1), true);
+  const contrast = f.decorativeCard("Campaign contrast", f.bleedRect(0, 0, 1, 1), "linear-gradient(90deg,rgba(7,6,12,.88) 0%,rgba(7,6,12,.54) 38%,rgba(7,6,12,.05) 72%)");
+  const topRule = f.card("Campaign top rule", f.rect(.02, .025, .17, .006), "#a77bff", { radius: 999 });
+  const eyebrow = f.text("Campaign label", "AURA / PORTABLE AUDIO / 001", f.rect(.02, .055, .52, .035), "meta", "#d8c8ff", { letterSpacing: 1.4 * f.unit });
+  const title = f.text("Campaign headline", "SOUND,\nSCULPTED.", f.rect(.02, .14, .68, .24), "display", "#ffffff", { fontSize: 92 * f.unit, lineHeight: .86 });
+  const description = f.text("Campaign description", "Translucent acoustics.\nRoom-filling presence.", f.rect(.025, .43, .36, .09), "body", "#c8c1d3", { fontSize: 23 * f.unit, lineHeight: 1.15 });
+  const cta = f.card("Campaign button", f.rect(.02, .75, .28, .072), "#f5f0ff", { radius: 999 });
+  const ctaText = f.text("Campaign button text", "EXPLORE AURA  ↗", f.rect(.055, .773, .21, .025), "meta", "#16111f", { align: "center", weight: 800 });
+  const index = f.text("Campaign index", "01   —   03", f.rect(.02, .9, .22, .025), "meta", "#b9afc4");
+  enter(campaignImage, "zoomBlurIn", 0, 1.05); loop(campaignImage, "breathe", 1.1, 3.2, { intensity: .018 });
+  enter(contrast, "fadeIn", 0, .55); enter(topRule, "stretchIn", .14, .55, { axis: "x" }); enter(eyebrow, "fadeIn", .28, .42);
+  enter(title, "moveIn", .32, .78, { direction: "up", distance: 84 }, true, "line"); enter(description, "fadeIn", .82, .46);
+  enter(cta, "springIn", 1.05, .58); enter(ctaText, "fadeIn", 1.2, .32); enter(index, "fadeIn", 1.35, .38);
+  return [campaignImage, contrast, topRule, eyebrow, title, description, cta, ctaText, index];
 }
 
 function buildLogo(scene: Scene): Layer[] {
@@ -321,16 +342,40 @@ function buildLiquidTitle(scene: Scene): Layer[] {
   return [blobA, blobB, title, subtitle];
 }
 
-function buildGallerySwipe(scene: Scene): Layer[] {
+function buildGallerySwipe(scene: Scene, context: TemplateBuildContext): Layer[] {
   const f = createTemplateFrame(scene);
-  const title = f.text("Gallery title", "A WEEKEND\nIN MOTION", f.rect(.02, .01, .72, .15), "headline", "#2a2630", { fontSize: 62 * f.unit });
-  const index = f.text("Gallery index", "01  /  03", f.rect(.72, .04, .24, .035), "meta", "#746d7a", { align: "right" });
-  const cardA = f.card("Photo A", f.rect(.03, .25, .66, .34), "linear-gradient(145deg,#f4a48b,#d96b60)", { radius: 38 * f.unit, shadow: 26 });
-  const cardB = f.card("Photo B", f.rect(.3, .4, .66, .34), "linear-gradient(145deg,#91d8c6,#3da68e)", { radius: 38 * f.unit, shadow: 30 });
-  const cardC = f.card("Photo C", f.rect(.08, .58, .66, .28), "linear-gradient(145deg,#b9a6ef,#7052c5)", { radius: 38 * f.unit, shadow: 32 });
-  const caption = f.text("Caption", "SWIPE THROUGH THE STORY", f.rect(.16, .91, .68, .03), "meta", "#746d7a", { align: "center" });
-  enter(title, "moveIn", 0, .7, { direction: "up", distance: 70 }, true, "line"); enter(index, "fadeIn", .42, .35); enter(cardA, "wipeIn", .35, .7, { direction: "left" }); enter(cardB, "slideIn", .68, .68, { direction: "right", distance: 180 }); enter(cardC, "springIn", 1.02, .78); enter(caption, "fadeIn", 1.35, .4); loop(cardA, "drift", 1.6, 3.6, { intensity: 7 }); loop(cardB, "drift", 1.6, 3.1, { intensity: 9 }); loop(cardC, "hover", 1.6, 2.7, { intensity: 7 });
-  return [title, index, cardA, cardB, cardC, caption];
+  const photograph = templateImage(scene, context, "Mediterranean editorial photograph", mediterraneanEditorialUrl, 1154, 1378, f.bleedRect(0, 0, 1, 1), true);
+  const wash = f.decorativeCard("Editorial gradient", f.bleedRect(0, 0, 1, 1), "linear-gradient(180deg,rgba(7,19,32,.08) 20%,rgba(7,19,32,.16) 48%,rgba(7,19,32,.9) 100%)");
+  const chapter = f.text("Story chapter", "FIELD NOTES   /   ISSUE 04", f.rect(.02, .025, .63, .03), "meta", "#ffffff", { letterSpacing: 1.2 * f.unit });
+  const index = f.text("Story index", "01 — 03", f.rect(.79, .025, .17, .03), "meta", "#ffffff", { align: "right" });
+  const marker = f.card("Location marker", f.rect(.02, .62, .25, .048), "#e65f2f", { radius: 999 });
+  const markerText = f.text("Location marker text", "MEDITERRANEAN", f.rect(.045, .636, .2, .018), "meta", "#ffffff", { align: "center", fontSize: 13 * f.unit, weight: 800 });
+  const title = f.text("Story headline", "SLOW DAYS.\nBLUE HORIZONS.", f.rect(.02, .7, .82, .14), "headline", "#ffffff", { fontSize: 63 * f.unit, lineHeight: .91 });
+  const caption = f.text("Story caption", "Architecture, light, and the art of staying awhile.", f.rect(.025, .865, .68, .055), "body", "#e5e1dc", { fontSize: 22 * f.unit });
+  const progressTrack = f.card("Story progress track", f.rect(.02, .955, .94, .004), "rgba(255,255,255,.28)", { radius: 999 });
+  const progress = f.card("Story progress", f.rect(.02, .955, .31, .004), "#ffffff", { radius: 999 });
+  enter(photograph, "zoomBlurIn", 0, 1); loop(photograph, "drift", 1, 4.6, { intensity: 8 }); enter(wash, "fadeIn", 0, .6);
+  enter(chapter, "fadeIn", .2, .4); enter(index, "fadeIn", .34, .35); enter(marker, "slideIn", .55, .48, { direction: "left", distance: 80 }); enter(markerText, "fadeIn", .7, .28);
+  enter(title, "moveIn", .72, .78, { direction: "up", distance: 90 }, true, "line"); enter(caption, "fadeIn", 1.3, .42); enter(progressTrack, "fadeIn", 1.4, .3); enter(progress, "wipeIn", 1.48, 1.2, { direction: "left" });
+  return [photograph, wash, chapter, index, marker, markerText, title, caption, progressTrack, progress];
+}
+
+function buildPodcastCover(scene: Scene, context: TemplateBuildContext): Layer[] {
+  const f = createTemplateFrame(scene);
+  const photograph = templateImage(scene, context, "After Hours studio photograph", podcastStudioUrl, 1254, 1254, f.bleedRect(0, 0, 1, 1), true);
+  const contrast = f.decorativeCard("Podcast contrast", f.bleedRect(0, 0, 1, 1), "linear-gradient(90deg,rgba(4,5,10,.05) 0%,rgba(4,5,10,.18) 42%,rgba(4,5,10,.92) 72%,rgba(4,5,10,.98) 100%)");
+  const issue = f.text("Podcast issue", "AFTER HOURS / EP. 042", f.rect(.48, .055, .48, .03), "meta", "#ff777f", { align: "right", letterSpacing: 1.2 * f.unit });
+  const title = f.text("Podcast title", "THE\nCREATIVE\nSIGNAL", f.rect(.43, .17, .53, .31), "display", "#ffffff", { align: "right", fontSize: 74 * f.unit, lineHeight: .84 });
+  const guest = f.text("Podcast guest", "WITH MIRA SOL\nART DIRECTOR · STUDIO NORTH", f.rect(.5, .56, .46, .07), "label", "#d7deef", { align: "right", fontSize: 18 * f.unit, lineHeight: 1.28 });
+  const badge = f.card("Live badge", f.rect(.76, .69, .2, .06), "#ef2f3a", { radius: 999 });
+  const badgeText = f.text("Live badge text", "NEW EPISODE", f.rect(.79, .71, .14, .02), "meta", "#ffffff", { align: "center", fontSize: 13 * f.unit, weight: 800 });
+  const waveBars = [.036, .074, .11, .052, .086, .13, .066, .098].map((height, index) => f.card(`Waveform bar ${index + 1}`, f.rect(.55 + index * .052, .84 - height / 2, .017, height), index % 3 === 0 ? "#ef2f3a" : "#eef3ff", { radius: 999 }));
+  const footer = f.text("Podcast footer", "LISTEN NOW   ↗", f.rect(.58, .93, .38, .024), "meta", "#c9d0df", { align: "right", weight: 800 });
+  enter(photograph, "zoomBlurIn", 0, .95); loop(photograph, "breathe", 1, 3.4, { intensity: .015 }); enter(contrast, "fadeIn", 0, .5); enter(issue, "fadeIn", .2, .4);
+  enter(title, "moveIn", .35, .82, { direction: "up", distance: 86 }, true, "line"); enter(guest, "fadeIn", .92, .45); enter(badge, "popIn", 1.08, .42); enter(badgeText, "fadeIn", 1.2, .28);
+  waveBars.forEach((bar, index) => { enter(bar, "stretchIn", 1.22 + index * .055, .38, { axis: "y" }); loop(bar, "heartbeat", 1.8 + index * .04, 1.1 + (index % 3) * .12, { intensity: .12 }); });
+  enter(footer, "fadeIn", 1.58, .35);
+  return [photograph, contrast, issue, title, guest, badge, badgeText, ...waveBars, footer];
 }
 
 function buildSalePoster(scene: Scene): Layer[] {
@@ -379,6 +424,36 @@ function buildChartReveal(scene: Scene): Layer[] {
 
 function sq(frame: TemplateFrame, x: number, y: number, width: number): TemplateRect {
   return frame.rect(x, y, width, width * frame.safe.width / frame.safe.height);
+}
+
+function templateImage(
+  scene: Scene,
+  context: TemplateBuildContext,
+  name: string,
+  sourceUrl: string,
+  width: number,
+  height: number,
+  rect: TemplateRect,
+  decorative = false,
+): ImageLayer {
+  const asset: ProjectAsset = {
+    id: createId("asset"),
+    projectId: context.projectId,
+    name,
+    type: "image",
+    mimeType: "image/jpeg",
+    width,
+    height,
+    sourceUrl,
+    storage: "inline",
+  };
+  context.assets[asset.id] = asset;
+  const layer = createAssetLayer(scene, asset) as ImageLayer;
+  layer.name = decorative ? `Decorative · ${name}` : name;
+  layer.position = { x: rect.x, y: rect.y };
+  layer.size = { width: rect.width, height: rect.height };
+  layer.fit = "cover";
+  return layer;
 }
 
 function fx(layer: Layer, type: LayerEffectType, intensity: number, radius: number, color?: string) {

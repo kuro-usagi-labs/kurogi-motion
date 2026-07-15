@@ -1,7 +1,7 @@
 import React from "react";
 import { createLayerEffect, EFFECT_DEFINITIONS, effectDefinition, normalizeEffects } from "../core/effects";
 import type { Layer, LayerEffect, LayerEffectType } from "../types";
-import { Icon } from "../ui/Icon";
+import { Icon, type IconName } from "../ui/Icon";
 
 interface EffectsPanelProps {
   layer: Layer;
@@ -116,19 +116,19 @@ export function EffectsPanel({ layer, onBegin, onFinish, onCancel, onPreview, on
 }
 
 function EffectGlyph({ type }: { type: LayerEffectType }) {
-  const glyphs: Record<LayerEffectType, string> = {
-    blur: "◌",
-    dropShadow: "◒",
-    glow: "✦",
-    glass: "◇",
-    waterDrop: "◉",
-    ripple: "≈",
-    chromatic: "RGB",
-    grain: "⁙",
-    hueShift: "◐",
-    vignette: "◍",
+  const icons: Record<LayerEffectType, IconName> = {
+    blur: "blur",
+    dropShadow: "shadow",
+    glow: "glow",
+    glass: "glass",
+    waterDrop: "droplet",
+    ripple: "ripple",
+    chromatic: "chromatic",
+    grain: "grain",
+    hueShift: "hue",
+    vignette: "vignette",
   };
-  return <i className={`effect-glyph effect-${type}`}>{glyphs[type]}</i>;
+  return <i className={`effect-glyph effect-${type}`}><Icon name={icons[type]} size={16} /></i>;
 }
 
 function normalizeColor(value: string) {

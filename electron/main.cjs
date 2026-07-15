@@ -336,15 +336,17 @@ async function renderProject(project, options, target, onProgress, cancelSignal)
   const report = (progress) => onProgress?.(progress);
   const diagnostics = createRenderDiagnostics(project, options, target);
   report({ phase: "preparing", progress: 0, message: "Staging project assets outside Chromium" });
-  const staged = await stageProjectAssetsForRender(project);
+  const renderProjectSnapshot = applyExportCanvasPolicy(project, options);
+  const staged = await stageProjectAssetsForRender(renderProjectSnapshot);
   try {
     const serveUrl = await getServeUrl();
-    const { selectComposition, renderFrames, renderMedia } = await import("@remotion/renderer");
+    const renderer = await import("@remotion/renderer");
+    const { selectComposition, renderFrames, renderMedia } = renderer;
     const inputProps = { project: staged.project, renderMode: options.allScenes ? "all-scenes" : "active-scene", exportFps: options.fps };
     const inputPropsBytes = Buffer.byteLength(JSON.stringify(inputProps));
     const concurrency = renderConcurrency(staged.project, options);
     const logProgress = createProgressDiagnostics(diagnostics);
-    diagnostics.write("assets-staged", { ...staged.stats, inputPropsBytes, concurrency });
+    diagnostics.write("assets-staged", { ...staged.stats, inputPropsBytes, concurrency, transparentCanvas: options.transparent });
     report({ phase: "preparing", progress: 0, message: `Prepared ${staged.stats.uniqueAssetCount} unique assets · renderer concurrency ${concurrency}` });
 
     const result = await retryClosedBrowser(async (attempt) => {
@@ -399,6 +401,7 @@ async function renderProject(project, options, target, onProgress, cancelSignal)
         ...(media.imageFormat ? { imageFormat: media.imageFormat } : {}),
         ...(media.pixelFormat ? { pixelFormat: media.pixelFormat } : {}),
         ...(media.proResProfile ? { proResProfile: media.proResProfile } : {}),
+        ...(media.ffmpegOverride ? { ffmpegOverride: media.ffmpegOverride } : {}),
         ...(options.format === "gif" ? { numberOfGifLoops: options.gifLoops } : {}),
         onStart: ({ frameCount: count }) => {
           frameCount = count;
@@ -417,12 +420,14 @@ async function renderProject(project, options, target, onProgress, cancelSignal)
           logProgress({ phase, progress, renderedFrames, encodedFrames, frameCount });
         },
       });
+      report({ phase: "encoding", progress: 0.995, renderedFrames: frameCount, encodedFrames: frameCount, frameCount, message: options.format === "mov" && options.transparent ? "Verifying ProRes 4444 alpha channel" : "Verifying rendered output" });
+      const outputVerification = await verifyRenderedOutput(target, options, renderer.RenderInternals, diagnostics, cancelSignal);
       report({ phase: "completed", progress: 1, renderedFrames: frameCount, encodedFrames: frameCount, frameCount, message: target });
-      return { path: target, frameCount };
+      return { path: target, frameCount, outputVerification };
     }, diagnostics, report);
 
-    diagnostics.write("render-completed", { path: result.path, frameCount: result.frameCount });
-    return { path: result.path, diagnosticLogPath: diagnostics.path, assetStats: { ...staged.stats, inputPropsBytes, concurrency } };
+    diagnostics.write("render-completed", { path: result.path, frameCount: result.frameCount, outputVerification: result.outputVerification });
+    return { path: result.path, diagnosticLogPath: diagnostics.path, assetStats: { ...staged.stats, inputPropsBytes, concurrency }, outputVerification: result.outputVerification };
   } catch (error) {
     throw renderFailure(error, diagnostics);
   } finally {
@@ -534,6 +539,7 @@ function mediaSettings(options) {
       imageFormat: "png",
       pixelFormat: "yuva444p10le",
       proResProfile: "4444",
+      ffmpegOverride: options.transparent ? addProResAlphaBits : undefined,
     };
   }
   if (options.format === "webm") {
@@ -545,6 +551,59 @@ function mediaSettings(options) {
     };
   }
   return { codec: "h264", crf };
+}
+
+function addProResAlphaBits({ args }) {
+  if (!args.includes("prores_ks") || args.includes("-alpha_bits") || args.length === 0) return args;
+  return [...args.slice(0, -1), "-alpha_bits", "16", args.at(-1)];
+}
+
+function applyExportCanvasPolicy(project, options) {
+  if (!options.transparent) return project;
+  const sceneIds = options.allScenes ? Object.keys(project.scenes) : [project.activeSceneId];
+  const scenes = { ...project.scenes };
+  for (const sceneId of sceneIds) {
+    const scene = scenes[sceneId];
+    if (scene) scenes[sceneId] = { ...scene, background: { type: "transparent" } };
+  }
+  return { ...project, scenes };
+}
+
+async function verifyRenderedOutput(target, options, renderInternals, diagnostics, cancelSignal) {
+  const stats = await fs.promises.stat(target).catch(() => null);
+  if (!stats?.isFile() || stats.size === 0) throw new Error("The renderer completed without producing a valid output file.");
+
+  const verification = { bytes: stats.size };
+  if (options.format === "mov" && options.transparent) {
+    let probe;
+    try {
+      const result = await renderInternals.callFf({
+        bin: "ffprobe",
+        args: ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,profile,pix_fmt", "-of", "json", target],
+        indent: false,
+        logLevel: "error",
+        binariesDirectory: null,
+        cancelSignal,
+        options: { maxBuffer: 4 * 1024 * 1024 },
+      });
+      probe = JSON.parse(result.stdout);
+    } catch (error) {
+      throw new Error(`MOV alpha verification could not inspect the rendered file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    const stream = probe?.streams?.[0];
+    const codec = String(stream?.codec_name ?? "").toLowerCase();
+    const rawProfile = String(stream?.profile ?? "").toLowerCase();
+    const profile = rawProfile === "4" ? "4444" : rawProfile === "5" ? "4444-xq" : rawProfile;
+    const pixelFormat = String(stream?.pix_fmt ?? "").toLowerCase();
+    if (codec !== "prores" || !profile.includes("4444") || !/^yuva444p/.test(pixelFormat)) {
+      throw new Error(`MOV alpha verification failed: expected ProRes 4444 with a yuva444p alpha pixel format, received codec=${codec || "unknown"}, profile=${profile || "unknown"}, pixelFormat=${pixelFormat || "unknown"}.`);
+    }
+    Object.assign(verification, { codec, profile, pixelFormat, alphaChannel: true });
+  }
+
+  diagnostics.write("output-verified", verification);
+  return verification;
 }
 
 function normalizeExportOptions(raw) {

@@ -1,11 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Player } from "@remotion/player";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Player, type PlayerRef } from "@remotion/player";
 import { MotionComposition } from "../MotionComposition";
-import { cloneProject, createAnimationAction, createId } from "../core/project";
-import type { AnimationCategory, AnimationPresetAction, AnimationType, CustomAnimationPreset, KurogiProject, Layer } from "../types";
+import { cloneProject, createAnimationAction, createId, createShapeLayer } from "../core/project";
+import type { AnimationCategory, AnimationPresetAction, AnimationType, CustomAnimationPreset, KurogiProject, Layer, Scene } from "../types";
 import { Icon, animationIconName } from "../ui/Icon";
+import { useMotionPreview } from "../ui/useMotionPreview";
+import { fitPresetLayer, PRESET_PREVIEW_HEIGHT, PRESET_PREVIEW_WIDTH } from "../app/previewPolicy";
 import { ANIMATION_PRESETS, presetFor } from "./animationPresets";
 import { defaultMotionPath } from "./MotionPathOverlay";
+import "../previewExperience.css";
 
 interface AnimationPresetDialogProps {
   project: KurogiProject;
@@ -38,9 +41,9 @@ export function AnimationPresetDialog({ project, layer, initialCategory, onClose
 
   return (
     <div className="preset-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="preset-dialog" role="dialog" aria-modal="true" aria-label="Choose animation preset">
+      <section className="preset-dialog motion-preset-dialog" role="dialog" aria-modal="true" aria-label="Choose animation preset">
         <header className="preset-dialog-header">
-          <div><span>ANIMATION PRESETS</span><h2>Preview motion on {layer.name}</h2></div>
+          <div><span>MOTION LIBRARY</span><h2>Preview motion on {layer.name}</h2><p>See the real timing on your selected layer before applying it.</p></div>
           <button type="button" className="svg-button" onClick={onClose} aria-label="Close preset browser"><Icon name="close" /></button>
         </header>
 
@@ -56,12 +59,14 @@ export function AnimationPresetDialog({ project, layer, initialCategory, onClose
             <header><h3>My presets</h3><small>{customPresets.length} reusable</small></header>
             <div className="custom-preset-grid">
               {customPresets.map((preset) => (
-                <button type="button" className="custom-preset-card" key={preset.id} onClick={() => onChooseCustom(preset.id)}>
-                  <AccuratePresetPreview project={project} layer={layer} customPreset={preset} />
-                  <strong>{preset.name}</strong>
-                  <small>{preset.actions.length} action{preset.actions.length === 1 ? "" : "s"}</small>
-                  <button type="button" className="custom-preset-delete" title="Delete custom preset" onClick={(event) => { event.stopPropagation(); onDeleteCustom(preset.id); }}><Icon name="trash" size={13} /></button>
-                </button>
+                <article className="custom-preset-card-shell" key={preset.id}>
+                  <button type="button" className="custom-preset-card-open" onClick={() => onChooseCustom(preset.id)}>
+                    <AccuratePresetPreview project={project} layer={layer} customPreset={preset} />
+                    <strong>{preset.name}</strong>
+                    <small>{preset.actions.length} action{preset.actions.length === 1 ? "" : "s"}</small>
+                  </button>
+                  <button type="button" className="custom-preset-delete" title="Delete custom preset" onClick={() => onDeleteCustom(preset.id)}><Icon name="trash" size={13} /></button>
+                </article>
               ))}
             </div>
           </section>
@@ -69,7 +74,7 @@ export function AnimationPresetDialog({ project, layer, initialCategory, onClose
 
         <div className="preset-browser-grid">
           {presets.map((preset) => (
-            <button type="button" className={`preset-browser-card preset-card-${category}`} key={preset.type} onClick={() => onChoose(category, preset.type)}>
+            <button type="button" className={`preset-browser-card motion-preset-card preset-card-${category}`} key={preset.type} onClick={() => onChoose(category, preset.type)}>
               <AccuratePresetPreview project={project} layer={layer} type={preset.type} />
               <span className="preset-browser-copy">
                 <span className={`preset-browser-icon preset-${category}`}><Icon name={animationIconName(preset.type)} size={17} /></span>
@@ -85,50 +90,75 @@ export function AnimationPresetDialog({ project, layer, initialCategory, onClose
 }
 
 function AccuratePresetPreview({ project, layer, type, customPreset }: { project: KurogiProject; layer: Layer; type?: AnimationType; customPreset?: CustomAnimationPreset }) {
-  const preview = useMemo(() => previewProject(project, layer, type, customPreset), [customPreset, layer, project, type]);
+  const preview = useMemo(() => buildPresetPreviewProject(project, layer, type, customPreset), [customPreset, layer, project, type]);
   const scene = preview.scenes[preview.activeSceneId];
+  const playerRef = useRef<PlayerRef>(null);
+  const { hostRef, shouldLoad, shouldPlay, reducedMotion, previewEvents } = useMotionPreview<HTMLDivElement>();
+  const resolvedCategory = type ? presetFor(type).category : customPreset?.actions[0]?.category ?? "in";
+  const durationInFrames = Math.max(1, Math.round(scene.duration * scene.fps));
+  const posterTime = resolvedCategory === "out" ? .8 : resolvedCategory === "loop" ? .55 : 1.05;
+  const posterFrame = Math.min(durationInFrames - 1, Math.round(posterTime * scene.fps));
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player || !shouldLoad) return;
+    if (shouldPlay) player.play();
+    else {
+      player.pause();
+      if (reducedMotion) player.seekTo(posterFrame);
+    }
+  }, [posterFrame, preview, reducedMotion, shouldLoad, shouldPlay]);
+
   return (
-    <div className="preset-live-preview contrast-preview">
-      <Player
-        className="remotion-player"
-        component={MotionComposition}
-        inputProps={{ project: preview }}
-        durationInFrames={Math.max(1, Math.round(scene.duration * scene.fps))}
-        compositionWidth={scene.width}
-        compositionHeight={scene.height}
-        fps={scene.fps}
-        autoPlay
-        loop
-        controls={false}
-        style={{ width: "100%", height: "100%" }}
-      />
+    <div ref={hostRef} className="preset-live-preview contrast-preview motion-preset-stage" {...previewEvents}>
+      <div className="motion-preset-frame">
+        {shouldLoad ? <Player
+          ref={playerRef}
+          className="remotion-player motion-preset-player"
+          component={MotionComposition}
+          inputProps={{ project: preview, editable: false, showSelection: false, showSafeArea: false }}
+          durationInFrames={durationInFrames}
+          compositionWidth={scene.width}
+          compositionHeight={scene.height}
+          fps={scene.fps}
+          loop
+          controls={false}
+          initiallyMuted
+          clickToPlay={false}
+          spaceKeyToPlayOrPause={false}
+          style={{ width: "100%", height: "100%" }}
+        /> : null}
+        <span className="motion-preset-safe-frame" aria-hidden="true" />
+      </div>
+      <span className="motion-preset-chip" aria-hidden="true"><i />{resolvedCategory} · live</span>
     </div>
   );
 }
 
-function previewProject(project: KurogiProject, sourceLayer: Layer, type?: AnimationType, customPreset?: CustomAnimationPreset): KurogiProject {
+export function buildPresetPreviewProject(project: KurogiProject, sourceLayer: Layer, type?: AnimationType, customPreset?: CustomAnimationPreset): KurogiProject {
   const next = cloneProject(project);
   const sceneId = createId("preview-scene");
   const layerId = createId("preview-layer");
   const duration = customPreset ? Math.max(2.4, presetSpan(customPreset.actions) + .8) : 2.6;
-  const scene = {
+  const scene: Scene = {
     id: sceneId,
     name: "Preset preview",
-    width: 360,
-    height: 220,
+    width: PRESET_PREVIEW_WIDTH,
+    height: PRESET_PREVIEW_HEIGHT,
     duration,
     fps: 30,
     background: previewBackground(sourceLayer),
     layerIds: [layerId],
     audioClipIds: [],
   };
-  const layer = cloneProject(sourceLayer);
+  const layer: Layer = sourceLayer.type === "group"
+    ? createShapeLayer(scene, "rectangle", { name: sourceLayer.name, size: { width: 320, height: 170 }, fill: "#8b6cf2" })
+    : cloneProject(sourceLayer);
   layer.id = layerId;
   layer.sceneId = sceneId;
   layer.parentId = undefined;
-  if (layer.type === "group") layer.childIds = [];
-  const ratio = Math.min(1, 220 / Math.max(1, layer.size.width), 110 / Math.max(1, layer.size.height));
-  layer.size = { width: Math.max(60, layer.size.width * ratio), height: Math.max(42, layer.size.height * ratio) };
+  const fitted = fitPresetLayer(layer.size.width, layer.size.height);
+  layer.size = { width: fitted.width, height: fitted.height };
   layer.position = { x: (scene.width - layer.size.width) / 2, y: (scene.height - layer.size.height) / 2 };
   layer.rotation = 0;
   layer.scale = { x: 1, y: 1 };
@@ -136,6 +166,27 @@ function previewProject(project: KurogiProject, sourceLayer: Layer, type?: Anima
   layer.locked = false;
   layer.mask = undefined;
   layer.maskSource = false;
+  layer.opacity = 1;
+  layer.startTime = 0;
+  layer.duration = duration;
+  if (layer.type === "text") {
+    layer.style = {
+      ...layer.style,
+      fontSize: Math.max(32, layer.style.fontSize * fitted.scale),
+      letterSpacing: layer.style.letterSpacing * fitted.scale,
+      strokeWidth: (layer.style.strokeWidth ?? 0) * fitted.scale,
+      verticalAlign: "middle",
+    };
+  }
+  if (layer.type === "shape") {
+    layer.style = {
+      ...layer.style,
+      borderRadius: layer.style.borderRadius * fitted.scale,
+      strokeWidth: layer.style.strokeWidth * fitted.scale,
+      shadow: layer.style.shadow * fitted.scale,
+      blur: layer.style.blur * fitted.scale,
+    };
+  }
   layer.animationActions = customPreset
     ? customPreset.actions.map((action, index) => presetActionToPreview(layerId, action, index))
     : [builtInPreviewAction(layerId, type ?? "fadeIn")];

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerRef } from "@remotion/player";
+import packageMetadata from "../../package.json";
 import { MotionComposition } from "../MotionComposition";
 import {
   addLayers,
@@ -111,6 +112,13 @@ interface EditorProps {
 
 type SidebarTab = "layers" | "assets" | "text" | "shapes" | "templates";
 type EditorInfoDialogKind = "shortcuts" | "about";
+type LayerReorderGesture = {
+  pointerId: number;
+  layerId: string;
+  startX: number;
+  startY: number;
+  dragging: boolean;
+};
 
 const SIDEBAR_TABS: Array<{ id: SidebarTab; icon: IconName; label: string }> = [
   { id: "layers", icon: "layers", label: "Layers" },
@@ -163,6 +171,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   });
   const playerRef = useRef<PlayerRef>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
+  const layerReorderRef = useRef<LayerReorderGesture | null>(null);
   const mcpCheckpointsRef = useRef(new Map<string, { id: string; name: string; createdAt: string; project: KurogiProject }>());
 
   const selectedLayer = selectedLayerId ? project.layers[selectedLayerId] ?? null : null;
@@ -187,6 +196,12 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
     }
     setPlaying(false);
   }, [project.activeSceneId]);
+
+  useEffect(() => {
+    if (inspectorTab !== "Design") return;
+    playerRef.current?.pause();
+    setPlaying(false);
+  }, [inspectorTab]);
 
   useEffect(() => {
     const player = playerRef.current;
@@ -776,6 +791,40 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   function updateLayerTiming(layerId: string, startTime: number, duration: number) {
     commitProject((current) => updateLayer(current, layerId, (layer) => ({ ...layer, startTime, duration })));
   }
+
+  function beginLayerReorder(event: React.PointerEvent<HTMLButtonElement>, layerId: string) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    layerReorderRef.current = {
+      pointerId: event.pointerId,
+      layerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false,
+    };
+  }
+
+  function updateLayerReorder(event: React.PointerEvent<HTMLButtonElement>) {
+    const gesture = layerReorderRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (!gesture.dragging && Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) < 5) return;
+    gesture.dragging = true;
+    setDraggedLayerId(gesture.layerId);
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-layer-id]");
+    setDragOverLayerId(target?.dataset.layerId && target.dataset.layerId !== gesture.layerId ? target.dataset.layerId : "");
+  }
+
+  function finishLayerReorder(event: React.PointerEvent<HTMLButtonElement>) {
+    const gesture = layerReorderRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (gesture.dragging && dragOverLayerId) moveLayerByDrop(gesture.layerId, dragOverLayerId);
+    layerReorderRef.current = null;
+    setDraggedLayerId("");
+    setDragOverLayerId("");
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
   function trimSelectionAtPlayhead(edge: TrimEdge) {
     const playhead = (playerRef.current?.getCurrentFrame() ?? 0) / scene.fps;
     const outcome = trimTimelineSelection(history.projectRef.current, selectedLayerIds, selectedAudioClipId, playhead, edge);
@@ -1166,7 +1215,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
   ];
 
   return (
-    <main className="app editor-app">
+    <main className={`app editor-app workspace-mode-${inspectorTab.toLowerCase()}`}>
       <CommandPalette open={commandPaletteOpen} actions={commandPaletteActions} onClose={() => setCommandPaletteOpen(false)} />
       <McpIntegrationDialog open={mcpDialogOpen} onClose={() => setMcpDialogOpen(false)} />
       <EditorInfoDialog kind={infoDialog} onClose={() => setInfoDialog(null)} />
@@ -1269,7 +1318,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
         />
         <div className="project-name">
           <strong>{project.name}</strong>
-          <span className={`save-dot status-${saveStatus.toLowerCase().replace(/\W/g, "-")}`}>● {saveStatus}</span>
+          <span className={`save-dot status-${saveStatus.toLowerCase().replace(/\W/g, "-")}`}><Icon name="status" size={9} />{saveStatus}</span>
         </div>
         <div className="toolbar-actions">
           <button type="button" className="preview" onClick={togglePlay}>{playing ? <><Icon name="pause" size={15} />Pause</> : <><Icon name="play" size={15} />Preview</>}</button>
@@ -1280,7 +1329,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
       <section className="editor-context-ribbon" aria-label="Editor context">
         <div className="context-breadcrumbs">
           <span className="context-kicker">Scene</span><strong>{scene.name}</strong>
-          {selectedLayer ? <><i>›</i><b>{selectedLayer.name}</b></> : <><i>›</i><span>Canvas</span></>}
+          {selectedLayer ? <><i><Icon name="chevronRight" size={12} /></i><b>{selectedLayer.name}</b></> : <><i><Icon name="chevronRight" size={12} /></i><span>Canvas</span></>}
         </div>
         <div className="context-readout">
           <span>{scene.width} × {scene.height}</span><span>{scene.fps} fps</span><span>{scene.duration.toFixed(2)} sec</span>
@@ -1301,14 +1350,14 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
               <b><Icon name={item.icon} size={18} /></b><span>{item.label}</span>
             </button>
           ))}
-          <div className="rail-bottom"><button type="button"><b><Icon name="help" size={18} /></b><span>Help</span></button><div className="avatar">KM</div></div>
+          <div className="rail-bottom"><button type="button" onClick={showKeyboardShortcuts}><b><Icon name="help" size={18} /></b><span>Help</span></button></div>
         </aside>
 
         <aside className="sidebar editor-sidebar">
           <div className="panel-title"><span>{SIDEBAR_TABS.find((item) => item.id === sidebarTab)?.label}</span>{sidebarTab === "assets" ? <button type="button" onClick={() => assetInputRef.current?.click()} aria-label="Import asset"><Icon name="plus" size={16} /></button> : null}</div>
           {sidebarTab === "layers" ? (
             <div className="sidebar-scroll">
-              <div className="scene-row"><span>⌄</span><b>{scene.name}</b><small>{scene.width} × {scene.height}</small></div>
+              <div className="scene-row"><span><Icon name="chevronDown" size={13} /></span><b>{scene.name}</b><small>{scene.width} × {scene.height}</small></div>
               <div className="layer-quick-add">
                 <button type="button" onClick={() => addText("heading")}><Icon name="text" size={13} />Text</button>
                 <button type="button" onClick={() => addShape("rectangle")}><Icon name="shapes" size={13} />Shape</button>
@@ -1318,7 +1367,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
                 {[...layers].reverse().map((layer) => (
                   <div
                     key={layer.id}
-                    draggable
+                    data-layer-id={layer.id}
                     tabIndex={0}
                     role="option"
                     aria-selected={selectedLayerIds.includes(layer.id)}
@@ -1330,13 +1379,18 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
                       selectLayer(layer.id, event.shiftKey);
                     }}
                     onContextMenu={(event) => { event.preventDefault(); openLayerContextMenu(layer.id, event.clientX, event.clientY); }}
-                    onDragStart={(event) => { setDraggedLayerId(layer.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", layer.id); }}
-                    onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDragOverLayerId(layer.id); }}
-                    onDragLeave={() => setDragOverLayerId((current) => current === layer.id ? "" : current)}
-                    onDrop={(event) => { event.preventDefault(); const sourceId = event.dataTransfer.getData("text/plain") || draggedLayerId; moveLayerByDrop(sourceId, layer.id); setDraggedLayerId(""); setDragOverLayerId(""); }}
-                    onDragEnd={() => { setDraggedLayerId(""); setDragOverLayerId(""); }}
                   >
-                    <span className="layer-drag-grip" title="Drag to reorder"><Icon name="grip" size={15} /></span>
+                    <button
+                      type="button"
+                      className="layer-drag-grip"
+                      title="Drag to reorder"
+                      aria-label={`Reorder ${layer.name}`}
+                      onClick={(event) => event.stopPropagation()}
+                      onPointerDown={(event) => beginLayerReorder(event, layer.id)}
+                      onPointerMove={updateLayerReorder}
+                      onPointerUp={finishLayerReorder}
+                      onPointerCancel={finishLayerReorder}
+                    ><Icon name="grip" size={15} /></button>
                     <span className={`layer-thumb ${layer.type}`}><Icon name={layer.type === "text" ? "text" : layer.type === "shape" ? "shapes" : "assets"} size={13} /></span>
                     <input
                       className="layer-name-editor"
@@ -1378,7 +1432,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
             <div className="add-grid text-presets">
               <button type="button" onClick={() => addText("heading")}><strong>H</strong><span>Heading</span></button>
               <button type="button" onClick={() => addText("subheading")}><strong>Aa</strong><span>Subheading</span></button>
-              <button type="button" onClick={() => addText("body")}><strong>¶</strong><span>Body text</span></button>
+              <button type="button" onClick={() => addText("body")}><strong><Icon name="paragraph" size={22} /></strong><span>Body text</span></button>
             </div>
           ) : null}
           {sidebarTab === "shapes" ? (
@@ -1420,7 +1474,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           ) : null}
         </aside>
 
-        {uiPreferences.showDesignToolbar ? (
+        {inspectorTab === "Design" && uiPreferences.showDesignToolbar ? (
           <DesignToolsPanel
             project={project}
             selectedLayers={selectedLayers}
@@ -1448,6 +1502,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           zoom={zoom}
           playing={playing}
           showSafeArea={showSafeArea}
+          focusActiveScene={inspectorTab === "Design"}
           command={workspaceCommand}
           onSelect={selectLayer}
           onMarqueeSelect={selectLayersByMarquee}
@@ -1470,7 +1525,13 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
           selectedLayer={selectedLayer}
           selectedAction={selectedAction}
           tab={inspectorTab}
-          onTabChange={setInspectorTab}
+          onTabChange={(tab) => {
+            setInspectorTab(tab);
+            if (tab === "Design") {
+              playerRef.current?.pause();
+              setPlaying(false);
+            }
+          }}
           onBeginPropertyEdit={history.beginGesture}
           onFinishPropertyEdit={history.finishGesture}
           onCancelPropertyEdit={history.cancelGesture}
@@ -1494,7 +1555,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
         />
       </section>
 
-      <Timeline
+      {inspectorTab === "Animation" ? <Timeline
         project={project}
         playerRef={playerRef}
         selectedLayerId={selectedLayerId}
@@ -1523,7 +1584,7 @@ export function Editor({ initialProject, onProjectSnapshot, onMcpReady, onExit }
         onDeleteAudioClip={deleteAudioClipById}
         onDuplicateAudioClip={duplicateAudioClipById}
         canPaste={Boolean(animationClipboard)}
-      />
+      /> : null}
     </main>
   );
 }
@@ -1561,14 +1622,14 @@ function EditorInfoDialog({ kind, onClose }: { kind: EditorInfoDialogKind | null
     <section className="editor-info-dialog" role="dialog" aria-modal="true" aria-labelledby="editor-info-title">
       <header>
         <div><span>{kind === "shortcuts" ? "Workflow" : "Kurogi Motion"}</span><h2 id="editor-info-title">{kind === "shortcuts" ? "Keyboard shortcuts" : "Motion design, without the handoff"}</h2></div>
-        <button type="button" onClick={onClose} aria-label="Close dialog">×</button>
+        <button type="button" onClick={onClose} aria-label="Close dialog"><Icon name="close" size={16} /></button>
       </header>
       {kind === "shortcuts" ? <div className="shortcut-reference">
         {shortcuts.map(([keys, description]) => <div key={keys}><kbd>{keys}</kbd><span>{description}</span></div>)}
       </div> : <div className="about-kurogi">
         <div className="about-kurogi-mark">K</div>
         <p>Kurogi Motion is a local-first desktop studio for designing, animating, and exporting production-ready motion graphics.</p>
-        <dl><div><dt>Version</dt><dd>0.2.2</dd></div><div><dt>Engine</dt><dd>Remotion</dd></div><div><dt>Automation</dt><dd>Autonomous MCP</dd></div></dl>
+        <dl><div><dt>Version</dt><dd>{packageMetadata.version}</dd></div><div><dt>Engine</dt><dd>Remotion</dd></div><div><dt>Automation</dt><dd>Autonomous MCP</dd></div></dl>
       </div>}
       <footer><span>Press Esc to close</span><button type="button" onClick={onClose}>Done</button></footer>
     </section>

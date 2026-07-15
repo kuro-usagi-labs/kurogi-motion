@@ -2,6 +2,7 @@ import React from "react";
 
 export type IconName =
   | "layers" | "assets" | "text" | "shapes" | "templates" | "help"
+  | "status" | "chevronRight" | "paragraph" | "command"
   | "undo" | "redo" | "minus" | "plus" | "frame" | "play" | "pause"
   | "share" | "export" | "eye" | "eyeOff" | "lock" | "unlock"
   | "chevronUp" | "chevronDown" | "upload" | "copy" | "trash" | "close" | "check"
@@ -10,7 +11,8 @@ export type IconName =
   | "breathe" | "swing" | "rectangle" | "circle" | "line"
   | "polygon" | "arrow" | "alignLeft" | "alignCenterHorizontal" | "alignRight"
   | "alignTop" | "alignCenterVertical" | "alignBottom" | "distributeHorizontal" | "distributeVertical"
-  | "restart" | "previous" | "next" | "grip" | "audio" | "cut" | "trimStart" | "trimEnd";
+  | "restart" | "previous" | "next" | "grip" | "audio" | "cut" | "trimStart" | "trimEnd"
+  | "shadow" | "glow" | "glass" | "droplet" | "ripple" | "chromatic" | "grain" | "hue" | "vignette";
 
 const paths: Record<IconName, React.ReactNode> = {
   layers: <><path d="M4 7h16"/><path d="M6 3h12l2 4H4l2-4Z"/><path d="M5 11h14l-2 4H7l-2-4Z"/><path d="M8 19h8"/></>,
@@ -19,6 +21,10 @@ const paths: Record<IconName, React.ReactNode> = {
   shapes: <><rect x="3.5" y="3.5" width="8" height="8" rx="1.5"/><circle cx="16.5" cy="16.5" r="4"/></>,
   templates: <><path d="m12 3 1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3Z"/><path d="m19 14 .8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14Z"/></>,
   help: <><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 1 1 4.1 1.7c-1 .8-1.9 1.2-1.9 2.8"/><path d="M12 17h.01"/></>,
+  status: <circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/>,
+  chevronRight: <path d="m9 6 6 6-6 6"/>,
+  paragraph: <><path d="M10 4h7v16"/><path d="M13 4v16"/><path d="M10 4a4 4 0 0 0 0 8h3"/></>,
+  command: <><path d="M9 8V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6"/></>,
   undo: <><path d="M9 7 4 12l5 5"/><path d="M20 17a8 8 0 0 0-8-8H4"/></>,
   redo: <><path d="m15 7 5 5-5 5"/><path d="M4 17a8 8 0 0 1 8-8h8"/></>,
   minus: <path d="M5 12h14"/>, plus: <><path d="M12 5v14"/><path d="M5 12h14"/></>,
@@ -69,6 +75,15 @@ const paths: Record<IconName, React.ReactNode> = {
   trimEnd: <><path d="M18 4v16"/><path d="M5 7h9"/><path d="M5 17h9"/><path d="m11 12-4-3v6l4-3Z"/></>,
   audio: <><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></>,
   grip: <><circle cx="9" cy="7" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="7" r="1" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="9" cy="17" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="17" r="1" fill="currentColor" stroke="none"/></>,
+  shadow: <><rect x="4" y="4" width="11" height="11" rx="2"/><path d="M9 19h8a2 2 0 0 0 2-2V9" strokeDasharray="2 2"/></>,
+  glow: <><path d="m12 3 1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3Z"/><path d="M19 17v4M17 19h4"/></>,
+  glass: <><path d="M5 4h14l-2 16H7L5 4Z"/><path d="M7 10h10"/><path d="m9 7 6 8" opacity=".7"/></>,
+  droplet: <path d="M12 3s6 6.2 6 11a6 6 0 0 1-12 0c0-4.8 6-11 6-11Z"/>,
+  ripple: <><circle cx="12" cy="12" r="2"/><circle cx="12" cy="12" r="6"/><path d="M3.5 8a9.5 9.5 0 0 0 0 8M20.5 8a9.5 9.5 0 0 1 0 8"/></>,
+  chromatic: <><circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/><path d="M12 7v10"/></>,
+  grain: <><circle cx="6" cy="7" r=".8" fill="currentColor"/><circle cx="12" cy="5" r=".8" fill="currentColor"/><circle cx="18" cy="8" r=".8" fill="currentColor"/><circle cx="8" cy="13" r=".8" fill="currentColor"/><circle cx="15" cy="12" r=".8" fill="currentColor"/><circle cx="5" cy="18" r=".8" fill="currentColor"/><circle cx="12" cy="18" r=".8" fill="currentColor"/><circle cx="19" cy="17" r=".8" fill="currentColor"/></>,
+  hue: <><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 6.9 12H12a4 4 0 0 1 0-8V4Z"/></>,
+  vignette: <><rect x="3" y="4" width="18" height="16" rx="3"/><ellipse cx="12" cy="12" rx="5.5" ry="4"/></>,
 };
 
 export function Icon({ name, size = 18, className, strokeWidth = 1.8 }: { name: IconName; size?: number; className?: string; strokeWidth?: number }) {

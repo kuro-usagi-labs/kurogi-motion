@@ -21,6 +21,7 @@ import "./desktopFlow.css";
 import "./editorPro.css";
 import "./templateLibraryV4.css";
 import "./studioRelease.css";
+import "./releaseCandidate.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Kurogi Motion could not find the application root.");

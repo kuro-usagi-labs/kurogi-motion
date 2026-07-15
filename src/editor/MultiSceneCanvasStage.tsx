@@ -25,6 +25,7 @@ interface MultiSceneCanvasStageProps {
   zoom: number;
   playing: boolean;
   showSafeArea: boolean;
+  focusActiveScene?: boolean;
   command?: WorkspaceCommand | null;
   onSelect: (id: string, additive?: boolean) => void;
   onMarqueeSelect: (ids: string[], additive?: boolean) => void;
@@ -77,6 +78,7 @@ export function MultiSceneCanvasStage({
   zoom,
   playing: _playing,
   showSafeArea,
+  focusActiveScene = false,
   command,
   onSelect,
   onMarqueeSelect,
@@ -95,7 +97,11 @@ export function MultiSceneCanvasStage({
 }: MultiSceneCanvasStageProps) {
   const activeScene = project.scenes[project.activeSceneId] ?? Object.values(project.scenes)[0];
   const scenes = Object.values(project.scenes);
-  const workspaceBounds = getSceneWorkspaceBounds(project);
+  const visibleScenes = focusActiveScene && activeScene ? [activeScene] : scenes;
+  const activePosition = activeScene ? getSceneWorkspacePosition(activeScene) : { x: 0, y: 0 };
+  const workspaceBounds = focusActiveScene && activeScene
+    ? { left: activePosition.x, top: activePosition.y, width: activeScene.width, height: activeScene.height }
+    : getSceneWorkspaceBounds(project);
   const workspacePadding = 240;
   const workspaceOrigin = {
     x: workspaceBounds.left - workspacePadding,
@@ -222,12 +228,12 @@ export function MultiSceneCanvasStage({
   }, []);
 
   useEffect(() => {
-    const signature = `${project.id}:${scenes.map((scene) => scene.id).join("|")}:${available.width}x${available.height}`;
+    const signature = `${project.id}:${focusActiveScene ? `focus:${activeScene?.id}` : scenes.map((scene) => scene.id).join("|")}:${available.width}x${available.height}`;
     if (initialFitRef.current === signature) return;
     initialFitRef.current = signature;
-    const frame = window.requestAnimationFrame(() => fitAllScenes());
+    const frame = window.requestAnimationFrame(() => focusActiveScene && activeScene ? focusScene(activeScene.id) : fitAllScenes());
     return () => window.cancelAnimationFrame(frame);
-  }, [available.height, available.width, project.id, scenes.length]);
+  }, [activeScene?.id, available.height, available.width, focusActiveScene, project.id, scenes.length]);
 
   useEffect(() => {
     if (!command) return;
@@ -238,6 +244,13 @@ export function MultiSceneCanvasStage({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [command?.nonce]);
+
+  useEffect(() => {
+    if (!focusActiveScene || !activeScene) return;
+    const frame = designSurfaceFrame(project, activeScene.id);
+    const request = window.requestAnimationFrame(() => playerRef.current?.seekTo(frame));
+    return () => window.cancelAnimationFrame(request);
+  }, [activeScene?.id, focusActiveScene, playerRef, project]);
 
   const stableSelect = useCallback((id: string, additive = false) => callbacksRef.current.onSelect(id, additive), []);
   const stableMarqueeSelect = useCallback((ids: string[], additive = false) => callbacksRef.current.onMarqueeSelect(ids, additive), []);
@@ -359,6 +372,7 @@ export function MultiSceneCanvasStage({
   }
 
   function beginSceneMove(event: React.PointerEvent<HTMLDivElement>, sceneId: string) {
+    if (focusActiveScene) return;
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -429,7 +443,7 @@ export function MultiSceneCanvasStage({
 
   return (
     <section
-      className={`stage editor-stage multi-scene-stage ${panning || spacePressed ? "is-panning" : ""}`}
+      className={`stage editor-stage multi-scene-stage ${focusActiveScene ? "is-focus-mode" : "is-sequence-mode"} ${panning || spacePressed ? "is-panning" : ""}`}
       ref={stageRef}
       onPointerDownCapture={beginPan}
       onPointerMove={movePointer}
@@ -440,9 +454,11 @@ export function MultiSceneCanvasStage({
     >
       <div className="multi-scene-toolbar is-compact">
         <div className="scene-toolbar-primary">
-          <span className="scene-sequence-count">Scene {scenes.findIndex((scene) => scene.id === activeScene.id) + 1}/{scenes.length}</span>
-          <button type="button" disabled={scenes.findIndex((scene) => scene.id === activeScene.id) <= 0} onClick={() => onReorderScene(activeScene.id, scenes.findIndex((scene) => scene.id === activeScene.id) - 1)} title="Move scene earlier" aria-label="Move scene earlier"><Icon name="previous" size={13} /></button>
-          <button type="button" disabled={scenes.findIndex((scene) => scene.id === activeScene.id) >= scenes.length - 1} onClick={() => onReorderScene(activeScene.id, scenes.findIndex((scene) => scene.id === activeScene.id) + 1)} title="Move scene later" aria-label="Move scene later"><Icon name="next" size={13} /></button>
+          {focusActiveScene ? <span className="scene-mode-label"><Icon name="frame" size={13} />Design canvas</span> : <>
+            <span className="scene-sequence-count">Scene {scenes.findIndex((scene) => scene.id === activeScene.id) + 1}/{scenes.length}</span>
+            <button type="button" disabled={scenes.findIndex((scene) => scene.id === activeScene.id) <= 0} onClick={() => onReorderScene(activeScene.id, scenes.findIndex((scene) => scene.id === activeScene.id) - 1)} title="Move scene earlier" aria-label="Move scene earlier"><Icon name="previous" size={13} /></button>
+            <button type="button" disabled={scenes.findIndex((scene) => scene.id === activeScene.id) >= scenes.length - 1} onClick={() => onReorderScene(activeScene.id, scenes.findIndex((scene) => scene.id === activeScene.id) + 1)} title="Move scene later" aria-label="Move scene later"><Icon name="next" size={13} /></button>
+          </>}
           <input
             className="scene-name-input"
             value={settingsDraft.name}
@@ -453,17 +469,17 @@ export function MultiSceneCanvasStage({
               if (event.key === "Enter") event.currentTarget.blur();
             }}
           />
-          <label className="scene-transition-control" title="Transition entering this scene">
+          {!focusActiveScene ? <label className="scene-transition-control" title="Transition entering this scene">
             <span>Transition</span>
             <select value={activeScene.transition?.type ?? "cut"} onChange={(event) => onSetSceneTransition(activeScene.id, { type: event.currentTarget.value as NonNullable<KurogiProject["scenes"][string]["transition"]>["type"], duration: event.currentTarget.value === "cut" ? 0 : activeScene.transition?.duration || .4 })}>
               <option value="cut">Cut</option><option value="fade">Fade</option><option value="slide-left">Slide left</option><option value="slide-right">Slide right</option><option value="zoom">Zoom</option>
             </select>
             {(activeScene.transition?.type ?? "cut") !== "cut" ? <input type="number" min="0.05" max="10" step="0.05" value={activeScene.transition?.duration ?? .4} onChange={(event) => onSetSceneTransition(activeScene.id, { type: activeScene.transition?.type ?? "fade", duration: Math.max(.05, Number(event.currentTarget.value) || .4) })} aria-label="Transition duration" /> : null}
-          </label>
+          </label> : null}
           <button type="button" className="scene-settings-trigger" onClick={() => setSettingsOpen((open) => !open)} aria-expanded={settingsOpen} aria-controls="scene-settings-popover">Scene settings</button>
         </div>
 
-        {selectedLayerId && scenes.length > 1 ? (
+        {!focusActiveScene && selectedLayerId && scenes.length > 1 ? (
           <div className="copy-scene-control">
             <span>Copy to</span>
             <select value={copyTarget} onChange={(event) => setCopyTarget(event.target.value)} aria-label="Copy selected layer to scene">
@@ -471,7 +487,7 @@ export function MultiSceneCanvasStage({
             </select>
             <button type="button" disabled={!copyTarget} onClick={() => copyTarget && onCopyLayerToScene(selectedLayerId, copyTarget)}><Icon name="copy" size={14} />Copy</button>
           </div>
-        ) : <span className="scene-toolbar-status">Canvas workspace</span>}
+        ) : <span className="scene-toolbar-status">{focusActiveScene ? "Edit surface" : "Canvas workspace"}</span>}
       </div>
 
       <div className="canvas-view-controls" aria-label="Canvas view controls">
@@ -509,7 +525,7 @@ export function MultiSceneCanvasStage({
             transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${viewScale})`,
           }}
         >
-            {scenes.map((scene) => {
+            {visibleScenes.map((scene) => {
               const active = scene.id === activeScene.id;
               const position = draftPositions[scene.id] ?? getSceneWorkspacePosition(scene);
               const previewProject = active ? project : { ...project, activeSceneId: scene.id };
@@ -545,7 +561,7 @@ export function MultiSceneCanvasStage({
                       controls={false}
                       autoPlay={false}
                       loop
-                      style={{ width: scene.width, height: scene.height }}
+                      style={{ width: "100%", height: "100%" }}
                     />
                   </div>
                 </article>
@@ -554,7 +570,7 @@ export function MultiSceneCanvasStage({
         </div>
       </div>
 
-      <div className="workspace-help">Drag empty canvas to select · Shift-drag to add · Space-drag to pan · Ctrl/Cmd + wheel to zoom</div>
+      <div className="workspace-help">{focusActiveScene ? "Drag empty canvas to select · Shift-drag to add · Space-drag to pan · Ctrl/Cmd + wheel to zoom" : "Drag scene labels to arrange · Space-drag to pan · Ctrl/Cmd + wheel to zoom"}</div>
 
     </section>
   );
@@ -580,4 +596,23 @@ function isEditableTarget(target: EventTarget | null) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+export function designSurfaceFrame(project: KurogiProject, sceneId: string) {
+  const scene = project.scenes[sceneId];
+  if (!scene) return 0;
+  let revealTime = 0;
+  let firstExitTime = scene.duration;
+  for (const layerId of scene.layerIds) {
+    const layer = project.layers[layerId];
+    if (!layer) continue;
+    for (const action of layer.animationActions) {
+      const start = Math.max(0, action.startTime + action.delay);
+      if (action.category === "in") revealTime = Math.max(revealTime, start + action.duration);
+      if (action.category === "out") firstExitTime = Math.min(firstExitTime, start);
+    }
+  }
+  const latestVisibleTime = Math.max(0, Math.min(scene.duration - 1 / scene.fps, firstExitTime - 1 / scene.fps));
+  const targetTime = Math.min(Math.max(0, revealTime + 1 / scene.fps), latestVisibleTime);
+  return Math.max(0, Math.min(Math.round(scene.duration * scene.fps) - 1, Math.round(targetTime * scene.fps)));
 }

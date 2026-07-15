@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AnimationCategory } from "../types";
 import type { AlignMode, DistributeMode } from "../core/designTools";
+import { Icon } from "../ui/Icon";
 
 interface EditorMenuBarProps {
   canUndo: boolean;
@@ -244,7 +245,7 @@ function Menu({ label, open, onToggle, children }: { label: MenuName; open: bool
 function MenuItem({ label, shortcut, checked, disabled, danger, onSelect }: { label: string; shortcut?: string; checked?: boolean; disabled?: boolean; danger?: boolean; onSelect: () => void }) {
   return (
     <button type="button" role="menuitem" className={`editor-menu-item ${danger ? "is-danger" : ""}`} disabled={disabled} onClick={onSelect}>
-      <span className="editor-menu-check" aria-hidden="true">{checked ? "✓" : ""}</span>
+      <span className="editor-menu-check" aria-hidden="true">{checked ? <Icon name="check" size={13} /> : null}</span>
       <span>{label}</span>
       {shortcut ? <kbd>{shortcut}</kbd> : null}
     </button>

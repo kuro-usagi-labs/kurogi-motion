@@ -1,0 +1,136 @@
+/* Final interaction and workspace layer. Keep this stylesheet last. */
+.editor-app {
+  min-width: 0;
+  min-height: 0 !important;
+}
+
+.editor-app.workspace-mode-design {
+  grid-template-rows: 56px 34px minmax(0, 1fr) !important;
+}
+
+.editor-app.workspace-mode-animation {
+  grid-template-rows: 56px 34px minmax(0, 1fr) var(--timeline-height) !important;
+}
+
+.workspace-mode-design .editor-workspace,
+.workspace-mode-animation .editor-workspace {
+  grid-row: 3;
+}
+
+.workspace-mode-design .multi-scene-stage.is-focus-mode {
+  background: #0a0d12;
+}
+
+.multi-scene-stage.is-focus-mode .multi-scene-viewport {
+  background-image:
+    linear-gradient(rgba(255,255,255,.014) 1px, transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.014) 1px,transparent 1px),
+    radial-gradient(circle at 50% 45%,rgba(139,108,255,.055),transparent 58%) !important;
+}
+
+.multi-scene-stage.is-focus-mode .workspace-artboard-label {
+  cursor: default;
+}
+
+.workspace-artboard,
+.workspace-artboard-canvas,
+.workspace-artboard-canvas > div {
+  backface-visibility: hidden;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+}
+
+.workspace-artboard-canvas img,
+.workspace-artboard-canvas video,
+.workspace-artboard-canvas canvas {
+  image-rendering: auto;
+}
+
+.scene-mode-label {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid rgba(139,108,255,.2);
+  border-radius: 5px;
+  color: #c9c0f4;
+  background: rgba(139,108,255,.08);
+  font: 700 8px "DM Mono", monospace;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.save-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.save-dot svg { color: var(--studio-teal); }
+.save-dot.status-save-failed svg { color: var(--studio-danger); }
+.save-dot.status-saving svg,
+.save-dot.status-saving-draft- svg { color: var(--studio-amber); }
+
+.context-breadcrumbs > i,
+.scene-row > span {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.layer-drag-grip {
+  display: grid !important;
+  flex: 0 0 22px;
+  width: 22px !important;
+  min-width: 22px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  place-items: center;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: #697181 !important;
+  cursor: grab !important;
+  touch-action: none;
+}
+
+.layer-drag-grip:hover,
+.layer-drag-grip:focus-visible { color: #c2c8d2 !important; background: rgba(255,255,255,.045) !important; }
+.layer-drag-grip:active { cursor: grabbing !important; }
+.layer-row.is-dragging { opacity: .46; }
+.layer-row.drag-over {
+  background: rgba(139,108,255,.1) !important;
+  box-shadow: inset 0 2px rgba(139,108,255,.9) !important;
+}
+
+.effect-glyph svg { display: block; }
+.command-palette-search > span,
+.command-palette footer kbd { display: inline-flex; align-items: center; justify-content: center; }
+.editor-menu-check { display: inline-flex; align-items: center; justify-content: center; }
+
+.rail-bottom { width: 100%; justify-items: center; }
+
+.editor-app,
+.editor-app :where(button, [role="button"], [role="option"], label, summary, svg, img) {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.editor-app :where(input, textarea, [contenteditable="true"], .selectable-text) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.editor-info-dialog > header button svg { display: block; }
+
+@media (max-width: 1160px) {
+  .scene-mode-label { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-artboard { transition: none !important; }
+}

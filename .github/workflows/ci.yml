@@ -139,6 +139,18 @@ jobs:
           set -o pipefail
           npm run audit:text-canvas 2>&1 | tee text-canvas-audit.log
 
+      - name: Audit release candidate interactions and rendering
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run audit:template-previews 2>&1 | tee release-candidate-audit.log
+          npm run audit:preview-experience 2>&1 | tee -a release-candidate-audit.log
+          npm run audit:render-resilience 2>&1 | tee -a release-candidate-audit.log
+          npm run audit:pro-editor 2>&1 | tee -a release-candidate-audit.log
+          npm run audit:timeline-interactions 2>&1 | tee -a release-candidate-audit.log
+          npm run audit:mov-alpha 2>&1 | tee -a release-candidate-audit.log
+          npm run audit:release-ready 2>&1 | tee -a release-candidate-audit.log
+
       - name: Typecheck and build
         shell: bash
         run: |
@@ -168,6 +180,7 @@ jobs:
             effect-audit.log
             loop-audit.log
             text-canvas-audit.log
+            release-candidate-audit.log
             build.log
           if-no-files-found: ignore
           retention-days: 3

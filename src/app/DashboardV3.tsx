@@ -4,6 +4,7 @@ import { getActiveScene } from "../core/project";
 import type { DraftRecord, ProjectSummary, UserTemplateRecord } from "../core/persistence";
 import { createCatalogTemplateProject, MOTION_TEMPLATES, type MotionTemplateDefinition, type TemplateCategory } from "../core/templateCatalog";
 import { Icon } from "../ui/Icon";
+import { ProjectMotionPreview } from "./ProjectMotionPreview";
 import { TemplateCard } from "./TemplateCard";
 
 interface DashboardProps {
@@ -145,7 +146,7 @@ function ProjectsView({ projects, draft, loading, onOpen, onOpenDraft, onDelete,
 function ProjectCard({ project, latest, onOpen, onDelete, onSaveAsTemplate, onExportFile }: { project: ProjectSummary; latest: boolean; onOpen: () => void; onDelete: () => void; onSaveAsTemplate: () => void; onExportFile: () => void }) {
   return <article className={`recent-project-card project-card-v3 ${latest ? "latest" : ""}`}>
     <button type="button" className="recent-project-open" onClick={onOpen}>
-      <div className="recent-project-cover" style={{ background: project.background === "transparent" ? checkerBackground() : project.background }}><span>{project.width} × {project.height}</span>{latest ? <b>Latest</b> : null}</div>
+      <div className="recent-project-cover"><ProjectMotionPreview project={project} latest={latest} /></div>
       <span><strong>{project.name}</strong><small>Saved {relativeTime(project.updatedAt)} · {project.duration.toFixed(1)} sec</small></span>
     </button>
     <div className="project-card-actions">

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "../ui/Icon";
 
 export type CommandPaletteAction = {
   id: string;
@@ -38,7 +39,7 @@ export function CommandPalette({ open, actions, onClose }: { open: boolean; acti
 
   return <div className="command-palette-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette">
-      <div className="command-palette-search"><span>⌘</span><input ref={inputRef} value={query} placeholder="Search commands…" onChange={(event) => { setQuery(event.currentTarget.value); setActiveIndex(0); }} onKeyDown={(event) => {
+      <div className="command-palette-search"><span><Icon name="command" size={16} /></span><input ref={inputRef} value={query} placeholder="Search commands…" onChange={(event) => { setQuery(event.currentTarget.value); setActiveIndex(0); }} onKeyDown={(event) => {
         if (event.key === "Escape") { event.preventDefault(); onClose(); }
         if (event.key === "ArrowDown") { event.preventDefault(); setActiveIndex((index) => filtered.length ? (index + 1) % filtered.length : 0); }
         if (event.key === "ArrowUp") { event.preventDefault(); setActiveIndex((index) => filtered.length ? (index - 1 + filtered.length) % filtered.length : 0); }
@@ -49,7 +50,7 @@ export function CommandPalette({ open, actions, onClose }: { open: boolean; acti
           <span><small>{action.section}</small><strong>{action.label}</strong></span>{action.hint ? <kbd>{action.hint}</kbd> : null}
         </button>) : <div className="command-palette-empty">No matching command</div>}
       </div>
-      <footer><span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span><span><kbd>Enter</kbd> Run</span></footer>
+      <footer><span><kbd><Icon name="chevronUp" size={11} /></kbd><kbd><Icon name="chevronDown" size={11} /></kbd> Navigate</span><span><kbd>Enter</kbd> Run</span></footer>
     </section>
   </div>;
 }
